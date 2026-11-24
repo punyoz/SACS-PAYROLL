@@ -39,6 +39,8 @@ const GOVERNMENT_ID_RULES = [
 const PROFILE_SELECT = [
   "full_name", "first_name", "middle_name", "last_name", "suffix",
   "cp_number", "address", PII_LAST4_COLUMNS, ...EMERGENCY_CONTACT_FIELDS,
+  // 2026-11-24: an account not on payroll (Admin, Super Admin, system accounts) shows no contributions.
+  "on_payroll",
 ].join(",");
 
 /**

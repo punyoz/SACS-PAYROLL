@@ -1,5 +1,7 @@
 "use client";
 
+import { BranchCountsCard } from "@/components/portal/branch-counts-card";
+
 import * as React from "react";
 import { ActivityIcon, CalendarDaysIcon, CheckCircle2Icon, ClockAlertIcon, InboxIcon, UsersIcon, XCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,7 +14,6 @@ import { dateLabel, dateTime } from "@/lib/portal/payroll-preview";
 import { useBranchView } from "./oversight-shared";
 import { AnnouncementsCard } from "@/components/portal/announcements";
 import { portalHref } from "@/lib/portal/navigate";
-import { AutomationCard } from "@/components/portal/automation-card";
 
 /*
  * Admin Dashboard (GET /api/admin/branch-oversight?view=dashboard): today's
@@ -56,8 +57,8 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
         <StatCard label="Your requests waiting for HR" value={data?.open_requests ?? 0} icon={InboxIcon} tone="gold" loading={view.first} />
       </section>
 
-      {/* Part E: what the system prepared for this branch (Note / Object). */}
-      <AutomationCard role="admin" refreshKey={refreshKey} />
+      {/* 2026-11-24: the same numbers HR sees for this branch (the Automation card is gone: the system runs by itself). */}
+      <BranchCountsCard counts={data?.branch_counts} />
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <Card id="admin-not-tapped" className="min-w-0 scroll-mt-20 shadow-xs">

@@ -1,5 +1,7 @@
 "use client";
 
+import { dateLabel } from "@/lib/portal/payroll-preview";
+
 import { AttendanceCorrectionByDate, MyCorrectionRequests, useMyCorrections } from "@/components/portal/attendance-correction-form";
 import { describeSplit, splitForBalance } from "@/lib/leave-requests/split";
 import * as React from "react";
@@ -340,7 +342,7 @@ const REQUEST_COLUMNS = [
     ),
     searchValue: (r) => r.leave_type,
   },
-  { key: "start_date", header: "Dates", sortable: true, cell: (r) => (r.half_day ? `${r.start_date}, ${HALF_LABEL[r.half_day] || "half day"}` : `${r.start_date} to ${r.end_date}`), searchValue: (r) => `${r.start_date} ${r.end_date}` },
+  { key: "start_date", header: "Dates", sortable: true, cell: (r) => (r.half_day ? `${dateLabel(r.start_date)}, ${HALF_LABEL[r.half_day] || "half day"}` : `${dateLabel(r.start_date)} to ${dateLabel(r.end_date)}`), searchValue: (r) => `${r.start_date} ${r.end_date}` },
   { key: "reason", header: "Reason", className: "max-w-xs whitespace-normal text-muted-foreground", cell: (r) => r.reason, searchValue: (r) => r.reason },
   {
     key: "submitted_at",

@@ -39,7 +39,7 @@ export function PayrollRecordsPage({ refreshKey }) {
   const [downloading, setDownloading] = React.useState(false);
   // One page at a time, searched and filtered by the server (five years of
   // payslips are far too many to send to the browser).
-  const [paging, setPaging] = React.useState({ page: 1, pageSize: 15, query: "" });
+  const [paging, setPaging] = React.useState({ page: 1, pageSize: 10, query: "" });
 
   const load = React.useCallback(async () => {
     setState((c) => ({ ...c, loading: true, error: null }));
@@ -187,7 +187,7 @@ export function PayrollRecordsPage({ refreshKey }) {
             loading={first}
             error={state.error}
             onRetry={load}
-            pageSize={15}
+           
             server={{ total: data?.total || 0, page: paging.page, pageSize: paging.pageSize, query: paging.query, onChange: onPaging }}
             searchPlaceholder="Search employee, payslip no. or period…"
             empty={{ title: "No processed payslips yet", icon: ReceiptTextIcon }}

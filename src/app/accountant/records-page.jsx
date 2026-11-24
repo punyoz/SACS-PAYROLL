@@ -109,7 +109,7 @@ export function RecordsPage() {
             columns={columns}
             rows={records}
             loading={first}
-            pageSize={15}
+           
             searchPlaceholder="Search employee or period…"
             empty={{ title: "No payroll records available yet", icon: ReceiptTextIcon }}
             caption="Payroll records"

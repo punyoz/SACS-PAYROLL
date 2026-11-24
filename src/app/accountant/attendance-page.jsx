@@ -59,7 +59,7 @@ export function AttendancePage({ refreshKey }) {
             error={error}
             onRetry={() => load()}
             rowKey={(r) => r.employee_id}
-            pageSize={15}
+           
             searchPlaceholder="Search employee…"
             empty={{ title: "No attendance rows available", icon: CalendarCheckIcon }}
             caption="Attendance for payroll"

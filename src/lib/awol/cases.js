@@ -45,6 +45,11 @@ export const TRANSITIONS = Object.freeze({
   separate: { from: ["second_notice", "for_decision"], to: "closed" },
   close: { from: ["flagged", "confirmed", "first_notice", "second_notice", "for_decision"], to: "closed" },
   record_reply: { from: ["confirmed", "first_notice", "second_notice", "for_decision"], to: null },
+  // 2026-11-24 (AWOL fully automatic): HR's one button on a case the system left for review (pay hold + 1st notice);
+  // HR stops / resumes the automation on any open case.
+  confirm_send: { from: ["flagged"], to: "first_notice" },
+  stop_automation: { from: ["flagged", "confirmed", "first_notice", "second_notice", "for_decision"], to: null },
+  resume_automation: { from: ["flagged", "confirmed", "first_notice", "second_notice", "for_decision"], to: null },
 });
 
 export function canTransition(action, stage) {

@@ -69,7 +69,7 @@ export async function POST(request) {
     if (lockout.locked) {
       return NextResponse.json(
         {
-          error: `Too many incorrect attempts. Try again in ${Math.ceil(lockout.retryAfterMs / 60000)} minute(s).`,
+          error: `Too many incorrect attempts. Try again in ${Math.ceil(lockout.retryAfterMs / 60000)} minute${Number(Math.ceil(lockout.retryAfterMs / 60000)) === 1 ? "" : "s"}.`,
         },
         { status: 429 },
       );

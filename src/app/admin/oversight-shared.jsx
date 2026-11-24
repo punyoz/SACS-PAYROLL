@@ -22,6 +22,7 @@ import { SearchableSelect } from "@/components/portal/searchable-select";
 import { ExportButtons } from "@/components/portal/export-buttons";
 import { tableParams } from "@/lib/export/table-query";
 import { REQUEST_SORTS, requestEmployee } from "@/lib/admin/request-table";
+import { ItemThread, useThreadCounts } from "@/components/portal/item-thread";
 
 /*
  * Shared pieces of the branch Admin's oversight pages
@@ -119,7 +120,11 @@ export function FiledCell({ request }) {
  * A filing dialog. fields: [{ id, label, type: "employee"|"select"|"date"|"number"|"text"|"textarea", options?, min?, max?, placeholder? }].
  * `note` (the remark for HR) is always last and required.
  */
-export function FileDialog({ open, onOpenChange, title, description, fields, employees = [], initial = {}, submitLabel = "Send to HR", decisions = null, remarkType = "branch_request", onSubmit }) {
+/**
+ * `fileKind` (2026-11-24): what the Admin files (incident_report, incentive_endorsement, rfid_issue) takes a preset
+ * remark of its own (decision "file"; "Other (write your own)" + optional text), editable in Settings > Preset Remarks.
+ */
+export function FileDialog({ open, onOpenChange, title, description, fields, employees = [], initial = {}, submitLabel = "Send to HR", decisions = null, remarkType = "branch_request", fileKind = null, onSubmit }) {
   const [values, setValues] = React.useState(initial);
   // Part H: an endorsement's answer (Endorse / Not endorse) and its preset remark.
   const [answer, setAnswer] = React.useState("endorse");
@@ -131,13 +136,13 @@ export function FileDialog({ open, onOpenChange, title, description, fields, emp
   const remarkDecision = answer === "not_endorse" ? "object" : "endorse";
 
   async function submit(decision) {
-    if (decisions) {
-      const problem = remarkProblem(remark, remarkDecision, true);
+    if (decisions || fileKind) {
+      const problem = remarkProblem(remark, decisions ? remarkDecision : "file", true);
       if (problem) { setError(problem); return; }
     } else if (!String(values.note || "").trim()) { setError("Write a remark for HR."); return; }
     setBusy(true); setError("");
     try {
-      await onSubmit({ ...values, decision, ...(decisions ? { remark } : {}) });
+      await onSubmit({ ...values, decision, ...(decisions || fileKind ? { remark } : {}) });
       onOpenChange(false);
     } catch (err) {
       setError(err.message || "Not sent.");
@@ -196,6 +201,11 @@ export function FileDialog({ open, onOpenChange, title, description, fields, emp
                   value={remark} onChange={(v) => { setRemark(v); setError(""); }} error={error} disabled={busy} />
               </div>
             </>
+          ) : fileKind ? (
+            <div className="sm:col-span-2">
+              <RemarkField id="ov-remark" decision="file" entityType={fileKind} required label="Remark for HR"
+                value={remark} onChange={(v) => { setRemark(v); setError(""); }} error={error} disabled={busy} />
+            </div>
           ) : (
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="ov-note">Remark for HR <span className="font-normal text-muted-foreground">(required)</span></Label>
@@ -203,7 +213,7 @@ export function FileDialog({ open, onOpenChange, title, description, fields, emp
             </div>
           )}
         </div>
-        {error && !decisions ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        {error && !decisions && !fileKind ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
           {decisions ? (
@@ -228,11 +238,12 @@ export async function fileRequest(kind, { employee_id, ref_id, decision, note, r
  * A "sent to HR" page: the filing button and dialog, and every request of the
  * kind with its status, HR's decision and history (kept for good).
  */
-export function RequestsPage({ refreshKey, kind, title, description, icon: Icon, fields, columns = [], buttonLabel, dialogTitle, dialogDescription, decisions = false, banner = null, initial = {}, empty, exportable = false }) {
+export function RequestsPage({ refreshKey, kind, title, description, icon: Icon, fields, columns = [], buttonLabel, dialogTitle, dialogDescription, decisions = false, banner = null, initial = {}, empty, exportable = false, readOnly = false }) {
   const { notify } = usePortalSession();
   const view = useBranchView("requests", { kind }, refreshKey);
   const [open, setOpen] = React.useState(false);
   const data = view.data;
+  const counts = useThreadCounts("branch_admin_request", (data?.requests || []).map((r) => r.id), data);
   const allColumns = [
     // Search and sort shared with the export (src/lib/admin/request-table.js).
     { key: "employee_name", header: "Employee", sortValue: REQUEST_SORTS.employee_name.value, className: "font-medium", cell: (r) => requestEmployee(r) || "—", searchValue: requestEmployee },
@@ -241,7 +252,9 @@ export function RequestsPage({ refreshKey, kind, title, description, icon: Icon,
     { key: "filed", header: "Sent", sortValue: REQUEST_SORTS.filed.value, cell: (r) => <FiledCell request={r} /> },
     { key: "status", header: "Status", sortValue: REQUEST_SORTS.status.value, cell: (r) => <RequestStatus status={r.status} label={r.status_label} />, searchValue: (r) => r.status_label },
     { key: "decision", header: "HR decision", cell: (r) => <DecisionCell request={r} /> },
-    { key: "history", header: <span className="sr-only">History</span>, align: "right", cell: (r) => <HistoryButton request={r} /> },
+    { key: "history", header: <span className="sr-only">History and messages</span>, align: "right", cell: (r) => (
+      <div className="flex items-center justify-end gap-1"><HistoryButton request={r} /><ItemThread itemType="branch_admin_request" itemId={r.id} count={counts[r.id] || 0} title={`Messages · ${r.kind_label || title}`} /></div>
+    ) },
   ];
   return (
     <>
@@ -252,23 +265,23 @@ export function RequestsPage({ refreshKey, kind, title, description, icon: Icon,
           {description ? <CardDescription>{description}</CardDescription> : null}
           <CardAction className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
-            <Button size="sm" onClick={() => setOpen(true)} disabled={!data}><PlusIcon aria-hidden="true" />{buttonLabel}</Button>
+            {readOnly ? null : <Button size="sm" onClick={() => setOpen(true)} disabled={!data}><PlusIcon aria-hidden="true" />{buttonLabel}</Button>}
           </CardAction>
         </CardHeader>
         <CardContent>
           {/* Report export, own branch only (alpha test B2): what the table shows, its search and sort (2026-11-19). */}
-          <DataTable columns={allColumns} rows={data?.requests || []} loading={view.first} error={view.error} onRetry={view.load} pageSize={15}
+          <DataTable columns={allColumns} rows={data?.requests || []} loading={view.first} error={view.error} onRetry={view.load}
             toolbar={exportable ? (shown, table) => <ExportButtons href={`/api/admin/branch-oversight?view=requests&kind=${kind}`} params={tableParams(table)} label={title.toLowerCase()} disabled={!shown.length} /> : null}
-            searchPlaceholder="Search employee, remark or status…" empty={empty || { title: "Nothing sent yet", icon: Icon }} caption={title} minWidth={1100} />
+            searchPlaceholder="Search name, ID or details…" empty={empty || { title: "Nothing sent yet", icon: Icon }} caption={title} minWidth={1100} />
         </CardContent>
       </Card>
-      <FileDialog open={open} onOpenChange={setOpen} title={dialogTitle || buttonLabel} description={dialogDescription} fields={fields}
-        employees={data?.employees || []} initial={initial} decisions={decisions ? true : null} remarkType={kind === "overtime_confirmation" ? "overtime_request" : "branch_request"}
+      {readOnly ? null : <FileDialog open={open} onOpenChange={setOpen} title={dialogTitle || buttonLabel} description={dialogDescription} fields={fields}
+        employees={data?.employees || []} initial={initial} decisions={decisions ? true : null} remarkType="branch_request" fileKind={decisions ? null : kind}
         onSubmit={async (values) => {
           await fileRequest(kind, values);
           notify("Sent to HR", "HR has been notified. The status is shown here.", "success");
           await view.load();
-        }} />
+        }} />}
     </>
   );
 }

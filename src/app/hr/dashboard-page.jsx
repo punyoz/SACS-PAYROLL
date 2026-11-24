@@ -1,5 +1,7 @@
 "use client";
 
+import { BranchCountsCard } from "@/components/portal/branch-counts-card";
+
 import * as React from "react";
 import { FinalPayWaitingCard } from "./final-pay-approvals-page";
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
@@ -16,7 +18,6 @@ import { fetchJson } from "@/lib/portal/api";
 import { portalHref } from "@/lib/portal/navigate";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { LicenseAlertsCard } from "./license-alerts-card";
-import { AutomationCard } from "@/components/portal/automation-card";
 
 /*
  * HR Dashboard (loadHRDashboard / renderHRDashboardLeaves /
@@ -85,8 +86,8 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
       {/* Final pay waiting for HR, with days left (20261120010000). */}
       <FinalPayWaitingCard refreshKey={refreshKey} onOpen={() => onNavigate?.("hr-final-pay-approvals")} />
       <ActionNeededCard data={d.action_needed} />
+      <BranchCountsCard rows={d.branch_counts || []} />
       {/* Part E: what the system did, prepared and could not decide. */}
-      <AutomationCard role="hr" refreshKey={refreshKey} />
       <section aria-label="Today at a glance" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Total employees" value={d.total_employees ?? 0} hint="Active staff on record" icon={UsersIcon} loading={loading} href={portalHref("hr-employees")} actionLabel="View active employees" />
         <StatCard label="Present today" value={d.present_today ?? 0} hint="Late included" icon={CheckCircle2Icon} tone="success" loading={loading} href={portalHref("hr-attendance", { ...todayRange, hr_att_status: "Present" })} actionLabel="View who is present today" />
@@ -211,6 +212,8 @@ function ActionNeededCard({ data }) {
     { key: "date-hired", title: "Date hired not set", text: "Tenure, proration and leave count from it: set it on the record (an HR account's record: Super Admin).", href: portalHref("hr-employees"), rows: a.date_hired_not_set || [],
       rowHref: (r) => portalHref("hr-employees", { emp_open: r.id }) },
     // Part B (2026-11-22): a Final payslip never changes by itself; the Accountant files the correction.
+    // 2026-11-24: the system's items it could not decide, or waiting too long (details and Undo in Settings > Automation).
+    { key: "automation", title: "The system needs HR", text: "It could not decide these, or they have waited too long. Details in Settings > Automation.", href: portalHref("hr-automation"), rows: a.automation || [] },
     { key: "late-leave", title: "Leave approved after its payslip", text: "The payslip for that day was already paid: the branch Accountant files a correction on the next payslip.", href: portalHref("hr-payroll-records"), rows: a.leave_after_payslip || [] },
   ].filter((g) => g.rows.length);
   if (!groups.length) return null;
@@ -218,7 +221,7 @@ function ActionNeededCard({ data }) {
     <Card className="border-brand-gold/40 shadow-xs">
       <CardHeader>
         <CardTitle>Action needed</CardTitle>
-        <CardDescription>Employee records waiting for HR.</CardDescription>
+        <CardDescription>Employee records, and what the system could not settle, waiting for HR.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-3">
         {groups.map((g) => (g.rowHref ? (

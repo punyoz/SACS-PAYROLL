@@ -62,7 +62,7 @@ export function ClassificationRulesPage({ refreshKey }) {
     setError("");
     try {
       const result = await fetchJson("/api/hr/classification-rules", jsonBody("POST", { kind, ...body }));
-      notify?.(result.warnings?.length ? `Saved. ${result.warnings.length} combination(s) are below the 5-day service incentive leave.` : "Saved.");
+      notify?.(result.warnings?.length ? `Saved. ${result.warnings.length} combination${Number(result.warnings.length) === 1 ? "" : "s"} are below the 5-day service incentive leave.` : "Saved.");
       await load();
     } catch (e) {
       setError(e.message);

@@ -436,7 +436,7 @@ function ContributionsCard({ data, loading, onReload, endpoint }) {
           rows={data?.contributions || []}
           rowKey={(r) => r.employee_id}
           loading={loading && !data}
-          pageSize={15}
+         
           searchPlaceholder="Search employee…"
           empty={{ title: "No employees found", icon: HandCoinsIcon }}
           caption="Contribution amounts"

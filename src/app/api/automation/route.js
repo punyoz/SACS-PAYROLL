@@ -3,9 +3,7 @@
  *
  *   GET    ?status=&module=&limit=  the automatic actions in scope (Admin: own
  *          branch; HR / Super Admin: all), the counts, and whether it is paused.
- *   PATCH  { id, action: "note", note }        Admin: a note; sends it to HR now
- *          { id, action: "object", remark }   Admin: objects (preset); to HR now
- *          { id, action: "undo", remark }     HR: undoes an applied action (preset reason)
+ *   PATCH  { id, action: "undo", remark }     HR: undoes an applied action (preset reason)
  *          { action: "pause", paused }      HR / Super Admin: Pause / Resume automation
  *          (a PATCH: the proxy maps POST to "create", which HR does not hold here)
  *
@@ -34,7 +32,10 @@ async function pausedNow(supabase) {
   const rows = data || [];
   const all = String(rows.find((r) => r.key === "paused")?.value ?? "false") !== "false";
   const modules = Object.fromEntries(Object.keys(AUTOMATION_MODULES).map((m) => [m, rows.find((r) => r.key === `paused_${m}`)?.value === "true"]));
-  return { all, modules };
+  // The daily digests (2026-11-24), each on unless switched off.
+  const { data: dig } = await supabase.from("system_config").select("key,value").eq("section", "automation").in("key", ["digest_hr", "digest_admin"]);
+  const on = (k) => String((dig || []).find((r) => r.key === k)?.value ?? "true") !== "false";
+  return { all, modules, digest: { hr: on("digest_hr"), admin: on("digest_admin") } };
 }
 
 export async function GET(request) {
@@ -60,7 +61,7 @@ export async function GET(request) {
     const names = new Map((people || []).map((p) => [p.id, p.full_name]));
     const actions = rows.map((r) => ({ ...r, employee_name: names.get(r.employee_id) || null }));
     const paused = await pausedNow(supabase);
-    return NextResponse.json({ actions, counts: summarizeAutomation(actions, guard.role), paused: paused.all, modules_paused: paused.modules, role: guard.role });
+    return NextResponse.json({ actions, counts: summarizeAutomation(actions, guard.role), paused: paused.all, modules_paused: paused.modules, digest: paused.digest, role: guard.role });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
@@ -74,6 +75,7 @@ export async function PATCH(request) {
     const id = String(body.id || "");
     const action = String(body.action || "");
     if (action === "pause") return await pause(guard, body);
+    if (action === "digest") return await digest(guard, body);
     if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: "Choose an item." }, { status: 400 });
     const supabase = getServiceClient();
     const { data: row, error } = await supabase.from("automation_actions").select(SELECT).eq("id", id).maybeSingle();
@@ -84,39 +86,11 @@ export async function PATCH(request) {
     const now = new Date().toISOString();
     const by = nameOf(guard);
 
+    // 2026-11-24: no Admin step. The system sends its items straight to HR; the Admin follows them on
+    // Branch Review and can use the item's message thread with HR. Notes / objections are refused.
     if (action === "note" || action === "object") {
-      if (guard.role !== "admin") return NextResponse.json({ error: "The branch Admin checks what the system prepared." }, { status: 403 });
-      const foreign = denyForeignBranch(guard, row.branch_id);
-      if (foreign) return foreign;
-      // An automatic attendance flag (open) also takes the Admin's note / objection (2026-11-24): it then goes to HR.
-      const checkable = row.status === "admin_check" || (row.module === "attendance_flags" && row.status === "open");
-      if (!checkable) return NextResponse.json({ error: "This item is no longer waiting for your check." }, { status: 409 });
-      let note = String(body.note || "").trim();
-      let decider = supabase;
-      if (action === "note") {
-        if (note.length < NOTE_MIN || note.length > NOTE_MAX) return NextResponse.json({ error: `Write a note of ${NOTE_MIN} to ${NOTE_MAX} characters.` }, { status: 400 });
-      } else {
-        const remark = await resolveRemark(supabase, body.remark, { decision: "object", entityType: "automation_action", fallbackText: body.note });
-        if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
-        note = remark.text;
-        decider = remarkClient(remark, { decision: "object", entityType: "automation_action", module: row.module, table: "automation_actions", ids: [id], actor: guard });
-      }
-      const { error: upd } = await decider.from("automation_actions").update({
-        status: "with_hr", admin_note: note, admin_noted_by: guard.userId, admin_noted_by_name: by, admin_noted_at: now,
-        admin_objected: action === "object", forwarded_at: now, forwarded_by: by, updated_at: now,
-      }).eq("id", id).eq("status", row.status);
-      if (upd) throw upd;
-      const { data: hr } = await supabase.from("profiles").select("id").eq("role", "hr").eq("archived", false);
-      await notify(supabase, (hr || []).map((h) => h.id), {
-        kind: action === "object" ? "automation_objected" : "automation_noted",
-        title: action === "object" ? "The branch Admin objected" : "Checked by the branch Admin",
-        body: `${row.summary} · ${by}: ${note}`, link_page: "hr-dashboard",
-      }).catch(() => 0);
-      await appendAuditLog({ actor: guard, module: row.module, action: `automation_${action}`, entity_type: "automation_action", entity_id: id, branch_id: row.branch_id,
-        description: `${action === "object" ? "Objected" : "Noted"}: ${row.summary}`, metadata: { note, rule: row.rule } });
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ error: "The system sends this straight to HR; the branch Admin follows it on Branch Review (and can message HR on the item)." }, { status: 409 });
     }
-
     if (action === "undo") {
       if (guard.role !== "hr") return NextResponse.json({ error: "HR undoes an automatic action." }, { status: 403 });
       if (row.kind !== "applied" || row.status !== "done") return NextResponse.json({ error: "Only an applied action that is not undone yet can be undone." }, { status: 409 });
@@ -141,6 +115,24 @@ export async function PATCH(request) {
 }
 
 /** Pause / Resume automation (all, or one module): HR or the Super Admin. */
+/** Settings > Automation: switch HR's or the Admins' daily digest on or off (HR / Super Admin). */
+async function digest(guard, body) {
+  if (guard.role !== "hr" && guard.role !== "super_admin") return NextResponse.json({ error: "HR or the Super Admin changes the digest." }, { status: 403 });
+  const who = body.who === "hr" ? "hr" : body.who === "admin" ? "admin" : null;
+  if (!who || typeof body.on !== "boolean") return NextResponse.json({ error: "Choose the digest and on or off." }, { status: 400 });
+  const supabase = getServiceClient();
+  const key = `digest_${who}`;
+  const value = body.on ? "true" : "false";
+  const { data: existing } = await supabase.from("system_config").select("key").eq("section", "automation").eq("key", key).maybeSingle();
+  const { error } = existing
+    ? await supabase.from("system_config").update({ value, updated_by: nameOf(guard) }).eq("section", "automation").eq("key", key)
+    : await supabase.from("system_config").insert({ section: "automation", key, value, updated_by: nameOf(guard) });
+  if (error) throw error;
+  await appendAuditLog({ actor: guard, module: "automation", action: "automation_digest", entity_type: "system_config", entity_id: `automation.${key}`,
+    description: `${who === "hr" ? "HR" : "Branch Admin"} daily digest ${body.on ? "on" : "off"}.`, metadata: { who, on: body.on } });
+  return NextResponse.json({ success: true, who, on: body.on });
+}
+
 async function pause(guard, body) {
   if (guard.role !== "hr" && guard.role !== "super_admin") return NextResponse.json({ error: "HR or the Super Admin pauses automation." }, { status: 403 });
   if (typeof body.paused !== "boolean") return NextResponse.json({ error: "Say whether to pause or resume." }, { status: 400 });

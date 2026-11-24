@@ -339,7 +339,7 @@ export function IncentivesPage({ refreshKey }) {
             loading={state.loading && !info}
             error={state.error}
             onRetry={load}
-            pageSize={15}
+           
             searchPlaceholder="Search employee or description…"
             empty={{ title: "No incentives or overload for this month", icon: StarIcon }}
             caption="Incentives and overload"

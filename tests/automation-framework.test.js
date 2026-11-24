@@ -54,9 +54,10 @@ describe("undo", () => {
 
 describe("the route never approves anything; roles are checked on the server", () => {
   const route = readFileSync("src/app/api/automation/route.js", "utf8");
-  it("Admin: note / object only on their branch; HR: undo; HR / Super Admin: pause", () => {
-    expect(route).toMatch(/guard\.role !== "admin"\) return NextResponse\.json\(\{ error: "The branch Admin checks/);
-    expect(route).toMatch(/denyForeignBranch\(guard, row\.branch_id\)/);
+  it("no Admin step (2026-11-24): note / object refused for everyone; HR: undo; HR / Super Admin: pause and the digests", () => {
+    expect(route).toMatch(/if \(action === "note" \|\| action === "object"\) \{\n\s+return NextResponse\.json\(\{ error: "The system sends this straight to HR[^}]*\}, \{ status: 409 \}\);/);
+    expect(route).not.toMatch(/admin_noted_by: guard\.userId/);
+    expect(route).toMatch(/async function digest\(guard, body\) \{\n\s+if \(guard\.role !== "hr" && guard\.role !== "super_admin"\)/);
     expect(route).toMatch(/guard\.role !== "hr"\) return NextResponse\.json\(\{ error: "HR undoes/);
     expect(route).toMatch(/guard\.role !== "hr" && guard\.role !== "super_admin"/);
     expect(route).toMatch(/if \(guard\.role === "admin"\) q = q\.eq\("branch_id", guard\.branchId\)/);

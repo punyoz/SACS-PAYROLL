@@ -63,6 +63,14 @@ function compare(a, b) {
 
 const NO_SELECTION = new Set();
 
+/** A filter bar that brings its own search (useApprovalFilters, 2026-11-24): the table then shows none of its own. */
+function ownsSearch(node) {
+  if (!node || typeof node !== "object") return false;
+  if (Array.isArray(node)) return node.some(ownsSearch);
+  if (node.props?.["data-owns-search"]) return true;
+  return ownsSearch(node.props?.children);
+}
+
 export function DataTable({
   columns: allColumns,
   rows,
@@ -222,7 +230,10 @@ export function DataTable({
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       {/* Search first, then the filters and buttons on the same row (TableToolbar, 2026-11-08). */}
-      {searchable || toolbar ? (
+      {typeof toolbar !== "function" && ownsSearch(toolbar) ? (
+        // One filter bar with its own search: full width, its own grid (one search box on the page).
+        <div data-slot="table-filter-bar" className="flex min-w-0 flex-col gap-2">{toolbar}</div>
+      ) : searchable || toolbar ? (
         <TableToolbar search={searchable ? { value: query, onChange: setQuery, placeholder: searchPlaceholder, disabled: loading && !server } : null}>
           {toolbar ? (typeof toolbar === "function" ? toolbar(sorted, { query: query.trim(), sort }) : toolbar) : null}
         </TableToolbar>

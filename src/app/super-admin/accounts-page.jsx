@@ -135,7 +135,7 @@ export function AccountsPage({ refreshKey }) {
             loading={first}
             error={state.error && !state.users.length ? state.error : null}
             onRetry={load}
-            pageSize={15}
+           
             searchPlaceholder="Search by name, ID, email, role or branch…"
             empty={{ title: "No accounts found", icon: UsersRoundIcon }}
             caption="Admin and HR accounts"

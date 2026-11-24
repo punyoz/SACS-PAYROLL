@@ -12,7 +12,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-export const DECISIONS = Object.freeze(["approve", "reject", "resolve", "endorse", "object", "override", "revoke"]);
+// "file": what the branch Admin files (incident, incentive proposal, RFID issue), 2026-11-24.
+export const DECISIONS = Object.freeze(["approve", "reject", "resolve", "endorse", "object", "override", "revoke", "file"]);
 /** A reason is required for these; optional for approve / resolve / endorse. */
 export const REMARK_REQUIRED = Object.freeze(new Set(["reject", "revoke", "override", "object"]));
 export const OTHER = "other";
@@ -91,8 +92,9 @@ export const ENTITY_LABELS = Object.freeze({
   payroll_run: "Payroll run", awol_case: "AWOL case", transfer_request: "Transfer request", adjustment: "Incentive / loan",
   final_pay: "Final pay", tenure_grant: "Tenure pay protection", subsidy_request: "Subsidy request",
   payroll_correction: "Payroll correction", branch_request: "Branch request", substitution: "Substitution",
+  incident_report: "Incident report (Admin)", incentive_endorsement: "Incentive proposal (Admin)", rfid_issue: "RFID issue (Admin)",
 });
-export const DECISION_LABELS = Object.freeze({ approve: "Approve", reject: "Reject", resolve: "Resolve", endorse: "Endorse", object: "Object", override: "Override", revoke: "Revoke" });
+export const DECISION_LABELS = Object.freeze({ approve: "Approve", reject: "Reject", resolve: "Resolve", endorse: "Endorse", object: "Object", override: "Override", revoke: "Revoke", file: "File (branch Admin)" });
 
 /**
  * Reason counts from the decision-remark audit entries (Part H): one row per
