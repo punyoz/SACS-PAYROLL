@@ -19,6 +19,9 @@ import { holidayAppliesTo, isDayOff, readHolidayMap } from "@/lib/attendance/hol
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { isOnPayroll } from "@/lib/payroll/on-payroll";
 
+/** The roles that can be on payroll (Admin / Super Admin never are, decision 2026-11-22). */
+const PAYROLL_ROLES = ["employee", "accountant", "hr"];
+
 function getDateLabel(date = new Date()) {
   return new Intl.DateTimeFormat("en-PH", {
     timeZone: "Asia/Manila",
@@ -94,7 +97,8 @@ async function fetchEmployees(supabase) {
 
   const employeeUsers = (usersResult.data.users || []).filter((user) => {
     const role = String(user.user_metadata?.role || "employee").toLowerCase();
-    return (role === "employee" || role === "accountant") && isOnPayroll(user);
+    // Every account ON PAYROLL taps (2026-11-24): Employee, Accountant and HR. Admin / Super Admin never are.
+    return PAYROLL_ROLES.includes(role) && isOnPayroll(user);
   });
 
   const userIds = employeeUsers.map((user) => user.id);
@@ -143,7 +147,8 @@ async function findEmployeeByCard(supabase, code) {
   if (usersResult.error || profileResult.error || !(profileResult.data || []).length) return null;
   const employeeUsers = (usersResult.data.users || []).filter((user) => {
     const role = String(user.user_metadata?.role || "employee").toLowerCase();
-    return (role === "employee" || role === "accountant") && isOnPayroll(user);
+    // Every account ON PAYROLL taps (2026-11-24): Employee, Accountant and HR. Admin / Super Admin never are.
+    return PAYROLL_ROLES.includes(role) && isOnPayroll(user);
   });
   const candidates = (profileResult.data || []).map((profile) => {
     const index = employeeUsers.findIndex((user) => user.id === profile.id);
@@ -622,6 +627,14 @@ async function unmatchedCardReason(supabase, code) {
     .eq("rfid_uid", value)
     .limit(1);
   const owner = result.error ? null : (result.data || [])[0];
+  // Not on payroll (Admin, Super Admin, system accounts): never records attendance (2026-11-24).
+  if (owner && !owner.archived) {
+    const { data: who } = await supabase.from("profiles").select("role,on_payroll").eq("id", owner.id).maybeSingle();
+    const role = String(who?.role || "").toLowerCase();
+    if (who && (!who.on_payroll || !PAYROLL_ROLES.includes(role))) {
+      return { employee: owner, reason: `Not on payroll: card ${maskCardCode(value)} belongs to an account that does not record attendance.`, code: "not_on_payroll" };
+    }
+  }
   if (owner) {
     return { employee: owner, reason: `Inactive employee: card ${maskCardCode(value)} belongs to an archived or inactive account.`, code: "employee_inactive" };
   }
@@ -773,7 +786,8 @@ export async function POST(request) {
       const unmatched = await unmatchedCardReason(supabase, rfidCode);
       return refuse({
         refusedEmployee: unmatched.employee, reason: unmatched.reason, status: 404, code: unmatched.code,
-        error: unmatched.code === "card_inactive" ? "Card inactive. It no longer records attendance." : unmatched.code === "card_unknown" ? "Card not recognized." : "RFID not matched to an active employee.",
+        error: unmatched.code === "card_inactive" ? "Card inactive. It no longer records attendance." : unmatched.code === "card_unknown" ? "Card not recognized."
+          : unmatched.code === "not_on_payroll" ? "Not on payroll: this account does not record attendance." : "RFID not matched to an active employee.",
       });
     }
 

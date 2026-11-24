@@ -263,7 +263,7 @@ export function AwolCasesPage({ refreshKey }) {
       <section aria-label="Summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Open cases" value={summary.open || 0} hint="Flagged to HR decision" icon={UserXIcon} tone="danger" loading={first} href={currentPageHref({ awol_filter: "open" })} onClick={() => setFilter("open")} scrollTo="awol-table" actionLabel="Show open cases" />
         <StatCard label="To confirm" value={summary.flagged || 0} hint="Flagged by the nightly check" icon={AlertTriangleIcon} tone="gold" loading={first} />
-        <StatCard label="For decision" value={summary.for_decision || 0} hint="Both notices sent" icon={HourglassIcon} tone="info" loading={first} />
+        <StatCard label="For decision" value={summary.for_decision || 0} hint="Ready for your decision" icon={HourglassIcon} tone="info" loading={first} />
         <StatCard label="Pay on hold" value={summary.held || 0} hint="AWOL or separated" icon={PauseCircleIcon} tone="danger" loading={first} />
       </section>
 
@@ -294,7 +294,7 @@ export function AwolCasesPage({ refreshKey }) {
         <CardContent>
           <DataTable toolbar={caseFilters.toolbar} columns={columns} rows={rows} loading={first} error={state.error} onRetry={load}
             searchPlaceholder="Search employee…" empty={{ title: "No AWOL cases", icon: UserXIcon }} caption="AWOL cases" minWidth={980} />
-          <p className="mt-3 text-xs text-muted-foreground">Automatic until separation, only when every guard passes: confirmed with the 1st notice, the 2nd notice after the reply period, then separation on its date. A reply, a tap or a request stops it for you to decide; you can stop or resume any case. Reply periods are at least {replyDays} calendar days.</p>
+          <p className="mt-3 text-xs text-muted-foreground">Automatic only when every guard passes: AWOL confirmed (pay on hold) with the 1st notice. When the reply period ends ({replyDays} days), the case is ready for your decision: Separate (notice of separation; separated on its date) or Close. A reply, a tap or a request stops the automation for you to decide.</p>
         </CardContent>
       </Card>
       <Dialog open={Boolean(template)} onOpenChange={(o) => { if (!o && !templateBusy) setTemplate(null); }}>

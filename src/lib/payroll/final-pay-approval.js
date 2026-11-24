@@ -3,6 +3,8 @@
  * shared by the Accountant's Final Pay route and HR's Final pay approvals.
  */
 
+import { dayLabel } from "@/lib/date-label";
+
 export const SUBMISSIONS = "payroll_final_pay_submissions";
 export const LEGACY_LABEL = "Released before HR approval was required";
 export const STATUS_LABELS = { pending: "Pending HR approval", approved: "Paid", rejected: "Returned by HR" };
@@ -44,7 +46,7 @@ export async function notifyFinalPayDecision(supabase, notify, row, action, reas
     if (action === "approve") {
       await notify(supabase, [row.employee_id], {
         kind: "final_pay_released", title: "Your final pay is released",
-        body: `Your final pay was approved by HR. Release date: ${row.release_on}. Open My Payslips to view it.`, link_page: "emp-payslips",
+        body: `Your final pay was approved by HR. Release date: ${dayLabel(row.release_on)}. Open My Payslips to view it.`, link_page: "emp-payslips",
       });
       await notify(supabase, [row.submitted_by], {
         kind: "final_pay_approved", title: "Final pay approved",

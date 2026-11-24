@@ -8,17 +8,18 @@ import { normalizeText } from "@/lib/auth/normalize";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The branch's employees and accountants: names, codes and types only. */
+/** The branch's staff on payroll (employees, accountants and HR on payroll, 2026-11-24): names, codes and types only. */
 export async function loadBranchStaff(supabase, branchId, { includeArchived = false } = {}) {
   if (!branchId) return [];
   let query = supabase.from("profiles")
-    .select("id,full_name,email,employee_id,employee_type,position,employee_status,role,branch_id,archived,date_hired")
+    .select("id,full_name,email,employee_id,employee_type,position,employee_status,role,branch_id,archived,date_hired,on_payroll")
     .eq("branch_id", branchId)
-    .in("role", ["employee", "accountant"]);
+    .in("role", ["employee", "accountant", "hr"]);
   if (!includeArchived) query = query.eq("archived", false);
   const result = await query;
   if (result.error) throw new Error(result.error.message);
   return (result.data || [])
+    .filter((p) => String(p.role).toLowerCase() !== "hr" || p.on_payroll !== false)
     .map((p) => ({
       id: p.id,
       full_name: normalizeText(p.full_name, p.email || "Employee"),

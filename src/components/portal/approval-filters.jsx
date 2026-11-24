@@ -8,6 +8,7 @@ import { useUrlParam } from "@/components/portal/use-url-param";
 import { fetchJson } from "@/lib/portal/api";
 import { EMPLOYMENT_STATUS_OPTIONS } from "@/lib/employees/classification";
 import { branchOptions, isArchivedBranch } from "@/lib/branches/archived";
+import { FILTER_BAR, FilterSelect } from "@/components/portal/filter-bar";
 
 /*
  * Filters for every approval list (Part F, 2026-11-22): search by name or ID;
@@ -28,8 +29,9 @@ const SORTS = { filed_desc: "Newest filed", filed_asc: "Oldest filed", req_asc: 
  * narrow screen an even 2-column grid (the search spans the row; an odd last control widens, never alone);
  * from xl one row on one baseline.
  */
-const BAR = "grid w-full grid-cols-2 items-center gap-2 xl:flex xl:flex-wrap [&_[data-slot=select-trigger]]:h-10 [&_[data-slot=select-trigger]]:w-full [&_input]:h-10 [&_[data-slot=button]]:h-10 [&_[data-slot=button]]:w-full [&>*:last-child:nth-child(even)]:col-span-2 xl:[&>*:last-child:nth-child(even)]:col-span-1";
-const CELL = "min-w-0 xl:w-40";
+// The one filter-bar layout (src/components/portal/filter-bar.jsx, 2026-11-24).
+const BAR = FILTER_BAR;
+const CELL = "";
 let employeeIndex = null;
 let branchList = null;
 /** The branch-dropdown choice that lists archived branches too (2026-11-24); it filters nothing by itself. */
@@ -104,7 +106,7 @@ export function useApprovalFilters(rows, { prefix, get, typeLabel = "Type", stat
 
   const toolbar = (
     <div className={BAR} data-testid={`${prefix}-filters`} data-owns-search="true">
-      <Input type="search" aria-label="Search name, ID or details" className="col-span-2 rounded-md xl:min-w-64 xl:flex-[2]" placeholder="Search name, ID or details…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <Input type="search" data-filter="search" aria-label="Search name, ID or details" className="rounded-md" placeholder="Search name, ID or details…" value={q} onChange={(e) => setQ(e.target.value)} />
       {get.type ? (
         <Select value={type} onValueChange={setType}>
           <SelectTrigger aria-label={typeLabel} className={CELL}><SelectValue /></SelectTrigger>
@@ -121,16 +123,12 @@ export function useApprovalFilters(rows, { prefix, get, typeLabel = "Type", stat
         </Select>
       ) : null}
       {get.branch && branches.length > 1 ? (
-        <Select value={branch} onValueChange={setBranch}>
-          <SelectTrigger aria-label="Branch" className={CELL}><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All branches</SelectItem>
-            {branchOptions(branches, { showArchived: branch === SHOW_ARCHIVED || branches.some((b) => isArchivedBranch(b) && String(b.id) === branch) }).map((b) => (
-              <SelectItem key={b.id} value={String(b.id)}>{b.name}{isArchivedBranch(b) ? " (archived)" : ""}</SelectItem>
-            ))}
-            {branches.some(isArchivedBranch) ? <SelectItem value={SHOW_ARCHIVED}>All branches + archived</SelectItem> : null}
-          </SelectContent>
-        </Select>
+        <FilterSelect value={branch} onValueChange={setBranch} label="Branch" options={[
+          { value: ALL, label: "All branches" },
+          ...branchOptions(branches, { showArchived: branch === SHOW_ARCHIVED || branches.some((b) => isArchivedBranch(b) && String(b.id) === branch) })
+            .map((b) => ({ value: String(b.id), label: `${b.name}${isArchivedBranch(b) ? " (archived)" : ""}` })),
+          ...(branches.some(isArchivedBranch) ? [{ value: SHOW_ARCHIVED, label: "All branches + archived" }] : []),
+        ]} />
       ) : null}
       {get.employeeId && people ? (
         <>
@@ -146,8 +144,8 @@ export function useApprovalFilters(rows, { prefix, get, typeLabel = "Type", stat
       ) : null}
       {get.requested || get.filed ? (
         <>
-          <div className={CELL}><DatePicker aria-label="From" value={from} max={to || undefined} onChange={setFrom} placeholder="From" /></div>
-          <div className={CELL}><DatePicker aria-label="To" value={to} min={from || undefined} onChange={setTo} placeholder="To" /></div>
+          <div data-filter="date"><DatePicker aria-label="From" value={from} max={to || undefined} onChange={setFrom} placeholder="From" /></div>
+          <div data-filter="date"><DatePicker aria-label="To" value={to} min={from || undefined} onChange={setTo} placeholder="To" /></div>
         </>
       ) : null}
       <Select value={sort} onValueChange={setSort}>

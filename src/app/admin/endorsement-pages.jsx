@@ -59,10 +59,10 @@ export function LeaveRecommendationsPage({ refreshKey }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><CalendarDaysIcon className="size-4 text-gold-text" aria-hidden="true" />Leave</CardTitle>
         <CardDescription>Every leave and half-day request of your branch. The system checks each one and sends it straight to HR; HR decides. View only: message HR on a request if you need to.</CardDescription>
-        <CardAction><Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
+        <CardAction className="flex flex-wrap items-center justify-end gap-2"><FilterTabs value={tab} onValueChange={setTab} label="Leave filter" options={[{ value: "pending", label: "Waiting for HR" }, { value: "decided", label: "Decided" }, { value: "all", label: "All" }]} /><Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        <DataTable toolbar={<><FilterTabs value={tab} onValueChange={setTab} label="Leave filter" options={[{ value: "pending", label: "Waiting for HR" }, { value: "decided", label: "Decided" }, { value: "all", label: "All" }]} />{filters.toolbar}</>}
+        <DataTable toolbar={filters.toolbar}
           columns={columns} rows={filters.rows} loading={view.first} error={view.error} onRetry={view.load}
           searchPlaceholder="Search name, ID or details…" empty={{ title: tab === "pending" ? "No leave waiting for HR" : "No leave requests", icon: CalendarDaysIcon }} caption="Branch leave requests" minWidth={1000} />
       </CardContent>

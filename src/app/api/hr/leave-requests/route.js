@@ -19,6 +19,7 @@ import { manilaDateKey } from "@/lib/payroll/periods";
 import { notify, notifyEndorsers } from "@/lib/branch-requests-server";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { claimView, claimsFor, refuseClaimedByOther, refuseOwnItem, routingErrorResponse } from "@/lib/rbac/routing";
+import { rangeLabel } from "@/lib/date-label";
 
 export async function GET(request) {
   try {
@@ -184,7 +185,7 @@ export async function PATCH(request) {
         await notify(getAdminClient(), [current.employee_id], {
           kind: "leave_cancelled",
           title: "Your approved leave was cancelled",
-          body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${deciderName ? ` · ${deciderName}` : ""}`,
+          body: `${current.leave_type || "Leave"}, ${rangeLabel(current.start_date, current.end_date)}${deciderName ? ` · ${deciderName}` : ""}`,
           link_page: "emp-leave",
         });
       } catch { /* never fails the cancellation */ }
@@ -249,7 +250,7 @@ export async function PATCH(request) {
     // The branch Admin who recommended it learns HR's decision (2026-10-20).
     await notifyEndorsers(getAdminClient(), "leave_endorsement", id, {
       title: `Leave ${newStatus === "approved" ? "approved" : "rejected"} by HR · ${current.employee_name}`,
-      body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${deciderName ? ` · ${deciderName}` : ""}${action === "reject" ? ` · Reason: ${rejectReason}` : ""}`,
+      body: `${current.leave_type || "Leave"}, ${rangeLabel(current.start_date, current.end_date)}${deciderName ? ` · ${deciderName}` : ""}${action === "reject" ? ` · Reason: ${rejectReason}` : ""}`,
     }).catch(() => 0);
 
     // The employee's bell (2026-10-20 audit): HR's decision on their request.
@@ -257,7 +258,7 @@ export async function PATCH(request) {
       await notify(getAdminClient(), [current.employee_id], {
         kind: `leave_${newStatus}`,
         title: `Your leave was ${newStatus}`,
-        body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${splitText}${deciderName ? ` · ${deciderName}` : ""}${action === "reject" ? ` · Reason: ${rejectReason}` : ""}`,
+        body: `${current.leave_type || "Leave"}, ${rangeLabel(current.start_date, current.end_date)}${splitText}${deciderName ? ` · ${deciderName}` : ""}${action === "reject" ? ` · Reason: ${rejectReason}` : ""}`,
         link_page: "emp-leave",
       });
     } catch { /* never fails the decision */ }
