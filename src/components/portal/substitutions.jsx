@@ -1,5 +1,7 @@
 "use client";
 
+import { ItemThread } from "@/components/portal/item-thread";
+
 import * as React from "react";
 import { Loader2Icon, PlusIcon, RefreshCwIcon, UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -175,12 +177,15 @@ export function SubstitutionsPanel({ role, refreshKey = 0 }) {
     { key: "who", header: "Substitute → covering", cell: (r) => <div><p className="font-medium">{r.substitute_name || <span className="text-gold-text">Pick a teacher</span>}</p><p className="text-xs text-muted-foreground">covering {r.absent_name}{r.class_section ? `, ${r.class_section}` : ""}{r.subject ? ` (${r.subject})` : ""}</p></div>, searchValue: (r) => `${r.substitute_name} ${r.absent_name}` },
     { key: "tap", header: "Taps", cell: (r) => <StatusBadge tone={TAP[r.tap_check]?.[0] || "muted"}>{TAP[r.tap_check]?.[1] || r.tap_check}</StatusBadge> },
     { key: "status", header: "Status", sortable: true, cell: (r) => <div className="space-y-0.5"><StatusBadge tone={STATUS_TONE[r.status] || "muted"}>{r.status}</StatusBadge>{r.decided_by_name ? <p className="text-xs text-muted-foreground">{r.decided_by_name}{r.decision_note ? ` · ${r.decision_note}` : ""}</p> : null}</div> },
-    { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (r) => (r.status !== "pending" || role !== "hr" ? null : (
+    { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (r) => (role !== "hr" ? null : (
       <div className="flex justify-end gap-1.5">
+        <ItemThread itemType="substitution" itemId={r.id} title={`Messages · ${r.absent_name}`} />
+        {r.status !== "pending" ? null : <>
         <Button size="sm" variant="outline" className="text-destructive" onClick={() => setDeciding({ row: r, decision: "reject" })}>Reject</Button>
         {r.needs_substitute
           ? <Button size="sm" onClick={() => setPicking(r)} data-testid="pick-substitute">Pick teacher</Button>
           : <Button size="sm" onClick={() => setDeciding({ row: r, decision: "approve" })}>Approve</Button>}
+        </>}
       </div>
     )) },
   ];
