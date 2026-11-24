@@ -69,7 +69,9 @@ test("automation: pause / resume (all and one module), Admin Note and Object ref
       expect((await api(page, "PATCH", "/api/automation", { id: applied, action: "undo", remark: { code: "revoke.automation.in_error" } })).status).toBe(403);
       const north = await rows(db().from("branches").select("id").neq("id", ana.branch_id).limit(1));
       const { data: foreignId } = await db().rpc("automation_log", { p_module: "spec_test", p_rule: "an E2E rule", p_kind: "proposal", p_summary: `${TAG} other branch`, p_data: {}, p_employee: null, p_branch: north[0].id });
-      expect((await api(page, "PATCH", "/api/automation", { id: foreignId, action: "note", note: "not mine" })).status).toBe(403);
+      // Refused either way (no Admin step, and not their branch); nothing changes on it.
+      expect([403, 409]).toContain((await api(page, "PATCH", "/api/automation", { id: foreignId, action: "note", note: "not mine" })).status);
+      expect(await rows(db().from("automation_actions").select("status,admin_note").eq("id", foreignId).single())).toEqual({ status: "with_hr", admin_note: null });
       const list = await api(page, "GET", "/api/automation");
       expect(list.data.actions.some((a) => a.summary === `${TAG} other branch`)).toBe(false);
       expect(list.data.actions.some((a) => a.summary === `${TAG} proposed`), "own branch listed").toBe(true);
