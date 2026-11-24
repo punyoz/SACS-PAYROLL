@@ -7,7 +7,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, choose, confirm, manilaDay, pickDate, refresh, newRequest, requestTab } from "../support/flow.mjs";
+import { api, choose, confirm, manilaDay, pickDate, refresh, newRequest, requestTab, shownDay } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -47,7 +47,7 @@ test("half-day leave: the employee files the afternoon, HR approves half a day, 
     saved = await rows(db().from("leave_requests").select("id,status,start_date,end_date,half_day").eq("employee_id", emp.id).eq("reason", REASON).single());
     expect(saved).toMatchObject({ start_date: day, end_date: day, half_day: "PM" });
     await refresh(page);
-    await expect(main(page).locator("tr", { hasText: REASON }).getByText(`${day}, Half day: afternoon (PM)`)).toBeVisible();
+    await expect(main(page).locator("tr", { hasText: REASON }).getByText(`${shownDay(day)}, Half day: afternoon (PM)`)).toBeVisible();
   });
 
   await step(page, "Server > a half day across two days or a bad half is refused", async () => {

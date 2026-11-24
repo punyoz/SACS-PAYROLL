@@ -36,23 +36,24 @@ test("attendance flags: a missing tap is flagged, shown to the employee, fixed b
       expect((await rows(db().from("notifications").select("link_page").eq("recipient_id", bea.id).eq("kind", "attendance_fix"))).length).toBeGreaterThan(0);
     });
 
-    await step(page, "Admin > Branch Attendance: the system's flag and its status; no manual Flag issue; a Note sends it to HR", async () => {
+    await step(page, "Admin > Branch Attendance: the system's flag and its status, view only (no manual Flag issue, no Note / Object; d3046f0); a message thread with HR", async () => {
+      monitor.allow(/^409 (PATCH \/api\/automation|POST \/api\/admin\/branch-oversight)/, /status of 409/);
       await as(page, "admin", `adm-attendance&adm_att_from=${day}&adm_att_to=${day}`);
       await settle(page);
       await expect(main(page).getByRole("button", { name: /Flag issue/ })).toHaveCount(0);
       const row = main(page).getByRole("row").filter({ hasText: bea.full_name });
       await expect(row.getByTestId("system-flag")).toContainText("Flagged by the system");
+      await expect(row.getByRole("button", { name: /^(Note|Object)$/ })).toHaveCount(0);
+      await expect(row.getByRole("button", { name: `Messages · ${bea.full_name}` })).toBeVisible();
       // Manual attendance flags are refused by the server (2026-11-24); incidents stay manual.
       const manual = await page.request.post("/api/admin/branch-oversight", { data: { action: "file", kind: "attendance_flag", ref_id: log.id, note: "E2E manual flag" } });
       expect(manual.status()).toBe(409);
-      await row.getByRole("button", { name: "Note" }).click();
-      const dialog = page.getByRole("dialog");
-      await dialog.locator("textarea").first().fill("E2E: she says the reader was busy at 5 pm");
-      await dialog.getByRole("button", { name: "Send note to HR" }).click();
-      await expect(dialog).toBeHidden({ timeout: 20000 });
-      const [flag] = await rows(db().from("automation_actions").select("status,admin_note").eq("entity_id", log.id));
-      expect(flag).toMatchObject({ status: "with_hr", admin_note: expect.stringMatching(/reader was busy/) });
-      await expect(row.getByTestId("system-flag")).toContainText("With HR");
+      const [flag] = await rows(db().from("automation_actions").select("id,status,admin_note").eq("entity_id", log.id));
+      const note = await page.request.patch("/api/automation", { data: { id: flag.id, action: "note", note: "E2E: the reader was busy" } });
+      expect(note.status()).toBe(409);
+      const after = await rows(db().from("automation_actions").select("status,admin_note").eq("id", flag.id).single());
+      expect(after.status).toBe("open");
+      expect(after.admin_note || null).toBeNull();
     });
 
     await step(page, "Employee > My Attendance > The system found these to fix > Request correction (filled in)", async () => {

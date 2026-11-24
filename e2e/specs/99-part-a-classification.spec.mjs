@@ -93,7 +93,9 @@ test("Admin cannot change a classification; employee sees leave credits by type"
   try {
     await as(page, "employee", "emp-leave");
     await settle(page);
-    await expect(page.getByText("This year's leave with pay, by type")).toBeVisible();
+    // The leave-credits pool (PR #55): one total, used days listed by type.
+    await expect(page.getByText("This year's leave with pay: one total for vacation, sick and emergency leave")).toBeVisible();
+    await expect(page.getByTestId("leave-credits-by-type")).toBeVisible();
     await expect(page.getByText(/of 5 days used/).first()).toBeVisible();
     await expect(page.getByText("Statutory leave, filed per event")).toBeVisible();
     await expect(page.getByText(/Maternity Leave: up to 105 days each time/)).toBeVisible();

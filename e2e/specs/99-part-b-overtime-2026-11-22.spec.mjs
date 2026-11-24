@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, choose, manilaDay, pickDate, newRequest, requestTab } from "../support/flow.mjs";
+import { api, choose, manilaDay, pickDate, newRequest, requestTab, shownDay } from "../support/flow.mjs";
 import { db, rows, psql, profileByEmail } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -59,7 +59,7 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
   // Filed: the dialog closes and the Overtime tab shows it.
   const card = main(page).getByTestId("my-overtime-requests");
   await expect(card).toBeVisible();
-  await expect(card.getByRole("row").filter({ hasText: date })).toContainText("Pending");
+  await expect(card.getByRole("row").filter({ hasText: shownDay(date) })).toContainText("Pending");
   await card.screenshot({ path: join(OUT, "employee-filed.png") });
 
   // Same day again, and more than 3 h: refused in plain words.
@@ -77,7 +77,7 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
   await page.reload();
   await settle(page);
   await requestTab(page, "Overtime");
-  const row = card.getByRole("row").filter({ hasText: other });
+  const row = card.getByRole("row").filter({ hasText: shownDay(other) });
   await row.getByRole("button", { name: "Cancel" }).click();
   await expect(row).toContainText("Cancelled");
 
@@ -91,7 +91,7 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
   await settle(page);
   const hr = main(page).getByTestId("hr-overtime-requests");
   await expect(hr).toBeVisible();
-  const bea = hr.getByRole("row").filter({ hasText: date });
+  const bea = hr.getByRole("row").filter({ hasText: shownDay(date) });
   await expect(bea.getByTestId("ot-facts")).toContainText("Requested 2 h; paid after the time-out tap if approved");
   await expect(bea.getByTestId("ot-facts")).toContainText("Allowed for this employee's category");
   await hr.screenshot({ path: join(OUT, "hr-pending.png") });
@@ -103,7 +103,7 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
 
   const noReason = await api(page, "PATCH", "/api/hr/overtime-requests", { id: anaRequest.id, decision: "reject" });
   expect(noReason.data.error).toBe("Choose a remark (a reason is required).");
-  const ana = hr.getByRole("row").filter({ hasText: other });
+  const ana = hr.getByRole("row").filter({ hasText: shownDay(other) });
   await ana.getByRole("button", { name: "Reject" }).click();
   const dialog = page.getByRole("dialog");
   // Part H: a rejection needs a remark; the preset carries extra words.

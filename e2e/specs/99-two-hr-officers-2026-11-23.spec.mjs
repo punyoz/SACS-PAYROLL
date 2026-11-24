@@ -92,33 +92,31 @@ test("two HR officers: the other one decides; never Approve on your own; branch 
   }
 });
 
-test("leave recommendation: the Admin cannot endorse their own request; 'to HR after one working day' happens once", async ({ page, monitor }) => {
-  monitor.allow(/^403 POST \/api\/admin\/branch-oversight/, /status of 403/);
+test("leave recommendation: the Admin cannot endorse their own request (or any: no Admin step); the daily run never forwards an item twice", async ({ page, monitor }) => {
+  monitor.allow(/^40[39] POST \/api\/admin\/branch-oversight/, /status of 40[39]/);
   const admin = await profileByEmail(ACCOUNTS.admin.email);
   const day = manilaDay(25);
   const [own] = await rows(db().from("leave_requests").insert({ id: `e2e-own-${Date.now()}`, employee_id: admin.id, employee_name: admin.full_name, branch_id: admin.branch_id,
     leave_type: "Vacation Leave", pay_status: "with_pay", start_date: day, end_date: day, reason: "E2E own", status: "pending_admin" }).select("id"));
-  await step(page, "Admin > endorsing their own leave is refused", async () => {
+  await step(page, "Admin > endorsing their own leave is refused (no Admin step since 20261124150000)", async () => {
     await as(page, "admin", "adm-leaves");
     const res = await api(page, "POST", "/api/admin/branch-oversight", { action: "file", kind: "leave_endorsement", ref_id: own.id, decision: "endorse", remark: { code: "endorse.recommend" } });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(409);
+    expect(res.data.error).toMatch(/sends it straight to HR/);
+    expect(await rows(db().from("branch_admin_requests").select("id").eq("kind", "leave_endorsement").eq("ref_id", own.id))).toHaveLength(0);
   });
-  await step(page, "No action by the due date: forwarded to HR once, however often the daily run goes", async () => {
+  await step(page, "A proposal goes straight to HR when logged; the daily run never forwards it again or tells HR twice", async () => {
     await db().from("system_config").update({ value: "false" }).eq("section", "automation").eq("key", "paused");
     const ana = await profileByEmail(ACCOUNTS.employee.email);
     const { data: id } = await db().rpc("automation_log", { p_module: "leave_recommendations", p_rule: "E2E forward once", p_kind: "proposal", p_summary: `E2E forward once ${Date.now()}`,
       p_data: {}, p_employee: ana.id, p_branch: ana.branch_id, p_entity_type: "leave_request", p_entity_id: `e2e-fwd-${Date.now()}` });
-    await db().from("automation_actions").update({ admin_due_on: manilaDay(-1) }).eq("id", id);
+    const first = await rows(db().from("automation_actions").select("status,admin_due_on,forwarded_at,updated_at").eq("id", id).single());
+    expect(first).toMatchObject({ status: "with_hr", admin_due_on: null });
     const before = (await rows(db().from("notifications").select("id").eq("kind", "automation_forwarded"))).length;
     await db().rpc("automation_daily", {});
-    const first = await rows(db().from("automation_actions").select("status,forwarded_at,forwarded_by").eq("id", id).single());
-    expect(first).toMatchObject({ status: "with_hr", forwarded_by: "System" });
-    const afterOne = (await rows(db().from("notifications").select("id").eq("kind", "automation_forwarded"))).length;
     await db().rpc("automation_daily", {});
-    await db().rpc("automation_daily", {});
-    const again = await rows(db().from("automation_actions").select("forwarded_at").eq("id", id).single());
-    expect(again.forwarded_at, "forwarded once: the time does not move").toBe(first.forwarded_at);
-    expect((await rows(db().from("notifications").select("id").eq("kind", "automation_forwarded"))).length, "HR told once").toBe(afterOne);
-    expect(afterOne).toBeGreaterThan(before);
+    const again = await rows(db().from("automation_actions").select("status,forwarded_at,updated_at").eq("id", id).single());
+    expect(again).toEqual({ status: "with_hr", forwarded_at: first.forwarded_at, updated_at: first.updated_at });
+    expect((await rows(db().from("notifications").select("id").eq("kind", "automation_forwarded"))).length, "no forward notice for it").toBe(before);
   });
 });

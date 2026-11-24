@@ -6,14 +6,16 @@ import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
 import { api } from "../support/flow.mjs";
-import { db, profileByEmail, rows } from "../support/db.mjs";
+import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
 test("AWOL: a system-opened case — review the prepared notice, send it with one click; the template editor opens", async ({ page, monitor }) => {
   monitor.at("HR > AWOL Cases (system-opened)");
   monitor.allow(/^4\d\d PATCH \/api\/hr\/awol-cases/, /status of 4\d\d/);
   const bea = await profileByEmail(ACCOUNTS.employee2.email);
-  await db().from("employee_awol_cases").delete().eq("employee_id", bea.id);
+  // One open case per employee; cases are never hard-deleted (employee_awol_cases_block_hard_delete):
+  // an earlier spec's open case for Bea is closed first (system cleanup, triggers off).
+  psql(`set session_replication_role = replica; update employee_awol_cases set stage = 'closed' where employee_id = '${bea.id}' and stage <> 'closed';`);
   const since = new Date(Date.now() - 864e5).toISOString();
   const [opened] = await rows(db().from("employee_awol_cases").insert({
     employee_id: bea.id, branch_id: bea.branch_id, first_absent_on: "2026-11-02", stage: "flagged", auto_flagged: true,
@@ -66,6 +68,6 @@ test("AWOL: a system-opened case — review the prepared notice, send it with on
       await page.keyboard.press("Escape");
     });
   } finally {
-    await db().from("employee_awol_cases").delete().eq("id", opened.id);
+    psql(`set session_replication_role = replica; update employee_awol_cases set stage = 'closed' where id = '${opened.id}';`);
   }
 });
