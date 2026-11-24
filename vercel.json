@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/demo-taps?run=out",
       "schedule": "0 10 * * 1-5"
+    },
+    {
+      "path": "/api/cron/recompute-period",
+      "schedule": "30 16 * * 4"
     }
   ]
 }

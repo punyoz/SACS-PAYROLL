@@ -76,6 +76,7 @@ const PUBLIC_PATHS = [
   // CRON_SECRET bearer; refused inside the route without it (or when it is unset).
   "/api/cron/awol-notices",
   "/api/cron/demo-taps",           // the defense's daily taps (checks CRON_SECRET itself; off by a setting)
+  "/api/cron/recompute-period",    // the defense's Nov 16-30 recompute (checks CRON_SECRET itself; off by a setting)
 ];
 
 /**
