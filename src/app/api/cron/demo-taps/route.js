@@ -47,6 +47,8 @@ export async function GET(request) {
   // The terminal route's own handler, in this process (no network: the deployment URL is protected and the
   // project's production domain is not one this app answers on). Same kiosk session, header and rules.
   const origin = new URL(request.url).origin;
+  const manilaNow = new Date(Date.now() + 8 * 3600e3);
+  const nowMin = manilaNow.getUTCHours() * 60 + manilaNow.getUTCMinutes();
   let firstFailure = null;
   const done = [];
   for (const p of people || []) {
@@ -57,11 +59,15 @@ export async function GET(request) {
     const { data: leave } = await supabase.from("leave_requests").select("half_day").eq("employee_id", p.id).eq("status", "approved").lte("start_date", today).gte("end_date", today);
     if ((leave || []).some((l) => !l.half_day)) continue;
     const { count } = await supabase.from("attendance_taps").select("id", { count: "exact", head: true }).eq("employee_id", p.id).eq("log_date", today);
-    if (count) continue; // tapped for real today: nothing added
+    if ((count || 0) >= 2) continue; // the day already has its time in and time out
     const { data: sched } = await supabase.rpc("attendance_schedule_for", { p_employee: p.id, p_branch: p.branch_id, p_day: today });
     const s = Array.isArray(sched) ? sched[0] : sched;
     if (!s) continue;
-    const taps = dayTaps({ id: p.id, day: today, start: Number(s.work_start), end: Number(s.work_end), half: (leave || [])[0]?.half_day || null });
+    // Two runs a day (2026-11-26): each posts the planned taps already due and not yet recorded, so the
+    // morning run records the time in and the evening run the time out (and a late time in it finds missing).
+    const planned = dayTaps({ id: p.id, day: today, start: Number(s.work_start), end: Number(s.work_end), half: (leave || [])[0]?.half_day || null });
+    const taps = planned.slice(count || 0).filter((t) => t <= nowMin);
+    if (!taps.length) continue;
     const results = [];
     for (const t of taps) {
       const res = await terminalTap(new NextRequest(`${origin}/api/admin/attendance`, { method: "POST", headers: { cookie, [KIOSK_HEADER]: "1", "Content-Type": "application/json" },

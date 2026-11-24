@@ -19,6 +19,7 @@ import { PayslipDocument } from "@/app/accountant/pay-record-page";
 import { RemittanceCard } from "@/components/portal/remittance-report";
 import { printPdf } from "@/lib/portal/print-pdf";
 import { NeedsCorrectionBadge, NeedsCorrectionNote } from "@/components/portal/payroll-corrections";
+import { periodDisplay } from "@/lib/payroll/period-display";
 
 /*
  * HR → Payroll Records (/api/hr/payroll-records). Every branch's processed
@@ -131,7 +132,7 @@ export function PayrollRecordsPage({ refreshKey }) {
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, cell: (r) => <div><p className="font-medium">{r.employee_name}</p><p className="text-xs text-muted-foreground">{r.employee_code}{r.payslip_no ? ` · ${r.payslip_no}` : ""}</p></div>, searchValue: (r) => `${r.employee_name} ${r.employee_code} ${r.payslip_no || ""}` },
     { key: "branch_name", header: "Branch", sortable: true, searchValue: (r) => r.branch_name },
-    { key: "pay_period", header: "Period", sortable: true, cell: (r) => <div><p>{r.pay_period}</p><p className="text-xs text-muted-foreground">{r.processed_at ? dateTime(r.processed_at) : ""}</p></div>, searchValue: (r) => r.pay_period },
+    { key: "pay_period", header: "Period", sortable: true, cell: (r) => <div><p>{periodDisplay(r.pay_period)}</p><p className="text-xs text-muted-foreground">{r.processed_at ? dateTime(r.processed_at) : ""}</p></div>, searchValue: (r) => r.pay_period },
     { key: "gross_pay", header: "Gross pay", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.gross_pay || 0), cell: (r) => moneyCompact(r.gross_pay) },
     { key: "total_deductions", header: "Deductions", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.total_deductions || 0), cell: (r) => moneyCompact(r.total_deductions) },
     { key: "net_pay", header: "Net pay", align: "right", className: "tabular-nums font-medium", sortValue: (r) => Number(r.net_pay || 0), cell: (r) => moneyCompact(r.net_pay) },

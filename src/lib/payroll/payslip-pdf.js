@@ -18,6 +18,7 @@ import { DEFAULT_ORG_NAME, systemName } from "@/lib/org-name-format";
 import { pesoPdf } from "@/lib/export/pdf-text";
 import { renderPayslipDocument } from "@/lib/export/pdf-doc";
 import { periodFromLabel } from "@/lib/payroll/periods";
+import { periodDisplay } from "@/lib/payroll/period-display";
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -336,7 +337,7 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
     payslipNo: details?.payslip_no,
     branchLine: `${employee.branch || "Branch"} - Payslip - ${systemName(orgName)} Management System`,
     strip: [
-      ["Pay period", details?.pay_period],
+      ["Pay period", periodDisplay(details?.pay_period)],
       [details?.final_pay ? "Release date" : "Pay date", details?.pay_date_label || (waiting ? "After HR approval" : "—")],
       ["Pay type", payType(details)],
     ],

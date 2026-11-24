@@ -11,6 +11,7 @@ import { formatIssued, formatPeso, formatPesoShort } from "@/lib/portal/format";
 import { useDownloader } from "@/components/portal/bir-forms";
 import { WhyTaxNote } from "@/components/portal/payroll-lines";
 import { PayslipDocument } from "@/app/accountant/pay-record-page";
+import { periodDisplay } from "@/lib/payroll/period-display";
 
 function PayslipCard({ payslip }) {
   if (!payslip) {
@@ -26,7 +27,7 @@ function PayslipCard({ payslip }) {
   const view = payslip.line_groups || null;
   // The same payslip every role sees (PayslipDocument), with the employee's own notes.
   // Only Paid payslips reach My Payslips; the tax box and month total are drawn by PayslipDocument.
-  const doc = { ...payslip, pay_period: payslip.period_label, issued_at: payslip.processed_at, status: "final", status_label: payslip.status_label || "Paid" };
+  const doc = { ...payslip, pay_period: periodDisplay(payslip.period_label), issued_at: payslip.processed_at, status: "final", status_label: payslip.status_label || "Paid" };
   return (
     <PayslipDocument payslip={doc} netLabel={m && !payslip.final_pay ? (m.half === "first" ? "1st half net pay" : "2nd half net pay") : "Net pay"}>
       <div className="space-y-3" data-testid="payslip-full" data-half={view?.half}>
@@ -50,7 +51,7 @@ export function PayslipsPage({ payslips }) {
   const [busy, download] = useDownloader();
 
   const columns = React.useMemo(() => [
-    { key: "period_label", header: "Pay period", className: "font-medium", searchValue: (p) => p.period_label },
+    { key: "period_label", header: "Pay period", className: "font-medium", searchValue: (p) => periodDisplay(p.period_label), cell: (p) => periodDisplay(p.period_label) },
     { key: "payslip_no", header: "Payslip no.", className: "font-mono text-xs", cell: (p) => p.payslip_no || "—", searchValue: (p) => p.payslip_no },
     { key: "processed_at", header: "Issued", sortValue: (p) => p.processed_at || "", cell: (p) => formatIssued(p.processed_at, "short") || "—" },
     { key: "net_pay", header: "Net pay", align: "right", sortValue: (p) => Number(p.net_pay || 0), className: "tabular-nums", cell: (p) => formatPesoShort(p.net_pay) },
