@@ -159,6 +159,7 @@ function semiMonthlyRows(p, m, holidayLines = []) {
   plus("Holiday pay", m.holiday_pay);
   holidayRows(p, holidayLines);
   plus("Licensed teacher subsidy", m.subsidy_pay);
+  plus("Leave conversion", m.leave_conversion_pay);
   p.row("Monthly gross", m.monthly_gross || 0, { bold: true });
 
   p.heading("Contributions and tax");

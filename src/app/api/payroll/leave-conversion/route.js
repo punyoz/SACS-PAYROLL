@@ -5,7 +5,8 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { notify, superAdminIds } from "@/lib/branch-requests-server";
-import { LEAVE_CONVERSION_KEYS, LEAVE_CONVERSION_SECTION, leaveConversionError, loadLeaveConversion } from "@/lib/payroll/leave-conversion";
+import { LEAVE_CONVERSION_KEYS, LEAVE_CONVERSION_TAX_FREE_DAYS, LEAVE_CONVERSION_SECTION, leaveConversionError, loadLeaveConversion } from "@/lib/payroll/leave-conversion";
+import { EMPLOYMENT_STATUS_OPTIONS } from "@/lib/employees/classification";
 
 /**
  * Unused leave conversion in final pay (decision 2026-11-09 #1).
@@ -36,6 +37,12 @@ export async function PATCH(request) {
     const requested = { enabled: body.enabled, max_days: body.max_days === "" || body.max_days === null || body.max_days === undefined ? null : Number(body.max_days) };
     const invalid = leaveConversionError(requested);
     if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
+    // 2026-11-26: de minimis days (0-30) and the statuses converted (empty = all on payroll).
+    const freeDays = body.tax_free_days === undefined || body.tax_free_days === "" ? LEAVE_CONVERSION_TAX_FREE_DAYS : Number(body.tax_free_days);
+    if (!Number.isInteger(freeDays) || freeDays < 0 || freeDays > 30) return NextResponse.json({ error: "Tax-free days: a whole number from 0 to 30." }, { status: 400 });
+    const statuses = Array.isArray(body.statuses) ? body.statuses.map(String).filter((x) => EMPLOYMENT_STATUS_OPTIONS.includes(x)) : [];
+    requested.tax_free_days = freeDays;
+    requested.statuses = statuses;
     if (!reason) return NextResponse.json({ error: "Give a reason for the change.", code: "reason_required" }, { status: 400 });
 
     const supabase = getAdminClient();
@@ -44,6 +51,8 @@ export async function PATCH(request) {
     const result = await supabase.from("system_config").upsert([
       { section: LEAVE_CONVERSION_SECTION, key: LEAVE_CONVERSION_KEYS.enabled, value: String(requested.enabled), updated_at: now },
       { section: LEAVE_CONVERSION_SECTION, key: LEAVE_CONVERSION_KEYS.maxDays, value: requested.max_days === null ? "" : String(requested.max_days), updated_at: now },
+      { section: LEAVE_CONVERSION_SECTION, key: LEAVE_CONVERSION_KEYS.taxFreeDays, value: String(requested.tax_free_days), updated_at: now },
+      { section: LEAVE_CONVERSION_SECTION, key: LEAVE_CONVERSION_KEYS.statuses, value: JSON.stringify(requested.statuses), updated_at: now },
     ], { onConflict: "section,key" });
     if (result.error) throw new Error(result.error.message);
 
@@ -51,7 +60,7 @@ export async function PATCH(request) {
     const describe = (s) => (s.enabled ? `on${s.max_days ? `, up to ${s.max_days} days` : ", no day limit"}` : "off");
     await appendAuditLog({
       actor: guard, module: "config", action: "leave_conversion_setting", entity_type: "system_config", entity_id: LEAVE_CONVERSION_KEYS.enabled,
-      description: `Unused leave conversion in final pay: ${describe(before)} → ${describe(requested)}, by ${actorName}. Reason: ${reason}.`,
+      description: `Unused leave conversion (year end and final pay): ${describe(before)} → ${describe(requested)}, by ${actorName}. Reason: ${reason}.`,
       status: "success", source: "api", metadata: { before, after: requested, reason, changed_by_role: guard.role },
     });
     if (guard.role !== "super_admin") {

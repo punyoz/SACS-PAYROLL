@@ -303,7 +303,7 @@ async function unusedLeave(supabase, person, daily) {
     would_be: peso(balance.with_pay_remaining * (Number(daily) || 0)),
     amount: peso(amount),
     note: setting.enabled
-      ? `On${setting.max_days ? `, up to ${setting.max_days} days` : ""}: paid as its own line. Withholding tax on it is not computed.`
+      ? `On${setting.max_days ? `, up to ${setting.max_days} days` : ""}: paid as its own line (tax-free up to ${setting.tax_free_days} days a year; verify with the school's accountant).`
       : "Off until the school confirms whether unused leave is converted to cash, and for how many days (HR or the Super Admin can switch it on).",
   };
 }
@@ -311,7 +311,8 @@ async function unusedLeave(supabase, person, daily) {
 /** The conversion line joins the earnings, gross and net when it pays something. */
 function addLeaveConversion(breakdown, conversion) {
   if (!conversion?.enabled || !(conversion.amount > 0)) return breakdown;
-  breakdown.earnings.push({ kind: "leave_conversion", label: "Unused leave conversion", amount: conversion.amount, note: `${conversion.paid_days} day${Number(conversion.paid_days) === 1 ? "" : "s"} × daily rate` });
+  breakdown.earnings.push({ kind: "leave_conversion", label: "Leave conversion", amount: conversion.amount,
+    note: `${conversion.paid_days} unused day${Number(conversion.paid_days) === 1 ? "" : "s"} × ₱${Number(conversion.daily).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = ₱${Number(conversion.amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` });
   breakdown.gross = peso(breakdown.gross + conversion.amount);
   breakdown.net_pay = peso(breakdown.net_pay + conversion.amount);
   breakdown.leave_conversion = conversion.amount;

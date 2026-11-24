@@ -243,6 +243,12 @@ export function buildLineGroups(input) {
     additions.push(line(`substitution-${i}`, l.note || "Substitution", l.amount, "+", "rate_units", `= ${pesoText(l.amount)}`));
   });
   if (num(a.subsidy?.amount) > 0) additions.push(line("subsidy", "Licensed teacher subsidy", a.subsidy.amount, "+", "fixed", `Subsidy as approved = ${pesoText(a.subsidy.amount)}`));
+  // Leave conversion (Dec 16–31 / final pay, 2026-11-26): "Leave conversion: 3 unused days × ₱1,471.26 = ₱4,413.78".
+  if (num(a.leave_conversion?.amount) > 0) {
+    const l = a.leave_conversion.line;
+    additions.push(line("leave_conversion", "Leave conversion", a.leave_conversion.amount, "+", "rate_units",
+      l ? `${num(l.quantity)} unused day${num(l.quantity) === 1 ? "" : "s"} × ${pesoText(l.rate)} = ${pesoText(a.leave_conversion.amount)}` : `= ${pesoText(a.leave_conversion.amount)}`));
+  }
   if (num(a.prior_earnings) > 0) additions.push(line("prior_earnings", "1st cutoff extra earnings (part of the month)", a.prior_earnings, "+", "fixed", `Already paid on the 1st cutoff payslip = ${pesoText(a.prior_earnings)}`));
   if (num(a.year_end_refund) > 0) additions.push(line("year_end_refund", "Year-end tax refund (over-withheld)", a.year_end_refund, "+", "fixed", "Annual tax due less the tax already withheld this year"));
 
@@ -423,6 +429,7 @@ export function lineInputFromPayroll(payroll, { taxTable = [] } = {}) {
       incentives: { amount: t.other_incentive },
       overload: { amount: t.overload_pay, hours: m.overload_hours || (overloadLine ? num(overloadLine.quantity) : null), rate: overloadLine ? num(overloadLine.rate) : null },
       subsidy: { amount: t.subsidy_pay },
+      leave_conversion: { amount: t.leave_conversion_pay, line: (lines.incentives || []).find((l) => l.type === "leave_conversion") || null },
       substitutions: (lines.incentives || []).filter((l) => l.type === "substitution").map((l) => ({ amount: num(l.amount), note: l.note })),
       year_end_refund: yearEnd?.kind === "refund" ? yearEnd.amount : 0,
     },

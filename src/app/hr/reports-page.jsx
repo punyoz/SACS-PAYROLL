@@ -85,6 +85,12 @@ export function ReportsPage() {
   // The CSV lists what the table shows: the branch chosen and the search (2026-11-19).
   function exportCsv(rows) {
     if (!rows.length) { notify("Nothing to export", "No rows match the branch and search shown.", "info"); return; }
+    if (state.type === "leave_conversion") {
+      downloadCsv(`sacs-hr-leave-conversion-projected-${localDateKey()}.csv`,
+        ["Branch", "Employee", "ID", "Status", "Pool", "Used", "Unused", "Daily rate", "Projected", "Taxable part"],
+        rows.map((r) => [r.branch_name || "", r.full_name || "", r.employee_id || "", r.employment_status || "", r.pool, r.used, r.unused, Number(r.daily_rate || 0).toFixed(2), Number(r.amount || 0).toFixed(2), Number(r.taxable || 0).toFixed(2)]));
+      return;
+    }
     if (state.type === "attendance") {
       downloadCsv(`sacs-hr-attendance-report-${localDateKey()}.csv`,
         ["Branch", "Employee", "Type", "Present", "Late", "Absent", "On Leave", "Total Hours"],
@@ -97,8 +103,13 @@ export function ReportsPage() {
   }
 
   const isAttendance = state.type === "attendance";
+  const isConversion = state.type === "leave_conversion";
+  const money = (n) => `₱${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const sum = (key) => state.rows.reduce((s, r) => s + (r[key] || 0), 0);
-  const stats = state.type === null ? null : isAttendance
+  const stats = state.type === null ? null : isConversion
+    ? [["Employees", state.rows.length, ListIcon, "primary"], ["Unused days", state.rows.reduce((s, r) => s + (r.unused || 0), 0), CheckCircle2Icon, "success"],
+      ["Projected", money(state.meta.projected), FileBarChartIcon, "gold"], ["Conversion", state.meta.enabled ? "On" : "Off", ClockAlertIcon, state.meta.enabled ? "success" : "danger"]]
+    : isAttendance
     ? [["Total records", state.rows.length, ListIcon, "primary"], ["Present days", sum("present"), CheckCircle2Icon, "success"], ["Late days", sum("late"), ClockAlertIcon, "gold"], ["Absent days", sum("absent"), XCircleIcon, "danger"]]
     : [["Total records", state.meta.total || state.rows.length, ListIcon, "primary"], ["Active", state.meta.active ?? 0, CheckCircle2Icon, "success"], ["Archived", state.meta.archived ?? 0, XCircleIcon, "danger"], ["Teaching", state.rows.filter((r) => r.employee_type?.toLowerCase() === "teaching").length, FileBarChartIcon, "gold"]];
 
@@ -117,7 +128,16 @@ export function ReportsPage() {
     return [...map.values()];
   }, [state.rows, isAttendance]);
 
-  const columns = isAttendance ? [
+  const columns = isConversion ? [
+    { key: "full_name", header: "Employee", className: "font-medium", cell: (r) => r.full_name || "—" },
+    { key: "employment_status", header: "Status", cell: (r) => r.employment_status || "—" },
+    { key: "pool", header: "Pool", align: "right", className: "tabular-nums", cell: (r) => r.pool },
+    { key: "used", header: "Used", align: "right", className: "tabular-nums", cell: (r) => r.used },
+    { key: "unused", header: "Unused", align: "right", className: "tabular-nums", cell: (r) => r.unused },
+    { key: "daily_rate", header: "Daily rate", align: "right", className: "tabular-nums", cell: (r) => money(r.daily_rate) },
+    { key: "amount", header: "Projected", align: "right", className: "tabular-nums font-medium", cell: (r) => money(r.amount) },
+    { key: "taxable", header: "Taxable part", align: "right", className: "tabular-nums", cell: (r) => money(r.taxable) },
+  ] : isAttendance ? [
     { key: "employee_name", header: "Employee", className: "font-medium", cell: (r) => r.employee_name || "—" },
     { key: "employee_type", header: "Category", cell: (r) => r.employee_type || "—" },
     { key: "present", header: "Present", align: "right", className: "tabular-nums text-success", cell: (r) => r.present ?? 0 },
@@ -152,6 +172,7 @@ export function ReportsPage() {
                 <SelectContent>
                   <SelectItem value="attendance">Attendance report</SelectItem>
                   <SelectItem value="employees">Employee records</SelectItem>
+                  <SelectItem value="leave_conversion">Leave conversion (projected)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -31,7 +31,7 @@ beforeEach(async () => {
 
 describe("the rule", () => {
   it("is off when nothing is saved; pays nothing when off", () => {
-    expect(leaveConversionFrom([])).toEqual({ enabled: false, max_days: null });
+    expect(leaveConversionFrom([])).toEqual({ enabled: false, max_days: null, tax_free_days: 10, statuses: [] });
     expect(leaveConversionAmount({ enabled: false }, 8, 700)).toEqual({ paid_days: 0, amount: 0 });
   });
   it("when on: unused days × daily rate, capped by the maximum days", () => {
@@ -45,7 +45,7 @@ describe("PATCH /api/payroll/leave-conversion", () => {
     const { PATCH, GET } = await import("@/app/api/payroll/leave-conversion/route");
     expect((await PATCH(call("PATCH", who("hr"), { enabled: true, max_days: 5 }))).status).toBe(400); // no reason
     expect((await PATCH(call("PATCH", who("hr"), { enabled: true, max_days: 5, reason: "Board resolution" }))).status).toBe(200);
-    expect((await (await GET(call("GET", who("hr")))).json()).setting).toEqual({ enabled: true, max_days: 5 });
+    expect((await (await GET(call("GET", who("hr")))).json()).setting).toEqual({ enabled: true, max_days: 5, tax_free_days: 10, statuses: [] });
     expect(table("audit_logs").at(-1)).toMatchObject({ action: "leave_conversion_setting" });
     expect((await PATCH(call("PATCH", who("accountant"), { enabled: false, reason: "x" }))).status).toBe(403);
   });

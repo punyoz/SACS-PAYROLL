@@ -21,6 +21,7 @@ import {
   FIELD_LABELS, classificationLabel, classificationOn, payRuleFor,
 } from "@/lib/employees/classification";
 import { leaveBalances, loadClassificationContext, loadPayRules, recordClassificationChange } from "@/lib/employees/classification-server";
+import { conversionPreviewFor } from "@/lib/payroll/leave-conversion-server";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -69,7 +70,7 @@ export async function GET(request) {
     return NextResponse.json({
       current: { ...now, classification_unconfirmed: Boolean(profile.classification_unconfirmed), date_hired: profile.date_hired },
       history,
-      leave: { year, ...(balances[id] || {}) },
+      leave: { year, ...(balances[id] || {}), conversion: await conversionPreviewFor(supabase, id, balances[id]) },
       pay_rule: payRuleFor(payRules, now, today()),
     });
   } catch (error) {
