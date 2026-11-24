@@ -109,6 +109,8 @@ const API_MODULES = [
   // Substitute teaching (Part C, 2026-11-22): the Admin files, HR decides, the Accountant reads.
   ["/api/substitutions", "branch_oversight"],
   ["/api/automation", "branch_oversight"],
+  // HR <-> branch Admin messages on an item (2026-11-24).
+  ["/api/branch-messages", "branch_oversight"],
   ["/api/announcements", "announcements"],
   // Preset remarks and the reasons report (Part H, 2026-11-22): every staff role has "profile";
   // the routes check the role themselves (HR / Super Admin manage; branch Admin reads its own branch).
@@ -274,6 +276,8 @@ const POST_IS_UPDATE = [
  */
 const POST_IS_READ = [
   "/api/admin/audit-logs",
+  // A message on an item is information, never a change (2026-11-24): HR and the Admin both write it.
+  "/api/branch-messages",
 ];
 
 /** Portal path -> the role allowed to open it. */

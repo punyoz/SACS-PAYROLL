@@ -32,7 +32,10 @@ async function pausedNow(supabase) {
   const rows = data || [];
   const all = String(rows.find((r) => r.key === "paused")?.value ?? "false") !== "false";
   const modules = Object.fromEntries(Object.keys(AUTOMATION_MODULES).map((m) => [m, rows.find((r) => r.key === `paused_${m}`)?.value === "true"]));
-  return { all, modules };
+  // The daily digests (2026-11-24), each on unless switched off.
+  const { data: dig } = await supabase.from("system_config").select("key,value").eq("section", "automation").in("key", ["digest_hr", "digest_admin"]);
+  const on = (k) => String((dig || []).find((r) => r.key === k)?.value ?? "true") !== "false";
+  return { all, modules, digest: { hr: on("digest_hr"), admin: on("digest_admin") } };
 }
 
 export async function GET(request) {
@@ -58,7 +61,7 @@ export async function GET(request) {
     const names = new Map((people || []).map((p) => [p.id, p.full_name]));
     const actions = rows.map((r) => ({ ...r, employee_name: names.get(r.employee_id) || null }));
     const paused = await pausedNow(supabase);
-    return NextResponse.json({ actions, counts: summarizeAutomation(actions, guard.role), paused: paused.all, modules_paused: paused.modules, role: guard.role });
+    return NextResponse.json({ actions, counts: summarizeAutomation(actions, guard.role), paused: paused.all, modules_paused: paused.modules, digest: paused.digest, role: guard.role });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
@@ -72,6 +75,7 @@ export async function PATCH(request) {
     const id = String(body.id || "");
     const action = String(body.action || "");
     if (action === "pause") return await pause(guard, body);
+    if (action === "digest") return await digest(guard, body);
     if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: "Choose an item." }, { status: 400 });
     const supabase = getServiceClient();
     const { data: row, error } = await supabase.from("automation_actions").select(SELECT).eq("id", id).maybeSingle();
@@ -111,6 +115,24 @@ export async function PATCH(request) {
 }
 
 /** Pause / Resume automation (all, or one module): HR or the Super Admin. */
+/** Settings > Automation: switch HR's or the Admins' daily digest on or off (HR / Super Admin). */
+async function digest(guard, body) {
+  if (guard.role !== "hr" && guard.role !== "super_admin") return NextResponse.json({ error: "HR or the Super Admin changes the digest." }, { status: 403 });
+  const who = body.who === "hr" ? "hr" : body.who === "admin" ? "admin" : null;
+  if (!who || typeof body.on !== "boolean") return NextResponse.json({ error: "Choose the digest and on or off." }, { status: 400 });
+  const supabase = getServiceClient();
+  const key = `digest_${who}`;
+  const value = body.on ? "true" : "false";
+  const { data: existing } = await supabase.from("system_config").select("key").eq("section", "automation").eq("key", key).maybeSingle();
+  const { error } = existing
+    ? await supabase.from("system_config").update({ value, updated_by: nameOf(guard) }).eq("section", "automation").eq("key", key)
+    : await supabase.from("system_config").insert({ section: "automation", key, value, updated_by: nameOf(guard) });
+  if (error) throw error;
+  await appendAuditLog({ actor: guard, module: "automation", action: "automation_digest", entity_type: "system_config", entity_id: `automation.${key}`,
+    description: `${who === "hr" ? "HR" : "Branch Admin"} daily digest ${body.on ? "on" : "off"}.`, metadata: { who, on: body.on } });
+  return NextResponse.json({ success: true, who, on: body.on });
+}
+
 async function pause(guard, body) {
   if (guard.role !== "hr" && guard.role !== "super_admin") return NextResponse.json({ error: "HR or the Super Admin pauses automation." }, { status: 403 });
   if (typeof body.paused !== "boolean") return NextResponse.json({ error: "Say whether to pause or resume." }, { status: 400 });
