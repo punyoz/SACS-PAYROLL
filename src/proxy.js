@@ -72,6 +72,9 @@ const PUBLIC_PATHS = [
   // Liveness check for the uptime monitor: up or down only,
   // no data (src/app/api/health/route.js).
   "/api/health",
+  // The daily AWOL notice delivery (2026-11-24): called by Vercel Cron with the
+  // CRON_SECRET bearer; refused inside the route without it (or when it is unset).
+  "/api/cron/awol-notices",
 ];
 
 /**

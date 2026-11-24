@@ -9,7 +9,9 @@
  *          confirm        { note }                       → AWOL, pay held
  *          first_notice   { sent_on, reply_by }          Return-to-Work Order + Notice to Explain
  *          second_notice  { sent_on, reply_by, conference_on }
- *          record_reply   { employee_reply }
+ *          record_reply   { employee_reply }               → the automation stops (HR decides)
+ *          confirm_send   { remark? }                      → AWOL (pay held) + 1st notice, one button (2026-11-24)
+ *          stop_automation { remark }  / resume_automation { remark? }   (2026-11-24)
  *          separate       { separation_effective, grounds } → Separated; HR decides, no Admin approval
  *          close          { outcome: false_alarm | returned | excused_by_leave,
  *                           returned_on, leave_request_id, note } → Active, pay released
@@ -76,9 +78,27 @@ export async function GET(request) {
       });
     }
 
+    // 2026-11-24 (AWOL fully automatic): each open case's guard results (checked now when the case has none
+    // stored, e.g. a case opened before the automation) and the notices sent on each case.
+    const yesterday = addDays(manilaDateKey(), -1);
+    const guardsOf = new Map();
+    await Promise.all(rows.filter((row) => row.stage !== "closed").map(async (row) => {
+      if (row.guards) { guardsOf.set(row.id, row.guards); return; }
+      const { data } = await supabase.rpc("awol_case_guards", { p_employee: row.employee_id, p_from: row.first_absent_on, p_through: yesterday < row.first_absent_on ? row.first_absent_on : yesterday });
+      if (data) guardsOf.set(row.id, { ...data, live: true });
+    }));
+    const caseIds = rows.map((row) => row.id);
+    const notices = caseIds.length
+      ? (await supabase.from("awol_notices").select("id,case_id,kind,title,sent_on,reply_by,separation_on,sent_by_name,inapp_at,emailed_at,email_error,pdf_path").in("case_id", caseIds).order("created_at", { ascending: true })).data || []
+      : [];
     const cases = rows.map((row) => {
       const days = (absences.get(row.employee_id) || []).filter((day) => day >= row.first_absent_on).sort();
-      return { ...shapeCase(row, byId.get(row.employee_id)), absent_days: days.length, last_absent_on: days[days.length - 1] || null };
+      return {
+        ...shapeCase(row, byId.get(row.employee_id)), absent_days: days.length, last_absent_on: days[days.length - 1] || null,
+        automation: row.automation || "auto", automation_reason: row.automation_reason || null, automation_changed_at: row.automation_changed_at || null,
+        separation_scheduled_on: row.separation_scheduled_on || null, guards: guardsOf.get(row.id) || row.guards || null,
+        notices: notices.filter((n) => n.case_id === row.id).map(({ case_id: _c, ...n }) => n),
+      };
     });
 
     return NextResponse.json({
@@ -177,7 +197,31 @@ export async function PATCH(request) {
     let patch = {};
     let description = "";
 
-    if (action === "confirm") {
+    if (action === "stop_automation" || action === "resume_automation") {
+      // A preset reason to stop (decision "override"); optional to resume. Separation stays HR's when stopped.
+      closeRemark = await resolveRemark(supabase, body.remark, { decision: "override", entityType: "awol_case", required: action === "stop_automation", fallbackText: body.note });
+      if (closeRemark.error) return NextResponse.json({ error: closeRemark.error, code: "remark_invalid" }, { status: 400 });
+      if (action === "stop_automation" && row.automation !== "auto") return NextResponse.json({ error: "The automation is already stopped on this case." }, { status: 409 });
+      if (action === "resume_automation" && row.automation === "auto") return NextResponse.json({ error: "The automation already runs on this case." }, { status: 409 });
+      patch = action === "stop_automation"
+        ? { automation: "stopped", automation_reason: `Stopped by ${by.name}: ${closeRemark.text}`.slice(0, 500), automation_changed_at: now, automation_changed_by_name: by.name }
+        : { automation: "auto", automation_reason: closeRemark.text ? `Resumed by ${by.name}: ${closeRemark.text}`.slice(0, 500) : `Resumed by ${by.name}`, automation_changed_at: now, automation_changed_by_name: by.name, review_reason: null };
+      if (!closeRemark.code) closeRemark = null;
+      description = `${personLabel(person)}'s AWOL case: automation ${action === "stop_automation" ? "stopped" : "resumed"} by ${by.name}.`;
+    } else if (action === "confirm_send") {
+      // One button: AWOL (pay held) and the 1st notice sent (in-app now; PDF + e-mail by the daily delivery).
+      closeRemark = await resolveRemark(supabase, body.remark, { decision: "approve", entityType: "awol_case", required: false, fallbackText: body.note });
+      if (closeRemark.error) return NextResponse.json({ error: closeRemark.error, code: "remark_invalid" }, { status: 400 });
+      if (!closeRemark.code) closeRemark = null;
+      const statusError = await setEmployeeStatus(supabase, {
+        employeeId: person.id, status: "AWOL", caseId: row.id, effectiveOn: today, actor: guard,
+        reason: `AWOL since ${row.first_absent_on}; confirmed by HR with the 1st notice${closeRemark ? `: ${closeRemark.text}` : ""}`,
+      });
+      if (statusError) return NextResponse.json({ error: sanitizeError(statusError) }, { status: 500 });
+      const replyBy = addDays(today, REPLY_DAYS);
+      patch = { stage: "first_notice", confirmed_at: now, confirmed_by: by.id, confirmed_by_name: by.name, first_notice_sent_on: today, first_notice_reply_by: replyBy };
+      description = `${personLabel(person)} confirmed AWOL and the 1st notice sent by ${by.name}; reply by ${replyBy}. Pay held.`;
+    } else if (action === "confirm") {
       const statusError = await setEmployeeStatus(supabase, {
         employeeId: person.id, status: "AWOL", caseId: row.id, effectiveOn: today, actor: guard,
         reason: normalizeText(body.note, `AWOL since ${row.first_absent_on}; could not be reached`),
@@ -203,7 +247,8 @@ export async function PATCH(request) {
     } else if (action === "record_reply") {
       const reply = normalizeText(body.employee_reply).slice(0, 2000);
       if (reply.length < 3) return NextResponse.json({ error: "Write what the employee said." }, { status: 400 });
-      patch = { employee_reply: reply };
+      // A reply stops the automation (the system never judges a reply): HR decides.
+      patch = { employee_reply: reply, ...(row.automation === "auto" ? { automation: "response", automation_reason: "Response received: the employee replied. HR decides.", automation_changed_at: now, automation_changed_by_name: by.name } : {}) };
       description = `Reply recorded for ${personLabel(person)}'s AWOL case.`;
     } else if (action === "separate") {
       const grounds = normalizeText(body.grounds).slice(0, 2000);
@@ -250,20 +295,28 @@ export async function PATCH(request) {
       description = `${personLabel(person)}'s AWOL case closed: ${OUTCOME_LABELS[outcome]}${person.employee_status === "AWOL" ? " — status Active, pay released (held payslips need a Super Admin override)" : ""}.`;
     }
 
-    const writer = closeRemark ? remarkClient(closeRemark, { decision: "resolve", entityType: "awol_case", module: "hr", table: "employee_awol_cases", ids: [row.id], actor: guard }) : supabase;
+    const remarkDecision = action === "stop_automation" || action === "resume_automation" ? "override" : action === "confirm_send" ? "approve" : "resolve";
+    const writer = closeRemark ? remarkClient(closeRemark, { decision: remarkDecision, entityType: "awol_case", module: "hr", table: "employee_awol_cases", ids: [row.id], actor: guard }) : supabase;
     const result = await writer.from("employee_awol_cases").update({ ...patch, updated_at: now }).eq("id", row.id);
     if (result.error) return NextResponse.json({ error: sanitizeError(result.error) }, { status: 500 });
     await appendAuditLog({
       actor: guard, module: "hr", action: `awol_${action}`, entity_type: "employee_awol_case", entity_id: row.id,
       status: "success", source: "api", description, metadata: { employee_id: person.id, from: row.stage, ...patch },
     });
-    // The employee is told when HR sends a notice (Part D).
-    if (action === "first_notice" || action === "second_notice") {
-      await notify(supabase, [row.employee_id], {
-        kind: `awol_${action}`, title: action === "first_notice" ? "Notice to return to work" : "Second notice",
-        body: `Report back to work or explain in writing by ${patch.first_notice_reply_by || patch.second_notice_reply_by}. No decision has been made.`,
-        link_page: "emp-dash",
-      }).catch(() => 0);
+    // A notice HR sends is kept like the system's (2026-11-24): the employee is told in-app now; the PDF and the
+    // e-mail follow with the daily delivery (/api/cron/awol-notices).
+    if (action === "first_notice" || action === "second_notice" || action === "confirm_send") {
+      const kind = action === "second_notice" ? "second" : "first";
+      const sentOn = patch.first_notice_sent_on || patch.second_notice_sent_on || today;
+      const replyBy = patch.first_notice_reply_by || row.first_notice_reply_by || null;
+      const sent = await supabase.rpc("awol_send_notice", { p_case: row.id, p_kind: kind, p_today: sentOn, p_reply_by: replyBy, p_separation: kind === "second" ? patch.second_notice_reply_by : null });
+      if (sent.error) {
+        await notify(supabase, [row.employee_id], {
+          kind: `awol_${action}`, title: kind === "first" ? "Notice to return to work" : "Second notice",
+          body: `Report back to work or explain in writing by ${patch.first_notice_reply_by || patch.second_notice_reply_by}. No decision has been made.`,
+          link_page: "emp-dash",
+        }).catch(() => 0);
+      }
     }
     return NextResponse.json({ success: true });
   } catch (error) {
