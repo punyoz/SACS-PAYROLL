@@ -60,6 +60,21 @@ async function pickAny(page, trigger, where) {
   // Same element still on screen: it shows the day picked (a filter may legitimately replace it).
   if (!CLAMPED.includes(id) && await handle.isVisible().catch(() => false)) {
     expect((await handle.innerText()).trim(), `${where}: picked ${iso} but ${id || "the field"} shows something else`).toContain(expected);
+    // The other earlier bug (2026-11-21, finding c): clicking the day already chosen cleared the field. It stays chosen.
+    if (await handle.click({ timeout: 5000 }).then(() => true, () => false)) {
+      const again = page.locator("[data-radix-popper-content-wrapper]:visible").last();
+      const chosen = again.locator("td[data-selected] button").first();
+      if (await chosen.waitFor({ timeout: 4000 }).then(() => true, () => false)) {
+        await chosen.click();
+        expect(await crashed(page), `${where}: screen crashed after re-clicking ${iso}`).toBe(false);
+        if (await again.isVisible().catch(() => false)) await page.keyboard.press("Escape");
+        if (await handle.isVisible().catch(() => false)) {
+          expect((await handle.innerText()).trim(), `${where}: re-clicking ${iso} cleared ${id || "the field"}`).toContain(expected);
+        }
+      } else {
+        await page.keyboard.press("Escape");
+      }
+    }
   }
   (reached[where] ||= []).push(id || before || "(no id)");
 }
