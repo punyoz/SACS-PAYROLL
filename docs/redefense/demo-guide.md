@@ -5,6 +5,7 @@ For the redefense on Friday, November 27, 2026. Live at https://sacs-payroll.ver
 - **Logins** (e-mail and password) are given **in chat only**; none are in this file. Each sign-in asks for an e-mail code, which arrives in the demo inbox.
 - **The data:** every account on payroll, from Oct 1 to today. It was generated through the app itself: real RFID terminal taps, the nightly close, requests and decisions, and payroll runs.
 - **Each day** a server job adds that day's taps until Nov 27: time in around 08:00, time out around 18:00. Ramon (AWOL) and Anjo (separated) are skipped.
+- **Fri Nov 27, about 07:00:** a server job records everyone's time in before their shift (never a time in the future), so attendance already shows time-ins when the defense starts. If it has not run, the command is: `vercel crons run "/api/cron/demo-taps?run=early"`.
 - **Payroll:** Oct 1–15, Oct 16–31 and Nov 1–15 are **Paid** at Main and Robinson. Anjo's final pay is approved. **Nov 16–30 is processed and ready for HR**: the Accountant submits it and HR approves it live.
 - **Recompute:** a server job recomputes Nov 16–30 early on Fri Nov 27, after the cutoff closes. **If Nov 16–30 still says Recompute, press Recompute, then Submit.**
 - **Testing mode:** the normal window for Nov 16–30 is Nov 27 – Dec 1, so Submit and HR Approve work with testing mode off on the day.
@@ -15,11 +16,11 @@ For the redefense on Friday, November 27, 2026. Live at https://sacs-payroll.ver
 |---|---|---|---|
 | Maricel Santos | HR | Main | Approves everything below; the Robinson HR's own payslip is approved by another HR |
 | Rowena Dizon | Accountant | Main | Processes and submits Main's payroll |
-| Marisol Santos Aquino (DEMO-101) | Employee, Teacher, Regular since 2022 | Main | Vacation leave Nov 12–13; approved overtime Nov 10; honorarium ₱1,500; salary loan ₱10,000 (deducted on 16–end payslips); substitute for Carlo on Nov 17, **paid as overtime** on Nov 16–30; tenure; licensed teacher |
-| Carlo Reyes Mendoza (DEMO-102) | Employee, Teacher, Probationary | Main | Sick leave Nov 17, which proposed the substitution; overtime request pending; honorarium ₱800; licensed teacher |
-| Liza Gomez Ferrer (DEMO-103) | Employee, Teacher, Provisional | Main | Half day (AM) Nov 11; Nov 6 missing time-out fixed by an approved correction; Nov 18 correction pending; honorarium ₱1,000 |
-| Ramon Cruz Salazar (DEMO-104) | Employee, Registrar Staff, Regular | Main | Vacation leave rejected (preset remark); Nov 13 "Overtime not filed"; Nov 4 short day; **AWOL from Nov 18**: 1st notice sent, pay on hold, reply by Nov 29 |
-| Nestor Lim Pascual (DEMO-105) | Employee, **Maintenance**, Contractual | Main | Approved overtime Nov 6; vacation leave Dec 1 pending |
+| Marisol Santos Aquino (SACS-101) | Employee, Teacher, Regular since 2022 | Main | Vacation leave Nov 12–13; approved overtime Nov 10; honorarium ₱1,500; salary loan ₱10,000 (deducted on 16–end payslips); substitute for Carlo on Nov 17, **paid as overtime** on Nov 16–30; tenure; licensed teacher |
+| Carlo Reyes Mendoza (SACS-102) | Employee, Teacher, Probationary | Main | Sick leave Nov 17, which proposed the substitution; overtime request pending; honorarium ₱800; licensed teacher |
+| Liza Gomez Ferrer (SACS-103) | Employee, Teacher, Provisional | Main | Half day (AM) Nov 11; Nov 6 missing time-out fixed by an approved correction; Nov 18 correction pending; honorarium ₱1,000 |
+| Ramon Cruz Salazar (SACS-104) | Employee, Registrar Staff, Regular | Main | Vacation leave rejected (preset remark); Nov 13 "Overtime not filed"; Nov 4 short day; **AWOL from Nov 18**: 1st notice sent, pay on hold, reply by Nov 29 |
+| Nestor Lim Pascual (SACS-105) | Employee, **Maintenance**, Contractual | Main | Approved overtime Nov 6; vacation leave Dec 1 pending |
 
 The other accounts on payroll are Andrea Villanueva, Ehd Astillero Refuerzo, Jane Dela Pena Benitez, Jarvis Pasion, Joanna Marquez, Reinjelyn Garaña, Teresa Bautista, Nona Guido, Jane Marinel (Robinson, Accountant and HR) and Karlos Dela Cruz (Robinson). Each has a complete record and the same kind of data, with lates, leave, loans (Andrea's cash advance, Jane's salary loan) and tenure (Andrea).
 
@@ -42,6 +43,7 @@ The other accounts on payroll are Andrea Villanueva, Ehd Astillero Refuerzo, Jan
 | 16 | RFID / HR taps | Maricel | HR › Attendance | HR officers have taps too; nobody handles their own card |
 | 20 | Corrections | Liza; Maricel | My Requests; HR › Approvals | Nov 6 approved (history keeps the original), Nov 18 pending |
 | 21 | Payslip PDF | Marisol | My Payslips | Two panels; YTD box with 13th month accrued |
+| 09b | Rest-day premium | Rowena | Super Admin › Pay Rates (rate "Rest day premium", 30) | Overtime or a substitution on a rest day: 130%; past 8 h: 169% |
 | 22 | Leave conversion | Marisol; Maricel | My Requests; HR › Reports | "If the year ended today: …"; the "Leave conversion (projected)" report |
 
 ## Defense scripts
@@ -53,7 +55,7 @@ The other accounts on payroll are Andrea Villanueva, Ehd Astillero Refuerzo, Jan
 4. Maricel opens HR › Approvals › Payroll runs and approves the run.
 5. Marisol opens My Payslips: the Nov 16–30 payslip, then the PDF.
 
-**B. AWOL notice and reply** (Ramon's login; his notice was also e-mailed)
+**B. AWOL notice and reply** (Ramon's login; his notice was also e-mailed). Ramon's case is left untouched before the defense, so the reply is shown live.
 1. Sign in as **Ramon**. The Dashboard shows the banner "You have an attendance notice."
 2. Press **Open My Notices** (also under My Account › My Notices). Show the notice, the reply-by date and the **PDF**.
 3. Press **Reply**: choose a reason (for example Illness / medical), write an explanation, attach a file (for example a medical certificate) and optionally a return date. Send.
