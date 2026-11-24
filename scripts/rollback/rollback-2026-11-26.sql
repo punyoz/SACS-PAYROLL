@@ -45,7 +45,9 @@ DELETE FROM supabase_migrations.schema_migrations WHERE version = '2026112601000
 DROP FUNCTION IF EXISTS private.readable_dates(text);
 
 -- Migration 20261126020000 (rest-day premium): its rows go, the type list goes back to the live list.
+ALTER TABLE public.payroll_rate_configs DISABLE TRIGGER USER; -- append-only guard
 DELETE FROM public.payroll_rate_configs WHERE rate_type = 'rest_day_premium_pct';
+ALTER TABLE public.payroll_rate_configs ENABLE TRIGGER USER;
 ALTER TABLE public.payroll_rate_configs DROP CONSTRAINT IF EXISTS payroll_rate_configs_rate_type_check;
 ALTER TABLE public.payroll_rate_configs ADD CONSTRAINT payroll_rate_configs_rate_type_check CHECK (rate_type IN (
   'hourly', 'daily', 'half_day_pct', 'absent_pct', 'late_days_per_absent',
