@@ -44,8 +44,9 @@ test("leave types: bereavement (relationship, date of death, its own pool) to HR
   const ana = await profileByEmail(ACCOUNTS.employee.email);
   const reason = `E2E bereavement ${Date.now()}`;
   const died = manilaDay(-1);
-  const start = manilaDay(1);
-  const end = manilaDay(2);
+  // Days no other spec files leave on (the half-day spec takes the next days; an overlap is refused).
+  const start = manilaDay(17);
+  const end = manilaDay(18);
   let leaveId;
 
   await step(page, "Employee > New request > Leave: the pool each type uses; Bereavement asks relationship and date of death, not 7 days ahead", async () => {
