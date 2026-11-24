@@ -10,7 +10,7 @@
 //   node scripts/demo/five.mjs remove --target=production  snapshot, then delete the five and everything theirs, logins included
 //
 // Who acts: the demo accounts kept on live (Demo HR One decides, Demo Accountant
-// One Main processes) and "Demo Admin Main" (no login) files the substitution,
+// One Main processes); the substitution comes from the system's proposal on an approved leave (2026-11-24),
 // so every row is demo-only and the removal never touches a real person's row.
 // The passwords stay in demo-data/five-credentials.csv (gitignored); nothing
 // here prints one. Keys come from the environment and are never printed.
@@ -97,7 +97,7 @@ async function build() {
   const [branch] = await db.rows("select * from branches where code = 'BR-001'");
   const kept = await db.rows(`select id, full_name from profiles where id in (${lit(HR.id)}, ${lit(ACC.id)}) and is_demo and not archived`);
   if (!branch || kept.length !== 2) throw new Error("Not a copy of live: the Main Branch, Demo HR One and Demo Accountant One Main must be there.");
-  const { people, admin, all } = fiveRoster(branch);
+  const { people, all } = fiveRoster(branch);
   // The leave ids, for a resumed build.
   const leaveIds = async () => Object.fromEntries((await db.rows(`select id, leave_type, employee_id from leave_requests where employee_id in (${people.map((p) => lit(p.id)).join(", ")})`))
     .filter((r) => r.leave_type === "Sick Leave").map((r) => ["sl", r.id]));
@@ -119,9 +119,8 @@ async function build() {
         contract_end_date = ${lit(p.contract_end_date || null)}, on_payroll = true, address = 'Demo Street, Antipolo City, Rizal',
         emergency_contact_name = 'Demo Contact', emergency_contact_relationship = 'Spouse', emergency_contact_address = 'Demo Street, Antipolo City, Rizal',
         emergency_contact_number = ${lit(p.cp_number.replace(/^0999/, "0998"))} where id = ${lit(p.id)};`),
-      `update profiles set on_payroll = false where id = ${lit(admin.id)};`,
       "commit;"].join("\n"));
-    return `${people.length} employees + ${admin.full} (no login)`;
+    return `${people.length} employees`;
   });
 
   await stage("RFID cards (HR registers)", async () => {
@@ -205,13 +204,12 @@ async function build() {
     return `Nestor, ${day}`;
   });
 
-  await stage("substitution (the Demo Admin files, HR approves)", async () => {
-    const res = ok("file substitution", await as(admin).post("/api/substitutions", { absent_employee_id: by(2).id, substitute_id: by(1).id, sub_date: "2026-11-17",
-      start_time: "09:00", end_time: "12:00", periods: 3, class_section: "Grade 5 - Sampaguita", subject: "Science", leave_request_id: leave.sl }));
-    const id = res?.substitution?.id || res?.id;
-    if (!id) throw new Error(`no substitution id: ${JSON.stringify(res).slice(0, 200)}`);
-    ok("approve substitution", await as(HR).patch("/api/substitutions", { id, action: "approve" }));
-    return "Marisol covers Carlo on Nov 17, 3 periods";
+  // 2026-11-24: the approved sick leave of a teacher proposes the substitution by itself; HR picks the teacher.
+  await stage("substitution (proposed by the system from Carlo's approved leave; HR picks Marisol)", async () => {
+    const [proposal] = await db.rows(`select id from substitutions where leave_request_id = ${lit(String(leave.sl))} and source = 'leave' and status = 'pending' and substitute_id is null`);
+    if (!proposal) throw new Error("the system did not propose a substitution for Carlo's approved leave");
+    ok("approve with Marisol", await as(HR).patch("/api/substitutions", { id: proposal.id, action: "approve", substitute_id: by(1).id }));
+    return "Marisol covers Carlo on Nov 17 (the day's periods from his schedule)";
   });
 
   await stage("honorarium and adjustment (Accountant files, HR approves)", async () => {
@@ -268,9 +266,6 @@ async function build() {
     return `${people.length} drafts`;
   });
 
-  await stage("Demo Admin Main: no login", async () => {
-    await db.exec(`update auth.users set banned_until = '2999-01-01' where id = ${lit(admin.id)};`);
-  });
 
   await report(db, people);
 }

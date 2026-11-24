@@ -64,7 +64,8 @@ export function fiveRoster(branch) {
   const admin = { ...ADMIN, employee_type: "Non-Teaching", position: "Staff", middle: null, full: `${ADMIN.first} ${ADMIN.last}`, id: stableId(ADMIN.tag), email: demoEmail(ADMIN.tag), branch_id: branch.id,
     on_payroll: false, employee_id: null, rfid_uid: null, sss_number: null, philhealth_number: null, pagibig_number: null, tin_number: null,
     cp_number: `0999${pad(2000100, 7)}`, password: null, no_login: true };
-  return { people, admin, all: [...people, admin] };
+  // 2026-11-24: no Demo Admin any more (the substitution is the system's proposal; HR picks the teacher).
+  return { people, admin, all: people };
 }
 
 /** demo-data/five-credentials.csv (gitignored): tag, e-mail, password. Never printed. */
