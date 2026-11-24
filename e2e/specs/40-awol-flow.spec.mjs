@@ -46,20 +46,25 @@ test("AWOL: admin files a no-show → HR AWOL case → HR confirms and closes �
     await expect(main(page).locator("tr", { hasText: "Bea" }).first()).toBeVisible();
   });
 
-  await step(page, "HR > AWOL Cases > Confirm AWOL", async () => {
+  await step(page, "HR > AWOL Cases > Proceed (confirms AWOL and sends the 1st notice; one primary button, 2026-11-26)", async () => {
     const row = main(page).locator("tr", { hasText: "Bea" }).first();
-    await row.getByRole("button", { name: "Confirm AWOL" }).click();
+    await row.getByTestId("awol-proceed").click();
     const dialog = page.getByRole("dialog");
-    await dialog.locator("#hr-awol-note").fill("E2E: called twice and the emergency contact; no answer");
+    await expect(dialog).toContainText("Confirms AWOL (pay on hold) and sends the 1st notice now");
     await dialog.getByRole("button", { name: "Save" }).click();
     await expect(dialog).toBeHidden({ timeout: 30000 });
     await refresh(page);
-    await expect(main(page).locator("tr", { hasText: "Bea" }).first().getByRole("button", { name: "Send 1st notice" })).toBeVisible();
+    const latest = await rows(db().from("employee_awol_cases").select("id,stage").eq("employee_id", bea.id).order("created_at", { ascending: false }).limit(1));
+    expect(latest[0].stage).toBe("first_notice");
+    expect(await rows(db().from("awol_notices").select("id").eq("case_id", latest[0].id).eq("kind", "first")), "the 1st notice is saved").toHaveLength(1);
+    // Next: wait for the reply; the row's one button records it.
+    await expect(main(page).locator("tr", { hasText: "Bea" }).first().getByRole("button", { name: "Record reply" })).toBeVisible();
   });
 
-  await step(page, "HR > AWOL Cases > Close the case (employee returned)", async () => {
+  await step(page, "HR > AWOL Cases > More > Close the case (employee returned)", async () => {
     const row = main(page).locator("tr", { hasText: "Bea" }).first();
-    await row.getByRole("button", { name: "Close" }).click();
+    await row.getByRole("button", { name: /^More for Bea/ }).click();
+    await page.getByRole("menuitem", { name: "Close" }).click();
     const dialog = page.getByRole("dialog");
     await writeRemark(page, "hr-awol-remark", "with a medical certificate", { preset: "Record corrected" });
     await dialog.getByRole("button", { name: "Save" }).click();

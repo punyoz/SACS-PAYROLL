@@ -73,13 +73,15 @@ export async function GET(request) {
     }
 
     // Part E step 4: the system's recommendation (and the Admin's check) on each request.
-    const recs = await recommendationsFor(getAdminClient(), requests.map((r) => r.id));
-    requests = requests.map((r) => ({ ...r, system_recommendation: recs.get(String(r.id)) || null }));
+    // 2026-11-24: on the pending list too (HR's page reads it; it had none, so HR never saw the recommendation).
+    const recs = await recommendationsFor(getAdminClient(), [...new Set([...requests, ...pending].map((r) => r.id))]);
+    const withRec = (r) => ({ ...r, system_recommendation: recs.get(String(r.id)) || null });
+    requests = requests.map(withRec);
     return NextResponse.json({
       requests,
       // Read-only paid-leave balance of the people waiting (2026-11-12).
       balances: await leaveBalancesFor(pending.map((r) => r.employee_id)),
-      pending_requests: pending,
+      pending_requests: pending.map(withRec),
       history_requests: history,
       generated_at: new Date().toISOString(),
     });
