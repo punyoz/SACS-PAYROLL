@@ -53,7 +53,8 @@ test("AWOL: a system-opened case — automatic, review the prepared notice; by h
       psql(`update employee_awol_cases set automation = 'stopped', automation_reason = 'E2E: HR handles it by hand' where id = '${opened.id}';`);
       await page.reload();
       await settle(page);
-      const hand = main(page).locator("tr", { hasText: bea.full_name }).filter({ hasNot: page.getByRole("checkbox") });
+      // The case table's row (the reports table under it names Bea too).
+      const hand = main(page).locator("tr", { hasText: bea.full_name }).filter({ has: page.getByTestId("awol-next-step") });
       await hand.getByTestId("awol-proceed").click();
       await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
       await expect(hand).toContainText("Reply by", { timeout: 20000 });
