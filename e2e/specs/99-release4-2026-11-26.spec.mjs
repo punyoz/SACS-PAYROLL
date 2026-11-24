@@ -129,7 +129,7 @@ test("leave types: bereavement (relationship, date of death, its own pool) to HR
     await card.getByRole("checkbox").check();
     await main(page).getByTestId("bulk-bar").getByRole("button", { name: "Approve selected" }).click();
     await writeRemark(page, "bulk-remark", "", { preset: "Approved as requested" });
-    await page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Approve (1)", exact: true }).click();
     await expect.poll(async () => (await rows(db().from("leave_requests").select("status").eq("id", leaveId).single())).status).toBe("approved");
     // Per event: no split against the credits pool.
     expect(await rows(db().from("leave_requests").select("id").eq("split_from", leaveId))).toHaveLength(0);
