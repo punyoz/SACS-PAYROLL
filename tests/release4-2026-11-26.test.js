@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { BEREAVEMENT_LEAVE, BEREAVEMENT_RELATIONSHIPS, CREDIT_LEAVE_TYPES, bereavementRefusal, leavePoolText, statutoryRefusal } from "@/lib/employees/classification";
 import { recommendFrom } from "@/lib/automation/leave-recommendations";
+import { leaveWithPayText, payslipTables, payslipTotalsCheck } from "@/lib/payroll/payslip-tables";
 
 const src = (p) => readFileSync(p, "utf8");
 
@@ -67,5 +68,50 @@ describe("1. leave types: statutory and school policy, never the credits pool", 
     const route = src("src/app/api/employee/leave-requests/route.js");
     expect(route).toMatch(/\} else if \(leaveType === BEREAVEMENT_LEAVE\) \{\n\s+\/\/ Bereavement[^\n]*\n\s+const refused = bereavementRefusal/);
     expect(route).toMatch(/balance\.statutory_needs_profile = !person\.sex \|\| !person\.civil_status;/);
+  });
+});
+
+describe("3. payslip: paid leave in the Earnings (screen, PDF and print share these tables)", () => {
+  const groups = (extra = {}) => ({
+    line_groups: {
+      half: "second",
+      groups: [{ lines: [
+        { key: "basic", label: "Basic salary", amount: 10000, sign: "+" },
+        { key: "leave_conversion", label: "Leave conversion", amount: 500, sign: "+" },
+        { key: "sss", label: "SSS", amount: 500, sign: "-" },
+        { key: "lwop", label: "Leave without pay", amount: 300, sign: "-" },
+      ] }],
+      leave_with_pay_days: 2, leave_with_pay_by_type: { "Vacation Leave": 1, "Sick Leave": 1 },
+      gross: 10500, total_deductions: 800, ...extra,
+    },
+  });
+
+  it("the words: days and the types when stored (and they add up)", () => {
+    expect(leaveWithPayText(2, { "Vacation Leave": 1, "Sick Leave": 1 })).toBe("2 days (Vacation 1, Sick 1)");
+    expect(leaveWithPayText(1.5, { "Sick Leave": 1.5 })).toBe("1.5 days (Sick 1.5)");
+    expect(leaveWithPayText(2, null)).toBe("2 days"); // a payslip from before (no types stored)
+    expect(leaveWithPayText(2, { "Sick Leave": 1 })).toBe("2 days"); // types that do not add up are not shown
+    expect(leaveWithPayText(0, {})).toBe("0 days");
+  });
+
+  it("in the Earnings, right before the leave conversion; never among the deductions; without pay stays a deduction; totals unchanged", () => {
+    const t = payslipTables(groups());
+    const keys = t.earnings.map((r) => r.key);
+    expect(keys.slice(0, 3)).toEqual(["basic", "leave_with_pay", "leave_conversion"]);
+    expect(t.earnings[1]).toMatchObject({ label: "Leave with pay", text: "2 days (Vacation 1, Sick 1)", amount: 0 });
+    expect(t.deductions.map((r) => r.key)).not.toContain("leave_with_pay");
+    expect(t.deductions.find((r) => r.key === "lwop")).toMatchObject({ amount: 300 });
+    expect(payslipTotalsCheck(t, 9700)).toEqual([]);
+  });
+
+  it("no paid leave: no row", () => {
+    const t = payslipTables(groups({ leave_with_pay_days: 0, leave_with_pay_by_type: {} }));
+    expect(t.earnings.map((r) => r.key)).not.toContain("leave_with_pay");
+  });
+
+  it("the payroll stores the types with the days", () => {
+    const route = src("src/app/api/accountant/payroll/route.js");
+    expect(route).toMatch(/leave_with_pay_by_type: leaveWithPayByType,/);
+    expect(route).toMatch(/withPayByType\[type\] = \(withPayByType\[type\] \|\| 0\) \+ share;/);
   });
 });

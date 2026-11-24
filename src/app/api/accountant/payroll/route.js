@@ -1048,6 +1048,8 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
     const halfDays = new Set();
     let withPayDays = 0;
     let withoutPayDays = 0;
+    // Paid leave by type (2026-11-26): the payslip's "Leave with pay: 2 days (Vacation 1, Sick 1)".
+    const withPayByType = {};
 
     requestsForEmployee.forEach((request) => {
       const requestStart = String(request.start_date || "");
@@ -1064,7 +1066,11 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
         (share < 1 ? halfDays : coveredDays).add(day);
         if (!isLeaveWorkingDay(day, holidays)) return;
         if (includeDay && !includeDay(day, request, employee)) return;
-        if (request.pay_status === "without_pay") { withoutPayDates.push(day); withoutPayDays += share; } else { withPayDates.push(day); withPayDays += share; }
+        if (request.pay_status === "without_pay") { withoutPayDates.push(day); withoutPayDays += share; } else {
+          withPayDates.push(day); withPayDays += share;
+          const type = String(request.leave_type || "Leave");
+          withPayByType[type] = (withPayByType[type] || 0) + share;
+        }
       });
     });
 
@@ -1073,6 +1079,7 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
     summaries.push({
       employee_id: employee.id,
       with_pay_days: withPayDays,
+      with_pay_by_type: withPayByType,
       without_pay_days: withoutPayDays,
       with_pay_dates: withPayDates,
       without_pay_dates: withoutPayDates,
@@ -2287,6 +2294,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
 
   // Leave comes from approved leave requests. With Pay is never editable.
   const leaveWithPayDays = toAmount(leave?.with_pay_days || 0);
+  const leaveWithPayByType = leave?.with_pay_by_type && typeof leave.with_pay_by_type === "object" ? leave.with_pay_by_type : {};
   const defaultWithoutPay = toAmount(leave?.without_pay_days || 0);
   const leaveWithoutPayDays = pickAmount(deductionsIn.leave_without_pay_days, defaultWithoutPay);
   note("leave_without_pay_days", defaultWithoutPay, leaveWithoutPayDays);
@@ -2628,6 +2636,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       undertime_minutes: used.undertime_minutes,
       half_days: used.half_days,
       leave_with_pay_days: leaveWithPayDays,
+      leave_with_pay_by_type: leaveWithPayByType,
       leave_without_pay_days: leaveWithoutPayDays,
       cash_advance: cashAdvance.total,
       loan: toAmount(loanSchedule.total + subsidy.prior_offset),
