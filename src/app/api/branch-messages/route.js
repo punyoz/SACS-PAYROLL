@@ -87,6 +87,7 @@ export async function POST(request) {
     if (guard.denied) return guard.denied;
     if (!ROLES.has(guard.role)) return NextResponse.json({ error: "Messages are between HR and the branch Admin." }, { status: 403 });
     const body = await request.json().catch(() => ({}));
+    if (Array.isArray(body.items)) return await postMany(guard, body);
     const type = String(body.item_type || "");
     const id = String(body.item_id || "");
     const text = String(body.body || "").trim().replace(/\s+\n/g, "\n");
@@ -122,4 +123,45 @@ export async function POST(request) {
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
+}
+
+/**
+ * 2026-11-26: the branch Admin sends ONE message to HR about several items (Branch Review, "select all"):
+ * POST { items: [{ item_type, item_id }], body }. Information only (no decision): the message goes into
+ * each item's HR <-> Admin thread; every item is checked first (own branch) and none is saved if one is
+ * refused; HR is told once.
+ */
+const MANY_MAX = 50;
+async function postMany(guard, body) {
+  if (guard.role !== "admin") return NextResponse.json({ error: "Only the branch Admin sends one message about several items." }, { status: 403 });
+  const text = String(body.body || "").trim().replace(/\s+\n/g, "\n");
+  const seen = new Set();
+  const items = body.items.map((i) => ({ type: String(i?.item_type || ""), id: String(i?.item_id || "") }))
+    .filter((i) => { const k = `${i.type}:${i.id}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  if (!items.length) return NextResponse.json({ error: "Select at least one item." }, { status: 400 });
+  if (items.length > MANY_MAX) return NextResponse.json({ error: `Select at most ${MANY_MAX} items.` }, { status: 400 });
+  if (items.some((i) => !ITEMS[i.type] || !ID.test(i.id))) return NextResponse.json({ error: "Choose an item." }, { status: 400 });
+  if (text.length < 1) return NextResponse.json({ error: "Write the message." }, { status: 400 });
+  if (text.length > BODY_MAX) return NextResponse.json({ error: `The message is too long (${BODY_MAX} characters at most).` }, { status: 400 });
+  const supabase = getServiceClient();
+  for (const i of items) {
+    const branches = await branchesOf(supabase, i.type, i.id);
+    if (!branches || denied(guard, branches)) return NextResponse.json({ error: "One of the selected items is not found or not your branch's. Nothing was sent." }, { status: 404 });
+  }
+  const branchId = String(guard.branchId);
+  const name = guard.session?.full_name || guard.session?.email || guard.role;
+  const { data, error } = await supabase.from("branch_item_messages").insert(items.map((i) => ({
+    item_type: i.type, item_id: i.id, branch_id: branchId, author_id: guard.userId, author_name: name, author_role: guard.role, body: text,
+  }))).select("id,item_type,item_id");
+  if (error) throw error;
+  const { data: hr } = await supabase.from("profiles").select("id").eq("role", "hr").eq("archived", false);
+  await notify(supabase, (hr || []).map((h) => h.id).filter((r) => String(r) !== String(guard.userId)), {
+    kind: "branch_message", title: `Message on ${items.length} item${items.length === 1 ? "" : "s"}`, body: `${name}: ${text.slice(0, 200)}`,
+    link_page: ITEMS[items[0].type].hr,
+  }).catch(() => 0);
+  for (const row of data || []) {
+    await appendAuditLog({ actor: guard, module: "branch_oversight", action: "branch_message", entity_type: row.item_type, entity_id: row.item_id, branch_id: branchId,
+      description: `Message on a ${ITEMS[row.item_type].label} by ${name} (one message about ${items.length} items): ${text.slice(0, 300)}`, metadata: { message_id: row.id, items: items.length } });
+  }
+  return NextResponse.json({ sent: (data || []).length }, { status: 201 });
 }
