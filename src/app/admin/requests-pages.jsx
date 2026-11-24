@@ -14,6 +14,7 @@ import { INCIDENT_TYPES, RFID_ISSUE_TYPES } from "@/lib/branch-requests";
 import { fetchJson } from "@/lib/portal/api";
 import { cn } from "@/lib/utils";
 import { RequestsPage, useBranchView } from "./oversight-shared";
+import { useMessageSelected } from "@/components/portal/message-selected";
 import { HrDecision } from "./endorsement-pages";
 
 /*
@@ -31,6 +32,7 @@ export function IncidentReportsPage({ refreshKey }) {
       kind="incident_report"
       icon={SirenIcon}
       title="Incident & AWOL reports"
+      showTitle={false}
       description="Report an incident about an employee of your branch. A no-show goes straight to HR's AWOL Cases queue. HR handles and closes every case; you see its status here."
       buttonLabel="File a report"
       dialogDescription="HR is notified at once. You cannot close or decide the case."
@@ -55,6 +57,7 @@ export function ScheduleRequestsPage({ refreshKey }) {
       refreshKey={refreshKey}
       kind="schedule_request"
       readOnly
+      messageSelected
       icon={CalendarClockIcon}
       title="Work schedules"
       description="HR changes work schedules and class loads; the system applies each change from its date. Earlier requests from your branch and HR's decisions are kept here. View only."
@@ -105,6 +108,8 @@ export function OvertimeConfirmationsPage({ refreshKey }) {
   const overtime = view.data?.overtime || [];
   const otCounts = useThreadCounts("overtime_request", overtime.map((r) => r.id), view.data);
   const subCounts = useThreadCounts("substitution", subs.rows.map((r) => r.id), subs.rows.length);
+  const otMsg = useMessageSelected({ itemType: "overtime_request", label: (r) => `${r.employee_name} · overtime ${dateLabel(r.request_date)}`, onSent: view.load });
+  const subMsg = useMessageSelected({ itemType: "substitution", label: (s) => `${s.absent_name} · substitution ${dateLabel(s.sub_date)}`, onSent: loadSubs });
   const otColumns = [
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (r) => `${r.employee_name} ${r.employee_code}` },
     { key: "day", header: "Day", sortValue: (r) => r.request_date, cell: (r) => <div className="text-xs"><p>{dateLabel(r.request_date)}</p><p className="text-muted-foreground">{hm(r.planned_start)}–{hm(r.planned_end)}{r.late_filing ? " · filed late" : ""}</p></div> },
@@ -131,12 +136,16 @@ export function OvertimeConfirmationsPage({ refreshKey }) {
         {tab === "overtime" ? (
           <DataTable key="ot" toolbar={<FilterTabs value={tab} onValueChange={setTab} label="Show" options={[{ value: "overtime", label: "Overtime" }, { value: "subs", label: "Substitutions" }]} />}
             columns={otColumns} rows={overtime} loading={view.first} error={view.error} onRetry={view.load}
-            searchPlaceholder="Search name, ID or details…" empty={{ title: "No overtime requests", icon: ClockIcon }} caption="Branch overtime requests" minWidth={900} />
+            searchPlaceholder="Search name, ID or details…" empty={{ title: "No overtime requests", icon: ClockIcon }} caption="Branch overtime requests" minWidth={900}
+            selection={otMsg.selection} />
         ) : (
           <DataTable key="subs" toolbar={<FilterTabs value={tab} onValueChange={setTab} label="Show" options={[{ value: "overtime", label: "Overtime" }, { value: "subs", label: "Substitutions" }]} />}
             columns={subColumns} rows={subs.rows} loading={subs.loading && !subs.rows.length} error={subs.error} onRetry={loadSubs}
-            searchPlaceholder="Search name, ID or details…" empty={{ title: "No substitutions", icon: UsersRoundIcon }} caption="Branch substitutions" minWidth={900} />
+            searchPlaceholder="Search name, ID or details…" empty={{ title: "No substitutions", icon: UsersRoundIcon }} caption="Branch substitutions" minWidth={900}
+            selection={subMsg.selection} />
         )}
+        {otMsg.dialog}
+        {subMsg.dialog}
       </CardContent>
     </Card>
   );
@@ -150,6 +159,7 @@ export function IncentiveEndorsementsPage({ refreshKey }) {
       refreshKey={refreshKey}
       kind="incentive_endorsement"
       exportable
+      messageSelected
       icon={StarIcon}
       title="Incentive proposals"
       description="Propose a discretionary incentive or overload pay for an employee of your branch (what the system cannot compute). HR approves it; it is then added to payroll. Rule-based incentives are computed by the system after the cutoff and go to HR directly."

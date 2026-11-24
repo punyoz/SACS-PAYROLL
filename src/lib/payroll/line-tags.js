@@ -482,6 +482,7 @@ export function payrollLineGroups(payroll, options = {}) {
     // Shown as before: what a short payslip carries to next month, and paid leave.
     carry_over_out: peso(cutoff.carry_over_out || 0),
     leave_with_pay_days: num(cutoff.leave_with_pay_days),
+    leave_with_pay_by_type: payroll?.deductions?.leave_with_pay_by_type || null,
   };
 }
 
@@ -569,6 +570,7 @@ export function employeePayslipView(payroll, options = {}) {
     hire_note: hire ? `No 1st-half payslip: hired ${hire.date}` : null,
     tax_box: taxBox,
     leave_with_pay_days: leave,
+    leave_with_pay_by_type: payroll?.deductions?.leave_with_pay_by_type || null,
     leave_with_pay: leave > 0 ? { label: `Leave with pay (${plural(leave, "day")})`, value: "No deduction" } : null,
     carry_over_out: result.carry_over_out > 0 ? { label: "Carried to next month (deductions above this payslip's pay)", amount: result.carry_over_out } : null,
     gross: result.gross,

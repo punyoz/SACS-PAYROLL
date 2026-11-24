@@ -38,6 +38,7 @@ import { ProcessPage } from "./process-page";
 import { RecordsPage } from "./records-page";
 import { PayRecordPage } from "./pay-record-page";
 import { IncentivesPage } from "./incentives-page";
+import { PayTypesPage } from "./pay-types-page";
 import { CashAdvancesPage } from "./cash-advances-page";
 import { LoansPage } from "./loans-page";
 import { ApprovalsPage } from "@/components/portal/approvals-page";
@@ -76,8 +77,10 @@ const NAV = [
         { id: "ac-approvals", label: "Subsidies", module: "payroll_approvals" },
       ] },
       { id: "ac-incentives", label: "Additional Pay", icon: StarIcon, tabs: [
-        // Incentives, overload, honorarium, bonus and adjustments (2026-11-23): one form, one list.
-        { id: "ac-incentives", label: "Incentives, honorarium, bonus & adjustments", module: "process_payroll" },
+        // Incentives, overload, honorarium, bonus and the Accountant's own types (2026-11-26: Adjustment no longer offered).
+        { id: "ac-incentives", label: "Items", module: "process_payroll" },
+        // Settings: the Accountant's own pay types (2026-11-26).
+        { id: "ac-pay-types", label: "Additional pay types", module: "process_payroll" },
       ] },
       { id: "ac-13th", label: "13th Month & Final Pay", icon: CalendarIcon, tabs: [
         { id: "ac-13th", label: "13th month", module: "process_payroll" },
@@ -107,7 +110,7 @@ const TITLES = {
   "ac-dashboard": "Dashboard", "ac-announcements": "Announcements", "ac-records": "Payroll Records", "ac-payslips": "Pay Record",
   "ac-loans": "Loans", "ac-cash-advances": "Cash Advances", "ac-approvals": "Subsidies", "ac-13th": "13th month pay", "ac-final-pay": "Final Pay",
   "ac-attendance": "Attendance Records", "ac-holidays": "Holidays & Duty", "ac-monitoring": "Payroll Monitoring", "ac-reports": "Payroll Reports",
-  "ac-gov-rates": "Government Rates", "ac-my-attendance": "My Attendance", "ac-my-timesheet": "My Timesheet", "ac-my-payslips": "My Payslips",
+  "ac-gov-rates": "Government Rates", "ac-pay-types": "Additional Pay Types", "ac-my-attendance": "My Attendance", "ac-my-timesheet": "My Timesheet", "ac-my-payslips": "My Payslips",
   "ac-my-leave": "My Requests", "ac-my-requests": "Loans & Other Pay", "ac-profile": "My Profile",
 };
 const DESCRIPTIONS = {
@@ -117,6 +120,7 @@ const DESCRIPTIONS = {
   "ac-records": "All processed payroll entries for reference.",
   "ac-payslips": "Generate and print pay records for employees.",
   "ac-incentives": "Added to the 2nd half payroll of the month they are counted in.",
+  "ac-pay-types": "Settings: your own additional pay types (name, taxable or not). HR still approves each item.",
   "ac-loans": "Salary loans, cash advances and licensed-teacher subsidy advances. Deducted on the 16–end payslip until repaid.",
   "ac-cash-advances": "All cash advances, including those recorded under Loans.",
   "ac-final-pay": "Final pay for separated employees: unpaid salary, pro-rated 13th month, subsidy, less contributions, tax and loan balances. Release within 30 days.",
@@ -160,6 +164,7 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
       {current === "ac-records" ? <RecordsPage /> : null}
       {current === "ac-payslips" ? <PayRecordPage /> : null}
       {current === "ac-incentives" ? <IncentivesPage refreshKey={refreshKey} /> : null}
+      {current === "ac-pay-types" ? <PayTypesPage refreshKey={refreshKey} /> : null}
       {current === "ac-loans" ? <LoansPage refreshKey={refreshKey} /> : null}
       {current === "ac-cash-advances" ? <CashAdvancesPage refreshKey={refreshKey} onNavigate={navigate} /> : null}
       {current === "ac-13th" ? <ThirteenthMonthPage refreshKey={refreshKey} /> : null}

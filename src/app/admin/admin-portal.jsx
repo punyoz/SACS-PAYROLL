@@ -95,7 +95,6 @@ const DESCRIPTIONS = {
   "adm-transfers": "Endorse transfers into and out of your branch. HR decides.",
   "adm-incentives": "Recommend incentives and overload pay. HR approves them.",
   "adm-schedules": "Ask HR to change an employee's work schedule or class load.",
-  "adm-incidents": "Report incidents and no-shows. They go to HR's AWOL Cases; HR handles them.",
   "adm-announcements": "Announcements for your branch's employees.",
   "adm-payroll": "Total payroll cost of your branch per approved period. No individual pay.",
   "adm-branch-reports": "Attendance rate, lateness and leave usage for your branch.",
@@ -169,7 +168,7 @@ function AdminScreens() {
       {current === "adm-branch-reports" ? <BranchReportsPage refreshKey={refreshKey} /> : null}
       {current === "adm-branch-reports" ? <DecisionReasonsCard refreshKey={refreshKey} /> : null}
       {current === "adm-pay-rates" ? <PayRatesPanel refreshKey={refreshKey} /> : null}
-      {current === "adm-maintenance" ? <MaintenancePage refreshKey={refreshKey} description="Your branch's RFID cards, the RFID Terminal, the RFID issues you report, and the card history." issues={<RfidIssuesPage refreshKey={refreshKey} />} /> : null}
+      {current === "adm-maintenance" ? <MaintenancePage refreshKey={refreshKey} description={null} issues={<RfidIssuesPage refreshKey={refreshKey} />} /> : null}
       {current === "adm-profile" ? <StaffProfilePage roleLabel="Administrator" /> : null}
     </AppShell>
   );

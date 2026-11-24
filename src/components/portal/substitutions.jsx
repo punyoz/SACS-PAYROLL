@@ -88,9 +88,9 @@ function ArrangeDialog({ open, initial, proposal = null, teachers, onClose, onSa
     <Dialog open onOpenChange={(o) => { if (!o && !busy) onClose(); }}>
       <DialogContent className="sm:max-w-lg" data-testid="arrange-substitute">
         <DialogHeader>
-          <DialogTitle>{proposal ? `Pick the substitute · ${proposal.absent_name}` : "Substitute for an unplanned absence"}</DialogTitle>
+          <DialogTitle>{proposal ? `Assign substitute teacher · ${proposal.absent_name}` : "Substitute for an unplanned absence"}</DialogTitle>
           <DialogDescription>{proposal
-            ? `${dateLabel(proposal.sub_date)} ${String(proposal.start_time).slice(0, 5)}–${String(proposal.end_time).slice(0, 5)}, ${proposal.periods} period${proposal.periods === 1 ? "" : "s"} (from the approved leave). Suggestions: same level and branch, tapped in that day, not on leave, under the weekly cap. Approving saves your pick.`
+            ? `${dateLabel(proposal.sub_date)} ${String(proposal.start_time).slice(0, 5)}–${String(proposal.end_time).slice(0, 5)}, ${proposal.periods} period${proposal.periods === 1 ? "" : "s"} (from the approved leave). Suggestions: same level and branch, tapped in that day, not on leave, under the weekly cap. Assign saves the teacher and approves the substitution.`
             : "Only for a no-show or a sudden illness: planned leave gets a system proposal. Suggestions: same level and branch, tapped in that day, not on leave, under the weekly cap. Filed and approved at once."}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -139,7 +139,7 @@ function ArrangeDialog({ open, initial, proposal = null, teachers, onClose, onSa
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button onClick={save} disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}{proposal ? "Approve with this teacher" : "File and approve"}</Button>
+          <Button onClick={save} disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}{proposal ? "Assign" : "File and approve"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -189,7 +189,7 @@ export function SubstitutionsPanel({ role, refreshKey = 0 }) {
         {r.status !== "pending" ? null : <>
         <Button size="sm" variant="outline" className="text-destructive" onClick={() => setDeciding({ row: r, decision: "reject" })}>Reject</Button>
         {r.needs_substitute
-          ? <Button size="sm" onClick={() => setPicking(r)} data-testid="pick-substitute">Pick teacher</Button>
+          ? <Button size="sm" onClick={() => setPicking(r)} data-testid="pick-substitute">Assign</Button>
           : <Button size="sm" onClick={() => setDeciding({ row: r, decision: "approve" })}>Approve</Button>}
         </>}
       </div>

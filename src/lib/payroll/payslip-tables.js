@@ -27,6 +27,31 @@ const INCENTIVES = [["perfect", "Perfect attendance"]];
 const DEDUCTIONS = [["absent", "Absences"], ["late", "Late"], ["undertime", "Undertime"], ["half_day", "Half day"], ["lwop", "Leave without pay"],
   ["sss", "SSS"], ["philhealth", "PhilHealth"], ["pagibig", "Pag-IBIG"], ["withholding_tax", "Withholding tax"]];
 
+/**
+ * Paid leave in the Earnings (2026-11-26): "Leave with pay: 2 days (Vacation 1, Sick 1)", no amount (it is
+ * inside the basic pay, never deducted), followed by a leave conversion line when there is one. The types
+ * show when the payslip stored them and they add up to its days (payslips before this show the days only).
+ */
+export function leaveWithPayText(days, byType) {
+  const total = num(days);
+  if (total <= 0) return "0 days";
+  const parts = Object.entries(byType && typeof byType === "object" ? byType : {}).filter(([, n]) => num(n) > 0);
+  const sum = parts.reduce((t, [, n]) => t + num(n), 0);
+  const types = parts.length && Math.abs(sum - total) < 0.001
+    ? ` (${parts.map(([t, n]) => `${String(t).replace(/ Leave$/, "")} ${num(n)}`).join(", ")})` : "";
+  return `${plural(total, "day")}${types}`;
+}
+const leaveRow = (days, byType) => ({ key: "leave_with_pay", label: "Leave with pay", amount: 0, text: leaveWithPayText(days, byType) });
+
+/** Earnings: the leave row after the fixed rows, the leave conversion line right after it. */
+function withLeave(earnings, days, byType) {
+  const conversion = earnings.filter((l) => /^leave_conversion/.test(String(l.key || "")) || /^(Unused )?leave conversion/i.test(String(l.label || "")));
+  const rest = earnings.filter((l) => !conversion.includes(l));
+  const fixedCount = rest.findIndex((l) => !["basic", "overtime", "holiday"].includes(l.key));
+  const at = fixedCount < 0 ? rest.length : fixedCount;
+  return [...rest.slice(0, at), leaveRow(days, byType), ...conversion, ...rest.slice(at)];
+}
+
 /** The fixed rows in order (each line with that key in its place, else ₱0), then `after`, then every other line. */
 function withFixed(fixed, lines, { deferred = [], after = [] } = {}) {
   const used = new Set();
@@ -57,13 +82,12 @@ function fromGroups(g, holidayLines) {
   const carry = num(g.carry_over_out?.amount ?? g.carry_over_out);
   if (carry > 0) notes.push(`Carried to next month (deductions above this payslip's pay): ${pesoText(carry)}`);
   return {
-    earnings: withFixed(EARNINGS, additions.filter((l) => !INCENTIVE_KEYS.has(l.key))),
+    earnings: withLeave(withFixed(EARNINGS, additions.filter((l) => !INCENTIVE_KEYS.has(l.key))), leave, g.leave_with_pay_by_type),
     holiday_lines: holidayLines || [],
     incentives: withFixed(INCENTIVES, additions.filter((l) => INCENTIVE_KEYS.has(l.key))),
     deductions: [
       ...withFixed(DEDUCTIONS, deductions, {
         deferred: first ? ["sss", "philhealth", "pagibig", "withholding_tax"] : [],
-        after: [{ key: "leave_with_pay", label: "Leave with pay", amount: 0, text: leave > 0 ? `${plural(leave, "day")}, no deduction` : "0 days" }],
       }),
       ...(loans ? [] : [{ key: "loans", label: "Loans / cash advance", amount: 0, ...(first ? { text: DEFERRED } : {}) }]),
     ],
@@ -116,12 +140,11 @@ function fromFinalPay(fp, overpayment) {
 function fromCutoff(c, holidayLines) {
   const leave = num(c.leave_with_pay_days);
   return {
-    earnings: c.earnings.map((l, i) => ({ key: /^Holiday/.test(l.label) ? "holiday" : `e${i}`, label: l.label, amount: num(l.amount), note: l.note || null })),
+    earnings: withLeave(c.earnings.map((l, i) => ({ key: /^Holiday/.test(l.label) ? "holiday" : `e${i}`, label: l.label, amount: num(l.amount), note: l.note || null })), leave, c.leave_with_pay_by_type),
     holiday_lines: holidayLines || [],
     incentives: [],
     deductions: [
       ...c.deductions.filter((l) => l.credit || num(l.amount) > 0).map((l, i) => ({ key: `d${i}`, label: l.label, amount: num(l.amount), note: l.note || null, ...(l.credit ? { credit: true } : {}) })),
-      { key: "leave_with_pay", label: "Leave with pay", amount: 0, text: leave > 0 ? `${plural(leave, "day")}, no deduction` : "0 days" },
     ],
     gross: num(c.gross_pay),
     total_deductions: num(c.total_deductions),
@@ -142,8 +165,8 @@ function fromClassic(p) {
   const row = (key, label, amount) => ({ key, label, amount: num(amount) });
   const extra = (key, label, amount) => (num(amount) > 0 ? [row(key, label, amount)] : []);
   return {
-    earnings: [row("basic", "Basic salary", e.basic_salary), row("overtime", "Overtime", e.overtime), row("holiday", "Holiday pay", e.holiday_pay),
-      ...extra("transportation", "Transportation", p.transportation), ...extra("rice", "Rice allowance", p.rice), ...extra("bonus", "Bonus", p.bonus)],
+    earnings: withLeave([row("basic", "Basic salary", e.basic_salary), row("overtime", "Overtime", e.overtime), row("holiday", "Holiday pay", e.holiday_pay),
+      ...extra("transportation", "Transportation", p.transportation), ...extra("rice", "Rice allowance", p.rice), ...extra("bonus", "Bonus", p.bonus)], lwp, d.leave_with_pay_by_type),
     holiday_lines: p.holiday_lines || [],
     incentives: [
       ...extra("early_bird_bonus", num(inc.early_bird_days) ? `Early bird bonus (${plural(inc.early_bird_days, "day")})` : "Early bird bonus", inc.early_bird_incentive),
@@ -156,7 +179,6 @@ function fromClassic(p) {
       row("late", num(d.late_days) ? `Late (${plural(d.late_days, "day")})` : "Late", d.late_deduction),
       row("undertime", num(d.undertime_minutes) ? `Undertime (${d.undertime_minutes} min)` : "Undertime", d.undertime_deduction),
       row("half_day", num(d.half_days) ? `Half day (${plural(d.half_days, "day")})` : "Half day", d.half_day_deduction),
-      { key: "leave_with_pay", label: "Leave with pay", amount: 0, text: plural(lwp, "day") },
       row("lwop", "Leave without pay", d.leave_without_pay_deduction),
       row("cash_advance", "Cash advance", d.cash_advance),
     ],

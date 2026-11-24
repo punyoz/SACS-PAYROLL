@@ -42,23 +42,25 @@ test("substitution: the system proposes, the Admin cannot file, HR picks a sugge
     expect(refused.data.error).toMatch(/the system proposes them; HR picks the teacher/);
   });
 
-  await step(page, "HR > Leave Approval > Substitute teaching > Pick teacher: Bea is suggested (Carlo, another branch, is not); a teacher outside the suggestions is refused", async () => {
+  await step(page, "HR > Leave Approval > Substitute teaching > Assign: Bea is suggested (Carlo, another branch, is not); a teacher outside the suggestions is refused", async () => {
     await as(page, "hr", "hr-leaves");
     await settle(page);
     const row = main(page).getByTestId("substitutions").locator("tr", { hasText: ana.full_name }).filter({ hasText: start });
     await expect(row).toContainText("Pick a teacher");
+    await expect(row.getByTestId("pick-substitute")).toHaveText("Assign");
     const refused = await api(page, "PATCH", "/api/substitutions", { id, action: "approve", substitute_id: carlo.id, remark: { code: "approve.as_requested" } });
     expect(refused.status).toBe(400);
     expect(refused.data.error).toMatch(/cannot substitute here/);
     await row.getByTestId("pick-substitute").click();
     const dialog = page.getByTestId("arrange-substitute");
+    await expect(dialog.getByRole("heading")).toContainText("Assign substitute teacher");
     await dialog.getByRole("button", { name: "Find substitutes" }).click();
     const list = dialog.getByTestId("sub-suggestions");
     await expect(list).toContainText(bea.full_name);
     await expect(list).not.toContainText(carlo.full_name); // another branch
     await expect(list).not.toContainText(/subject/i); // never labelled a subject match
     await list.getByRole("radio", { name: new RegExp(bea.full_name) }).check();
-    await dialog.getByRole("button", { name: "Approve with this teacher" }).click();
+    await dialog.getByRole("button", { name: "Assign", exact: true }).click();
     await expect(dialog).toBeHidden({ timeout: 30000 });
     const saved = await rows(db().from("substitutions").select("status,substitute_id,periods").eq("id", id).single());
     expect(saved).toEqual({ status: "approved", substitute_id: bea.id, periods: 1 });

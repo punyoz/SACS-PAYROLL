@@ -256,6 +256,9 @@ export function AwolCasesPage({ refreshKey }) {
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => open("record_reply", c)}>Record reply</DropdownMenuItem>
+                  {/* 2026-11-26: take a case off the automation (HR runs it by hand) or put it back. */}
+                  {c.automation === "auto" ? <DropdownMenuItem onSelect={() => setStopping(c)}>Stop automation</DropdownMenuItem> : null}
+                  {c.automation === "stopped" ? <DropdownMenuItem onSelect={() => resume(c)}>Resume automation</DropdownMenuItem> : null}
                   <DropdownMenuItem onSelect={() => open("close", c)}>Close</DropdownMenuItem>
                 </>
               ) : null}

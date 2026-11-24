@@ -60,7 +60,7 @@ describe("tax: de minimis up to 10 days a year, any excess taxable", () => {
     expect(c).toMatchObject({ days: 12, amount: 14400, exempt_days: 10, exempt: 12000, taxable: 2400 });
   });
   it("the engine leaves the exempt part out of taxable income", () => {
-    expect(read("src/app/api/accountant/payroll/route.js")).toMatch(/adjustmentNonTaxable \+ \(leaveConversion \? toAmount\(leaveConversion\.exempt\) : 0\)/);
+    expect(read("src/app/api/accountant/payroll/route.js")).toMatch(/adjustmentNonTaxable \+ customNonTaxable \+ \(leaveConversion \? toAmount\(leaveConversion\.exempt\) : 0\)/); // 2026-11-26: + the non-taxable own pay types
   });
   it("settings: tax-free days and statuses are stored; the note says to verify with the school's accountant", () => {
     const s = leaveConversionFrom([{ section: "payroll", key: LEAVE_CONVERSION_KEYS.enabled, value: "true" }, { section: "payroll", key: LEAVE_CONVERSION_KEYS.taxFreeDays, value: "8" },

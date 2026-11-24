@@ -43,6 +43,9 @@ export function normalizeLeaveRequest(row) {
     decision_reason: row.decision_reason || null,
     // A half-day leave (Part B, 20261122020000): "AM" | "PM" on a one-day request; null for whole days.
     half_day: row.half_day === "AM" || row.half_day === "PM" ? row.half_day : null,
+    // Bereavement (20261126030000): whose death and when; only set on such a request.
+    ...(row.event_relationship ? { event_relationship: row.event_relationship } : {}),
+    ...(row.event_date ? { event_date: String(row.event_date).slice(0, 10) } : {}),
     updated_at: row.updated_at || row.submitted_at || new Date().toISOString(),
   };
 }
@@ -83,6 +86,18 @@ const LEAVE_COLUMNS_WITHOUT_PROOF = "id,employee_id,employee_name,position,leave
  * Leave Requests list (GET /api/hr/leave-requests) shows the proof.
  */
 export async function readLeaveRequestsWithoutProof(filters = {}) {
+  let rows;
+  try {
+    // Bereavement details (20261126030000), read when the columns exist.
+    rows = await readLeaveRequests(`${LEAVE_COLUMNS_WITHOUT_PROOF},decision_reason,event_relationship,event_date`, filters);
+  } catch (first) {
+    if (!/event_(relationship|date)/.test(String(first?.message || ""))) throw first;
+    return readLeaveRequestsWithoutProofBefore(filters);
+  }
+  return rows.map(({ proof_url: _proof, ...row }) => row);
+}
+
+async function readLeaveRequestsWithoutProofBefore(filters) {
   let rows;
   try {
     rows = await readLeaveRequests(`${LEAVE_COLUMNS_WITHOUT_PROOF},decision_reason`, filters);

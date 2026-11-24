@@ -10,6 +10,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { DataTable } from "@/components/portal/data-table";
 import { FilterTabs } from "@/components/portal/filter-tabs";
 import { StatusBadge } from "@/components/portal/status-badge";
+import { useMessageSelected } from "@/components/portal/message-selected";
 import { ItemThread, useThreadCounts } from "@/components/portal/item-thread";
 import { dateLabel, dateTime } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
@@ -45,6 +46,7 @@ export function LeaveRecommendationsPage({ refreshKey }) {
     get: { name: (l) => l.employee_name, code: (l) => l.employee_code, type: (l) => l.leave_type, filed: (l) => l.submitted_at || l.created_at, requested: (l) => l.start_date },
   });
   const counts = useThreadCounts("leave_request", filters.rows.map((l) => l.id), view.data);
+  const msg = useMessageSelected({ itemType: "leave_request", label: (l) => `${l.employee_name} · ${l.leave_type} · ${dateLabel(l.start_date)}`, onSent: view.load });
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (l) => l.employee_name },
     { key: "leave", header: "Leave", cell: (l) => <div className="text-xs"><p className="font-medium">{l.leave_type}{l.half_day ? ` (half day, ${l.half_day})` : ""}{l.pay_status === "without_pay" ? " (without pay)" : ""}</p><p className="text-muted-foreground">{dateLabel(l.start_date)}{l.end_date !== l.start_date ? ` – ${dateLabel(l.end_date)}` : ""}</p>{l.pending ? <LeaveBalanceNote balance={view.data?.balances?.[l.employee_id]} request={l} className="mt-1 max-w-56 whitespace-normal" /> : null}</div>, searchValue: (l) => l.leave_type },
@@ -64,7 +66,9 @@ export function LeaveRecommendationsPage({ refreshKey }) {
       <CardContent className="space-y-4">
         <DataTable toolbar={filters.toolbar}
           columns={columns} rows={filters.rows} loading={view.first} error={view.error} onRetry={view.load}
-          searchPlaceholder="Search name, ID or details…" empty={{ title: tab === "pending" ? "No leave waiting for HR" : "No leave requests", icon: CalendarDaysIcon }} caption="Branch leave requests" minWidth={1000} />
+          searchPlaceholder="Search name, ID or details…" empty={{ title: tab === "pending" ? "No leave waiting for HR" : "No leave requests", icon: CalendarDaysIcon }} caption="Branch leave requests" minWidth={1000}
+          selection={msg.selection} />
+        {msg.dialog}
       </CardContent>
     </Card>
   );
@@ -77,6 +81,7 @@ export function TransferEndorsementsPage({ refreshKey }) {
     get: { name: (t) => t.employee_name, code: (t) => t.employee_code, filed: (t) => t.created_at, requested: (t) => t.created_at },
   });
   const counts = useThreadCounts("transfer_request", filters.rows.map((t) => t.id), view.data);
+  const msg = useMessageSelected({ itemType: "transfer_request", label: (t) => `${t.employee_name} · ${t.from_branch} → ${t.to_branch}`, onSent: view.load });
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (t) => t.employee_name },
     { key: "direction", header: "Move", cell: (t) => <div className="text-xs"><StatusBadge tone={t.direction === "incoming" ? "info" : "gold"} dot={false}>{t.direction === "incoming" ? "Incoming" : "Outgoing"}</StatusBadge><p className="mt-1">{t.from_branch} → {t.to_branch}</p></div> },
@@ -93,7 +98,9 @@ export function TransferEndorsementsPage({ refreshKey }) {
       </CardHeader>
       <CardContent>
         <DataTable toolbar={filters.toolbar} columns={columns} rows={filters.rows} loading={view.first} error={view.error} onRetry={view.load}
-          searchPlaceholder="Search name, ID or details…" empty={{ title: "No transfers for your branch", icon: ArrowLeftRightIcon }} caption="Branch transfers" minWidth={900} />
+          searchPlaceholder="Search name, ID or details…" empty={{ title: "No transfers for your branch", icon: ArrowLeftRightIcon }} caption="Branch transfers" minWidth={900}
+          selection={msg.selection} />
+        {msg.dialog}
       </CardContent>
     </Card>
   );

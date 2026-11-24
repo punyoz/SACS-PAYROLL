@@ -41,6 +41,8 @@ const PROFILE_SELECT = [
   "cp_number", "address", PII_LAST4_COLUMNS, ...EMERGENCY_CONTACT_FIELDS,
   // 2026-11-24: an account not on payroll (Admin, Super Admin, system accounts) shows no contributions.
   "on_payroll",
+  // 2026-11-26: the Employment section of every on-payroll profile (employee, HR, Accountant).
+  "employee_id", "employee_type", "employment_status", "position", "date_hired", "branch_id",
 ].join(",");
 
 /**
@@ -78,6 +80,19 @@ export async function GET(request) {
     .eq("id", guard.userId)
     .maybeSingle();
   if (!staffError && staffRow?.staff_id) profile.staff_id = staffRow.staff_id;
+  // Employment (on payroll only; an account not on payroll shows none): the branch by name.
+  if (data && data.on_payroll !== false) {
+    let branchName = null;
+    if (data.branch_id) {
+      const { data: branch } = await supabase.from("branches").select("name").eq("id", data.branch_id).maybeSingle();
+      branchName = branch?.name || null;
+    }
+    profile.employment = {
+      employee_id: data.employee_id || null, category: data.employee_type || null, employment_status: data.employment_status || null,
+      position: data.position || null, branch: branchName, date_hired: data.date_hired ? String(data.date_hired).slice(0, 10) : null,
+    };
+  }
+  for (const key of ["employee_id", "employee_type", "employment_status", "position", "date_hired", "branch_id"]) delete profile[key];
   return NextResponse.json(
     { profile },
     { headers: { "Cache-Control": "no-store" } },

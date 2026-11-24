@@ -3,6 +3,7 @@
 import * as React from "react";
 import { HistoryIcon, Loader2Icon, PlusIcon, RefreshCwIcon } from "lucide-react";
 import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
+import { useMessageSelected } from "@/components/portal/message-selected";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -238,12 +239,14 @@ export async function fileRequest(kind, { employee_id, ref_id, decision, note, r
  * A "sent to HR" page: the filing button and dialog, and every request of the
  * kind with its status, HR's decision and history (kept for good).
  */
-export function RequestsPage({ refreshKey, kind, title, description, icon: Icon, fields, columns = [], buttonLabel, dialogTitle, dialogDescription, decisions = false, banner = null, initial = {}, empty, exportable = false, readOnly = false }) {
+export function RequestsPage({ refreshKey, kind, title, description, icon: Icon, fields, columns = [], buttonLabel, dialogTitle, dialogDescription, decisions = false, banner = null, initial = {}, empty, exportable = false, readOnly = false, showTitle = true, messageSelected = false }) {
   const { notify } = usePortalSession();
   const view = useBranchView("requests", { kind }, refreshKey);
   const [open, setOpen] = React.useState(false);
   const data = view.data;
   const counts = useThreadCounts("branch_admin_request", (data?.requests || []).map((r) => r.id), data);
+  // Branch Review (2026-11-26): select several, one message to HR in each item's thread.
+  const msg = useMessageSelected({ itemType: "branch_admin_request", label: (r) => `${requestEmployee(r) || r.kind_label || title} · ${r.status_label || ""}`, onSent: view.load });
   const allColumns = [
     // Search and sort shared with the export (src/lib/admin/request-table.js).
     { key: "employee_name", header: "Employee", sortValue: REQUEST_SORTS.employee_name.value, className: "font-medium", cell: (r) => requestEmployee(r) || "—", searchValue: requestEmployee },
@@ -261,7 +264,8 @@ export function RequestsPage({ refreshKey, kind, title, description, icon: Icon,
       {typeof banner === "function" ? banner(data) : banner}
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">{Icon ? <Icon className="size-4 text-gold-text" aria-hidden="true" /> : null}{title}</CardTitle>
+          {/* showTitle false: the page's tab already names it (one heading per section, 2026-11-26). */}
+          {showTitle ? <CardTitle className="flex items-center gap-2">{Icon ? <Icon className="size-4 text-gold-text" aria-hidden="true" /> : null}{title}</CardTitle> : null}
           {description ? <CardDescription>{description}</CardDescription> : null}
           <CardAction className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
@@ -272,7 +276,9 @@ export function RequestsPage({ refreshKey, kind, title, description, icon: Icon,
           {/* Report export, own branch only (alpha test B2): what the table shows, its search and sort (2026-11-19). */}
           <DataTable columns={allColumns} rows={data?.requests || []} loading={view.first} error={view.error} onRetry={view.load}
             toolbar={exportable ? (shown, table) => <ExportButtons href={`/api/admin/branch-oversight?view=requests&kind=${kind}`} params={tableParams(table)} label={title.toLowerCase()} disabled={!shown.length} /> : null}
-            searchPlaceholder="Search name, ID or details…" empty={empty || { title: "Nothing sent yet", icon: Icon }} caption={title} minWidth={1100} />
+            searchPlaceholder="Search name, ID or details…" empty={empty || { title: "Nothing sent yet", icon: Icon }} caption={title} minWidth={1100}
+            selection={messageSelected ? msg.selection : null} />
+          {messageSelected ? msg.dialog : null}
         </CardContent>
       </Card>
       {readOnly ? null : <FileDialog open={open} onOpenChange={setOpen} title={dialogTitle || buttonLabel} description={dialogDescription} fields={fields}

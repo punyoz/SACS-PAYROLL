@@ -86,7 +86,7 @@ import {
   scheduleCashAdvances,
   validateCashAdvanceInput,
 } from "@/lib/payroll/cash-advance";
-import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows, forEachInChunk } from "@/lib/supabase/fetch-all";
 import { attendanceChangesAfterFinal } from "@/lib/payroll/final-payslips";
 import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { holidayAppliesTo } from "@/lib/attendance/holidays";
@@ -115,6 +115,7 @@ import { loadClassificationContext } from "@/lib/employees/classification-server
 import { classificationOn } from "@/lib/employees/classification";
 import { cutoffClosed, gateRuleIncentives, loadIncentiveGate, syncIncentiveRecommendations } from "@/lib/payroll/incentive-recommendations";
 import { extraDayLines } from "@/lib/attendance/special-days";
+import { NEW_ITEM_KINDS, withPayTypeNames } from "@/lib/payroll/pay-types";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -1048,6 +1049,8 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
     const halfDays = new Set();
     let withPayDays = 0;
     let withoutPayDays = 0;
+    // Paid leave by type (2026-11-26): the payslip's "Leave with pay: 2 days (Vacation 1, Sick 1)".
+    const withPayByType = {};
 
     requestsForEmployee.forEach((request) => {
       const requestStart = String(request.start_date || "");
@@ -1064,7 +1067,11 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
         (share < 1 ? halfDays : coveredDays).add(day);
         if (!isLeaveWorkingDay(day, holidays)) return;
         if (includeDay && !includeDay(day, request, employee)) return;
-        if (request.pay_status === "without_pay") { withoutPayDates.push(day); withoutPayDays += share; } else { withPayDates.push(day); withPayDays += share; }
+        if (request.pay_status === "without_pay") { withoutPayDates.push(day); withoutPayDays += share; } else {
+          withPayDates.push(day); withPayDays += share;
+          const type = String(request.leave_type || "Leave");
+          withPayByType[type] = (withPayByType[type] || 0) + share;
+        }
       });
     });
 
@@ -1073,6 +1080,7 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
     summaries.push({
       employee_id: employee.id,
       with_pay_days: withPayDays,
+      with_pay_by_type: withPayByType,
       without_pay_days: withoutPayDays,
       with_pay_dates: withPayDates,
       without_pay_dates: withoutPayDates,
@@ -1427,7 +1435,7 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
       .select("employee_id,effective_date,sss,philhealth,pagibig,created_at")
       .lte("effective_date", period.start_key),
     fetchAllRows(() => supabase.from("payroll_monthly_incentives")
-      .select("id,employee_id,item_date,kind,description,amount,hours,created_at,approval_status,decided_at,reason,non_taxable")
+      .select("id,employee_id,item_date,kind,description,amount,hours,created_at,approval_status,decided_at,reason,non_taxable,pay_type_id")
       .eq("archived", false)
       .gte("item_date", SEMI_MONTHLY_RULES_EFFECTIVE)
       .lte("item_date", window.end_key)
@@ -1448,6 +1456,8 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
   const leaveConversion = await loadYearEndLeaveConversion(supabase, employees, period);
   const ceilingRate = resolveRate(configs, "benefits_exempt_ceiling", {}, period.start_key);
   const benefitsCeiling = ceilingRate.source === "config" ? Number(ceilingRate.value) : DEFAULT_BENEFITS_CEILING;
+  // A custom Additional Pay type: its name on the payslip line (2026-11-26).
+  if (itemResult.data) itemResult.data = await withPayTypeNames(supabase, itemResult.data);
   const failed = taxResult.error || contributionResult.error || itemResult.error || !cash.ready || !loanContext.ready || !subsidyContext.ready
     || !yearEndTax.ready;
   const taxTable = failed ? [] : taxTableFromRows(resolveTaxTableRows(taxResult.data, period.start_key));
@@ -1560,7 +1570,7 @@ async function loadPerHalfContext(supabase, employees, period, configs, holidays
       .lte("effective_date", period.start_key),
     half === "second"
       ? fetchAllRows(() => supabase.from("payroll_monthly_incentives")
-        .select("id,employee_id,item_date,kind,description,amount,hours,created_at,approval_status,decided_at,reason,non_taxable")
+        .select("id,employee_id,item_date,kind,description,amount,hours,created_at,approval_status,decided_at,reason,non_taxable,pay_type_id")
         .eq("archived", false)
         .gte("item_date", SEMI_MONTHLY_RULES_EFFECTIVE)
         .lte("item_date", month.end_key)
@@ -1569,6 +1579,8 @@ async function loadPerHalfContext(supabase, employees, period, configs, holidays
       : none,
     loadCashAdvanceContext(supabase, employeeIds, period),
   ]);
+  // A custom Additional Pay type: its name on the payslip line (2026-11-26).
+  if (itemResult.data) itemResult.data = await withPayTypeNames(supabase, itemResult.data);
   const failed = contributionResult.error || itemResult.error || !cash.ready;
   const { advances, repaid } = cash;
 
@@ -2287,6 +2299,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
 
   // Leave comes from approved leave requests. With Pay is never editable.
   const leaveWithPayDays = toAmount(leave?.with_pay_days || 0);
+  const leaveWithPayByType = leave?.with_pay_by_type && typeof leave.with_pay_by_type === "object" ? leave.with_pay_by_type : {};
   const defaultWithoutPay = toAmount(leave?.without_pay_days || 0);
   const leaveWithoutPayDays = pickAmount(deductionsIn.leave_without_pay_days, defaultWithoutPay);
   note("leave_without_pay_days", defaultWithoutPay, leaveWithoutPayDays);
@@ -2347,7 +2360,10 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   const bonusItems = sumItems("bonus", itemAmount);
   const adjustmentTaxable = toAmount(items.filter((i) => i.kind === "adjustment" && !i.non_taxable).reduce((sum, i) => sum + toAmount(i.amount), 0));
   const adjustmentNonTaxable = toAmount(items.filter((i) => i.kind === "adjustment" && i.non_taxable).reduce((sum, i) => sum + toAmount(i.amount), 0));
-  const otherIncentive = toAmount(sumItems("incentive", itemAmount) + honorariumPay + bonusItems + adjustmentTaxable + adjustmentNonTaxable);
+  // The Accountant's own types (2026-11-26): taxable like an honorarium, or non-taxable (its type said so when filed).
+  const customTaxable = toAmount(items.filter((i) => i.kind === "custom" && !i.non_taxable).reduce((sum, i) => sum + toAmount(i.amount), 0));
+  const customNonTaxable = toAmount(items.filter((i) => i.kind === "custom" && i.non_taxable).reduce((sum, i) => sum + toAmount(i.amount), 0));
+  const otherIncentive = toAmount(sumItems("incentive", itemAmount) + honorariumPay + bonusItems + adjustmentTaxable + adjustmentNonTaxable + customTaxable + customNonTaxable);
   const overloadHours = sumItems("overload", (item) => Number(item.hours) || 0);
   const overloadPay = sumItems("overload", itemAmount);
   // Substitute teaching (Part C, 2026-11-22): this payslip's approved substitutions confirmed by the
@@ -2407,7 +2423,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   // Leave conversion (Dec 16–31): an earning; de minimis up to the tax-free days, any excess taxable.
   const leaveConversion = settling && semi?.leave_conversion?.amount > 0 ? semi.leave_conversion : null;
   const leaveConversionPay = leaveConversion ? toAmount(leaveConversion.amount) : 0;
-  const nonTaxable = toAmount(subsidy.non_taxable + (bonuses?.exempt || 0) + adjustmentNonTaxable + (leaveConversion ? toAmount(leaveConversion.exempt) : 0));
+  const nonTaxable = toAmount(subsidy.non_taxable + (bonuses?.exempt || 0) + adjustmentNonTaxable + customNonTaxable + (leaveConversion ? toAmount(leaveConversion.exempt) : 0));
   // 2nd half: the month's gross (contributions do not change it). Nothing
   // earned -> no SSS / PhilHealth / Pag-IBIG by default.
   if (settling) {
@@ -2593,7 +2609,9 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
         type: "incentive", quantity: 1, unit: "item", rate: itemAmount(item), rate_config_id: null,
         amount: itemAmount(item), source_log_id: null, is_override: false,
         // "Honorarium: Seminar speaker (Nov 15)"; an incentive keeps its own text.
-        note: ITEM_KIND_LABELS[item.kind] ? `${ITEM_KIND_LABELS[item.kind]}: ${item.description}${item.kind === "adjustment" && item.reason ? `. ${item.reason}` : ""} (${shortDate(item.item_date)})` : item.description || null,
+        note: item.kind === "custom"
+          ? `${item.pay_type_name || "Additional pay"}: ${item.description}${item.non_taxable ? " (not taxable)" : ""} (${shortDate(item.item_date)})`
+          : ITEM_KIND_LABELS[item.kind] ? `${ITEM_KIND_LABELS[item.kind]}: ${item.description}${item.kind === "adjustment" && item.reason ? `. ${item.reason}` : ""} (${shortDate(item.item_date)})` : item.description || null,
         log_date: String(item.item_date).slice(0, 10), item_kind: item.kind,
       })),
     // Leave conversion (Dec 16–31): "Leave conversion: 3 unused days × ₱1,471.26 = ₱4,413.78".
@@ -2628,6 +2646,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       undertime_minutes: used.undertime_minutes,
       half_days: used.half_days,
       leave_with_pay_days: leaveWithPayDays,
+      leave_with_pay_by_type: leaveWithPayByType,
       leave_without_pay_days: leaveWithoutPayDays,
       cash_advance: cashAdvance.total,
       loan: toAmount(loanSchedule.total + subsidy.prior_offset),
@@ -3606,7 +3625,7 @@ async function handleProcessThirteenthMonth(supabase, body, guard) {
 
 /* ── Incentives and overload hours (payroll_monthly_incentives) ────────────── */
 
-const MONTHLY_ITEM_KINDS = new Set(["incentive", "overload", "honorarium", "bonus", "adjustment"]);
+const MONTHLY_ITEM_KINDS = new Set(["incentive", "overload", "honorarium", "bonus", "adjustment", "custom"]);
 
 /** Lock days in force, from the rate versions (semi-monthly payroll). */
 async function loadLockDayFor(supabase) {
@@ -3663,7 +3682,7 @@ async function handleMonthlyItemsView(supabase, employees, url) {
 
   const result = await fetchAllRows(() => supabase
     .from("payroll_monthly_incentives")
-    .select("id,employee_id,item_date,kind,description,amount,hours,created_at,created_by_name,approval_status,decided_by_name,decided_at,decision_note")
+    .select("id,employee_id,item_date,kind,description,amount,hours,created_at,created_by_name,approval_status,decided_by_name,decided_at,decision_note,pay_type_id,non_taxable")
     .eq("archived", false)
     // Every item processing could pay this month (the same lower bound as
     // processing), not only last month's: an item filed two or more months
@@ -3676,7 +3695,7 @@ async function handleMonthlyItemsView(supabase, employees, url) {
     return NextResponse.json({ available: false, error: PAYROLL_NOT_READY_MESSAGE, month, items: [] });
   }
 
-  const items = (result.data || [])
+  const items = (await withPayTypeNames(supabase, result.data || []))
     .filter((item) => names.has(item.employee_id))
     .map((item) => {
       const payrollMonth = itemPayrollMonth(item, lockDayFor);
@@ -3747,15 +3766,26 @@ async function handleAddMonthlyItem(supabase, body, guard) {
   const reason = normalizeText(body.reason).slice(0, 300) || null;
   const amount = Number(body.amount);
   const hours = Number(body.hours);
-  const label = { incentive: "Incentive", overload: "Overload", honorarium: "Honorarium", bonus: "Bonus", adjustment: "Adjustment" }[kind];
-  if (!MONTHLY_ITEM_KINDS.has(kind)) return NextResponse.json({ error: "Choose Incentive, Overload, Honorarium, Bonus or Adjustment." }, { status: 400 });
+  // 2026-11-26: Adjustment is no longer offered (old adjustments stay readable and paid as filed);
+  // the Accountant's own types are kind "custom" with pay_type_id (an active type).
+  if (kind === "adjustment") return NextResponse.json({ error: "Adjustment is no longer offered. Use one of the pay types, or add your own in Settings > Additional pay types.", code: "adjustment_retired" }, { status: 400 });
+  if (!MONTHLY_ITEM_KINDS.has(kind) || !NEW_ITEM_KINDS.includes(kind)) return NextResponse.json({ error: "Choose Incentive, Overload, Honorarium, Bonus or one of your pay types." }, { status: 400 });
+  let payType = null;
+  if (kind === "custom") {
+    const typeId = normalizeText(body.pay_type_id);
+    const found = /^[0-9a-f-]{36}$/i.test(typeId) ? await supabase.from("additional_pay_types").select("id,name,taxable,active").eq("id", typeId).maybeSingle() : { data: null };
+    payType = found.data || null;
+    if (!payType) return NextResponse.json({ error: "Choose the pay type." }, { status: 400 });
+    if (!payType.active) return NextResponse.json({ error: `"${payType.name}" is deactivated. Reactivate it in Settings > Additional pay types, or choose another.` }, { status: 400 });
+  }
+  const label = kind === "custom" ? payType.name : { incentive: "Incentive", overload: "Overload", honorarium: "Honorarium", bonus: "Bonus" }[kind];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(itemDate)) return NextResponse.json({ error: "Choose the date it is for." }, { status: 400 });
   if (itemDate < SEMI_MONTHLY_RULES_EFFECTIVE) {
     return NextResponse.json({ error: `Incentives and overload are paid by the semi-monthly payroll, from ${formatDateKey(SEMI_MONTHLY_RULES_EFFECTIVE)}.` }, { status: 400 });
   }
   if (!description) return NextResponse.json({ error: "Describe what it is for." }, { status: 400 });
-  if (["incentive", "honorarium", "bonus"].includes(kind) && !(Number.isFinite(amount) && amount > 0 && amount <= INCENTIVE_MAX)) {
-    return NextResponse.json({ error: `Enter ${kind === "incentive" ? "an incentive" : `a ${kind}`} amount greater than 0 and at most ${pesoLimit(INCENTIVE_MAX)}.` }, { status: 400 });
+  if (["incentive", "honorarium", "bonus", "custom"].includes(kind) && !(Number.isFinite(amount) && amount > 0 && amount <= INCENTIVE_MAX)) {
+    return NextResponse.json({ error: `Enter ${kind === "incentive" ? "an incentive" : kind === "custom" ? `the ${payType.name}` : `a ${kind}`} amount greater than 0 and at most ${pesoLimit(INCENTIVE_MAX)}.` }, { status: 400 });
   }
   if (kind === "adjustment" && !(Number.isFinite(amount) && amount !== 0 && Math.abs(amount) <= INCENTIVE_MAX)) {
     return NextResponse.json({ error: `Enter the adjustment: more than 0 to add, less than 0 to deduct (at most ${pesoLimit(INCENTIVE_MAX)} either way).` }, { status: 400 });
@@ -3783,7 +3813,9 @@ async function handleAddMonthlyItem(supabase, body, guard) {
     amount: kind === "overload" ? null : toAmount(amount),
     hours: kind === "overload" ? toAmount(hours) : null,
     reason,
-    non_taxable: kind === "adjustment" && body.non_taxable === true,
+    // A custom type's tax treatment is copied when filed (a later change to the type never changes this item).
+    non_taxable: kind === "custom" ? payType.taxable === false : false,
+    ...(kind === "custom" ? { pay_type_id: payType.id } : {}),
     created_by: guard.userId || null,
     created_by_name: actorName || null,
     created_at: createdAt,
@@ -3836,6 +3868,49 @@ async function handleAddMonthlyItem(supabase, body, guard) {
     // Filed after the lock day: paid with next month's payroll (intended).
     deferred: payrollMonth !== monthKeyOf(itemDate),
   });
+}
+
+/**
+ * PATCH { action: "remove_pending_items", item_ids[] } (2026-11-26, Additional Pay "Remove selected"):
+ * only items still waiting for HR (never an approved, rejected or paid one); every item is checked first
+ * and none is removed if one is refused. Each removal is logged (archived, never deleted).
+ */
+async function handleRemovePendingItems(supabase, body, guard) {
+  const ids = [...new Set((Array.isArray(body.item_ids) ? body.item_ids : []).map((v) => normalizeText(v)).filter(Boolean))];
+  if (!ids.length) return NextResponse.json({ error: "Select at least one item." }, { status: 400 });
+  if (ids.length > 200) return NextResponse.json({ error: "At most 200 items at a time." }, { status: 400 });
+  const found = await fetchAllIn(() => supabase.from("payroll_monthly_incentives").select("*").order("id", { ascending: true }), "id", ids);
+  if (found.error) throw new Error(found.error.message);
+  const rows = found.data || [];
+  if (rows.length !== ids.length || rows.some((r) => r.archived)) return NextResponse.json({ error: "One of the selected items is no longer listed. Refresh and try again." }, { status: 404 });
+  const employees = new Map((await fetchEmployees(supabase, guard)).map((e) => [e.id, e]));
+  for (const item of rows) {
+    if (!employees.has(item.employee_id)) return NextResponse.json({ error: "One of the selected items belongs to another branch. Nothing was removed." }, { status: 403 });
+    const own = refuseOwnPayroll(guard, item.employee_id);
+    if (own) return own;
+    if (normalizeText(item.approval_status, "pending") !== "pending") {
+      return NextResponse.json({ error: `${employees.get(item.employee_id).full_name}: "${item.description}" is already ${item.approval_status}; only items still waiting for HR can be removed. Nothing was removed.`, code: "not_pending" }, { status: 409 });
+    }
+  }
+  const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
+  const now = new Date().toISOString();
+  let removed = 0;
+  const result = await forEachInChunk(ids, async (part) => {
+    const out = await supabase.from("payroll_monthly_incentives")
+      .update({ archived: true, archived_by: guard.userId || null, archived_by_name: actorName || null, archived_at: now })
+      .in("id", part).eq("approval_status", "pending").eq("archived", false).select("id");
+    removed += (out.data || []).length;
+    return out;
+  });
+  if (result.error) throw new Error(result.error.message);
+  for (const item of rows) {
+    await appendAuditLog({
+      actor: guard, module: "payroll", action: "monthly_item_archive", entity_type: "payroll_monthly_incentive", entity_id: item.id,
+      description: `Removed ${item.kind} "${item.description}" for ${employees.get(item.employee_id).full_name} before HR's decision (one of ${ids.length} removed together).`,
+      status: "success", source: "api", metadata: { item_id: item.id, employee_id: item.employee_id, bulk: ids.length },
+    });
+  }
+  return NextResponse.json({ success: true, removed });
 }
 
 /** PATCH { action: "archive_monthly_item", item_id }: never once a Final payslip paid it. */
@@ -5461,6 +5536,7 @@ export async function PATCH(request) {
     if (action === "generate") return await handleGenerate(getAdminClient(), body, guard, { override: false });
     if (action === "override_final") return await handleGenerate(getAdminClient(), body, guard, { override: true });
     if (action === "archive_monthly_item") return await handleArchiveMonthlyItem(getAdminClient(), body, guard);
+    if (action === "remove_pending_items") return await handleRemovePendingItems(getAdminClient(), body, guard);
     if (action === "process_13th_month") return await handleProcessThirteenthMonth(getAdminClient(), body, guard);
     if (action === "set_cash_advance_status") return await handleSetCashAdvanceStatus(getAdminClient(), body, guard);
 
