@@ -1,6 +1,5 @@
 "use client";
 
-import { SubstitutionsPanel } from "@/components/portal/substitutions";
 import { DecisionReasonsCard } from "@/components/portal/remark-presets-manager";
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
@@ -157,7 +156,6 @@ function AdminScreens() {
       {current === "adm-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
       {current === "adm-overtime" ? <OvertimeConfirmationsPage refreshKey={refreshKey} /> : null}
       {/* Part C: arrange substitute teaching (HR approves; taps confirm; payroll pays). */}
-      {current === "adm-overtime" ? <SubstitutionsPanel role="admin" refreshKey={refreshKey} /> : null}
       {current === "adm-leaves" ? <LeaveRecommendationsPage refreshKey={refreshKey} /> : null}
       {current === "adm-transfers" ? <TransferEndorsementsPage refreshKey={refreshKey} /> : null}
       {current === "adm-incentives" ? <IncentiveEndorsementsPage refreshKey={refreshKey} /> : null}
