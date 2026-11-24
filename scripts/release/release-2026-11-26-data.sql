@@ -116,6 +116,24 @@ INSERT INTO public.system_config (section, key, value, updated_by) VALUES
   ('demo', 'recompute', '{"enabled": true, "period": "November 16-30, 2026", "on": "2026-11-27"}', 'Super Administrator')
 ON CONFLICT (section, key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by;
 
+-- 8. Sex and civil status of the 8 accounts on payroll that had none (fictional, the owner's instruction):
+--    statutory leave reads them (Marisol: maternity; Carlo: paternity). Before-images saved; logged.
+CREATE TEMP TABLE sex_civil (full_name text, sex text, civil_status text) ON COMMIT DROP;
+INSERT INTO sex_civil VALUES
+  ('Marisol Santos Aquino', 'Female', 'Married'), ('Carlo Reyes Mendoza', 'Male', 'Married'),
+  ('Liza Gomez Ferrer', 'Female', 'Single'), ('Ramon Cruz Salazar', 'Male', 'Married'), ('Nestor Lim Pascual', 'Male', 'Single'),
+  ('Andrea Lopez Villanueva', 'Female', 'Single'), ('Joanna Reyes Marquez', 'Female', 'Single'), ('Teresa Cruz Bautista', 'Female', 'Married');
+INSERT INTO private.release_20261126_before (tbl, id, col, val)
+  SELECT 'auth_users', u.id::text, 'sex_civil', json_build_object('sex', u.raw_user_meta_data->>'sex', 'civil_status', u.raw_user_meta_data->>'civil_status')::text
+  FROM auth.users u JOIN public.profiles p ON p.id = u.id JOIN sex_civil x ON x.full_name = p.full_name
+  WHERE NOT p.archived AND p.on_payroll AND (coalesce(u.raw_user_meta_data->>'sex', '') = '' OR coalesce(u.raw_user_meta_data->>'civil_status', '') = '');
+UPDATE auth.users u SET raw_user_meta_data = coalesce(u.raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('sex', x.sex, 'civil_status', x.civil_status)
+  FROM public.profiles p JOIN sex_civil x ON x.full_name = p.full_name
+  WHERE p.id = u.id AND NOT p.archived AND p.on_payroll AND u.id::text IN (SELECT id FROM private.release_20261126_before WHERE tbl = 'auth_users' AND col = 'sex_civil');
 INSERT INTO public.audit_logs (module, action, entity_type, entity_id, description, source, actor_role, actor_name, metadata)
-VALUES ('config', 'release_data', 'release', '2026-11-26', 'Release 2026-11-26 data step: demo IDs to SACS-101..105, real-looking contacts, names, readable dates, legacy Admin items archived, leave conversion on, Nov 27 recompute scheduled.', 'system', 'super_admin', 'Super Administrator (owner''s instruction)', '{}'::jsonb);
+SELECT 'user_management', 'profile_update', 'profile', b.id, 'Sex and civil status filled in for ' || p.full_name || ' (release data step, owner''s instruction).', 'system', 'super_admin', 'Super Administrator (owner''s instruction)', '{"fields": ["sex", "civil_status"]}'::jsonb
+FROM private.release_20261126_before b JOIN public.profiles p ON p.id::text = b.id WHERE b.tbl = 'auth_users' AND b.col = 'sex_civil';
+
+INSERT INTO public.audit_logs (module, action, entity_type, entity_id, description, source, actor_role, actor_name, metadata)
+VALUES ('config', 'release_data', 'release', '2026-11-26', 'Release 2026-11-26 data step: demo IDs to SACS-101..105, real-looking contacts, names, readable dates, legacy Admin items archived, leave conversion on, Nov 27 recompute scheduled, sex and civil status of 8 accounts filled in.', 'system', 'super_admin', 'Super Administrator (owner''s instruction)', '{}'::jsonb);
 COMMIT;

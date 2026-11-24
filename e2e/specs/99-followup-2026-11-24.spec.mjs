@@ -64,7 +64,7 @@ test("AWOL reply: the employee replies from My Notices; the automation stops; HR
     await settle(page);
     // 2026-11-26: the replies and their files are in the case's details drawer.
     const row = main(page).getByRole("row").filter({ hasText: bea.full_name });
-    await row.getByRole("button", { name: bea.full_name }).click();
+    await row.getByRole("button", { name: bea.full_name, exact: true }).click();
     const drawer = page.getByTestId("awol-drawer");
     await expect(drawer.getByTestId("awol-replies")).toContainText("I was confined at the hospital");
     await expect(drawer.getByRole("button", { name: "medical-certificate.pdf" })).toBeVisible();

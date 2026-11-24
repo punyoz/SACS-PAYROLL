@@ -34,6 +34,8 @@ The other accounts on payroll are Andrea Villanueva, Ehd Astillero Refuerzo, Jan
 | 04 | Category, status, Maintenance | Maricel | HR › Employees | Nestor's position Maintenance; statuses; no employment type |
 | 05 | Leave credits pool | Marisol | Employee › My Requests | "Leave credits: 2 of 5 days used · 3 days left" |
 | 06 | Statutory leave | Maricel | HR › Settings › Status & leave rules | Separate from the pool |
+| 06 | Maternity | Marisol | My Requests › New request › Leave | Maternity Leave is in her leave types (female, married) |
+| 06 | Paternity | Carlo | My Requests › New request › Leave | Paternity Leave is in his leave types (male, married; first 4 deliveries) |
 | 07 | AWOL | Ramon; Maricel | My Notices; HR › AWOL cases | Script B below |
 | 09 | Substitution | Maricel; Marisol | HR › Approvals; My Payslips | Proposed from Carlo's sick leave; Marisol's substitution line |
 | 10 | Additional pay | Rowena; Maricel | Accountant › Additional Pay; HR › Incentives & loans | Honoraria and Ramon's adjustment |
