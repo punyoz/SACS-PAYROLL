@@ -91,7 +91,11 @@ describe("Settings > Automation; no card on any dashboard", () => {
 describe("profile: accounts not on payroll", () => {
   it("no Government contributions unless on payroll", () => {
     const page = src("src/components/portal/staff-profile.jsx");
-    expect(page).toMatch(/\{accountOnly \|\| onPayroll !== true \? null : \(\n\s+<Section icon=\{ShieldCheckIcon\} title="Government contributions">/);
+    // 2026-11-26: the shared sections (Employment too), still only when on payroll.
+    expect(page).toMatch(/\{accountOnly \|\| onPayroll !== true \? null : <EmploymentSection employment=\{stored\.employment\} \/>\}/);
+    expect(page).toMatch(/\{accountOnly \|\| onPayroll !== true \? null : <GovernmentSection numbers=\{governmentNumbers\(stored, ctx\)\} \/>\}/);
+    expect(page).toMatch(/<Section icon=\{ShieldCheckIcon\} title="Government contributions">/);
+    expect(src("src/app/employee/profile-page.jsx")).toMatch(/\{onPayroll === true \? <GovernmentSection /);
     expect(src("src/app/api/legacy-auth/update-profile/route.js")).toMatch(/"on_payroll",/);
   });
 });
