@@ -39,6 +39,9 @@ for (const role of ROLES) {
 }
 
 // ── 6. HR overrides an attendance day ───────────────────────────────────────
+// Dates show as "Nov 26, 2026" (2026-11-24 release).
+const shownDate = (key) => new Date(`${key}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+
 test("smoke: HR overrides an attendance day (both times, with a note)", async ({ page }) => {
   const bea = await profileByEmail(ACCOUNTS.employee2.email);
   // The most recent past weekday that is not a holiday.
@@ -146,7 +149,7 @@ test("smoke: the Employee files an overtime request and cancels it on the page",
     await page.reload();
     await settle(page);
     await requestTab(page, "Overtime");
-    const row = main(page).getByTestId("my-overtime-requests").getByRole("row").filter({ hasText: date });
+    const row = main(page).getByTestId("my-overtime-requests").getByRole("row").filter({ hasText: shownDate(date) });
     await row.getByRole("button", { name: "Cancel" }).click();
     await expect(row).toContainText("Cancelled");
   });

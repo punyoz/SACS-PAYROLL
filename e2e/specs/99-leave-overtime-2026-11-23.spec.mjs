@@ -66,6 +66,9 @@ for (const [role, pageId] of [["employee", "emp-leave"], ["hr", "hr-my-leave"], 
   });
 }
 
+// Dates show as "Nov 26, 2026" (2026-11-24 release).
+const shownDate = (key) => new Date(`${key}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+
 test("employee: the tab is in the address; a pending overtime shows its count on the tab", async ({ page, monitor }) => {
   monitor.at("Employee > Leave & Overtime (tabs)");
   const bea = await profileByEmail(ACCOUNTS.employee2.email);
@@ -79,7 +82,7 @@ test("employee: the tab is in the address; a pending overtime shows its count on
     await settle(page);
     await expect(main(page).getByRole("tab", { name: /^Overtime/ })).toHaveAttribute("aria-selected", "true");
     await expect(main(page).getByRole("tab", { name: /^Overtime\s*[1-9]/ })).toBeVisible();
-    await expect(main(page).getByTestId("my-overtime-requests").getByRole("row").filter({ hasText: day })).toContainText("Pending");
+    await expect(main(page).getByTestId("my-overtime-requests").getByRole("row").filter({ hasText: shownDate(day) })).toContainText("Pending");
     await page.screenshot({ path: join(OUT, "employee-overtime-tab.png"), fullPage: true });
     // Back to Leave, then the old address (no tab) opens Leave.
     await requestTab(page, "Leave");
