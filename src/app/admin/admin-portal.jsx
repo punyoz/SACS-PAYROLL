@@ -104,20 +104,12 @@ const DESCRIPTIONS = {
 };
 
 
-/** Old addresses (2026-11-24: one RFID page): rewritten before the page is read. */
-function redirectMovedPage(moved) {
-  if (typeof window === "undefined") return;
-  const params = new URLSearchParams(window.location.search);
-  const to = moved[params.get("page")];
-  if (!to) return;
-  params.set("page", to);
-  window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
-}
+/** Old addresses (2026-11-24: one RFID page): rewritten when the page is read (usePersistedPage). */
+const MOVED_PAGES = { "adm-rfid-issues": "adm-maintenance" };
 
 function AdminScreens() {
-  redirectMovedPage({ "adm-rfid-issues": "adm-maintenance" });
   const { can, me } = usePortalSession();
-  const [page, setPage] = usePersistedPage("admin", PAGE_IDS, "adm-dashboard");
+  const [page, setPage] = usePersistedPage("admin", PAGE_IDS, "adm-dashboard", MOVED_PAGES);
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [refreshing, setRefreshing] = React.useState(false);
   const [summary, setSummary] = React.useState([]);

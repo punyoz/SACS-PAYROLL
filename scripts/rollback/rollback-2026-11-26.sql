@@ -24,6 +24,11 @@ DO $r$ DECLARE r record; BEGIN
   END LOOP;
 END $r$;
 
+-- Sex and civil status (data step 8): back to what they were (a key that was missing is removed again).
+UPDATE auth.users u SET raw_user_meta_data = (u.raw_user_meta_data - 'sex' - 'civil_status')
+    || jsonb_strip_nulls(jsonb_build_object('sex', b.val::json->>'sex', 'civil_status', b.val::json->>'civil_status'))
+  FROM private.release_20261126_before b WHERE b.tbl = 'auth_users' AND b.col = 'sex_civil' AND u.id::text = b.id;
+
 ALTER TABLE public.awol_notices DISABLE TRIGGER USER;
 UPDATE public.awol_notices n SET body = b.val FROM private.release_20261126_before b WHERE b.tbl = 'awol_notices' AND n.id::text = b.id;
 ALTER TABLE public.awol_notices ENABLE TRIGGER USER;

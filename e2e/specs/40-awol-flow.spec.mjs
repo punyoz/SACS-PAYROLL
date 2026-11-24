@@ -6,7 +6,7 @@ import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
 import { choose, refresh, writeRemark } from "../support/flow.mjs";
-import { db, profileByEmail, rows } from "../support/db.mjs";
+import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
 const NOTE = `E2E no-show, not reachable by phone ${Date.now()}`;
@@ -47,7 +47,16 @@ test("AWOL: admin files a no-show → HR AWOL case → HR confirms and closes �
   });
 
   await step(page, "HR > AWOL Cases > Proceed (confirms AWOL and sends the 1st notice; one primary button, 2026-11-26)", async () => {
-    const row = main(page).locator("tr", { hasText: "Bea" }).first();
+    // With AWOL automation on, the reported case runs by itself: "Automatic", the system confirms it tonight.
+    let row = main(page).locator("tr", { hasText: "Bea" }).first();
+    await expect(row.getByTestId("awol-automation")).toContainText("Automatic");
+    await expect(row.getByTestId("awol-next-step")).toContainText("The system confirms it tonight");
+    await expect(row.getByTestId("awol-proceed")).toHaveCount(0);
+    // HR takes it by hand (what Stop automation does on the case): Proceed is the one primary button.
+    const [open] = await rows(db().from("employee_awol_cases").select("id").eq("employee_id", bea.id).neq("stage", "closed").limit(1));
+    psql(`update employee_awol_cases set automation = 'stopped', automation_reason = 'E2E: HR handles it by hand' where id = '${open.id}';`);
+    await refresh(page);
+    row = main(page).locator("tr", { hasText: "Bea" }).first();
     await row.getByTestId("awol-proceed").click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toContainText("Confirms AWOL (pay on hold) and sends the 1st notice now");

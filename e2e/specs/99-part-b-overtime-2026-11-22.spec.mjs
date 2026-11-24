@@ -45,7 +45,9 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
   // Start clean on both days: another spec may have left Bea an open request on one of them
   // (one open request per day is a rule; 2026-11-24 full run: 99-leave-overtime used Nov 30).
   const bea0 = await profileByEmail(ACCOUNTS.employee2.email);
-  await db().from("overtime_requests").delete().eq("employee_id", bea0.id).in("request_date", [date, other]);
+  // Requests are never deleted (overtime_requests_guard): open ones are cancelled.
+  const cleared = await db().from("overtime_requests").update({ status: "cancelled" }).eq("employee_id", bea0.id).in("request_date", [date, other]).eq("status", "pending");
+  expect(cleared.error, "test setup: Bea's open requests on these days cancelled").toBeNull();
 
   await as(page, "employee2", "emp-leave");
   await settle(page);

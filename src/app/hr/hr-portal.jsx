@@ -168,21 +168,10 @@ const MOVED_PAGES = {
   "hr-rfid-terminals": { page: "hr-rfid-cards", params: {} },
 };
 
-/** An old address (?page=hr-final-pay-approvals): rewritten before the page is read. */
-function redirectMovedPage() {
-  if (typeof window === "undefined") return;
-  const params = new URLSearchParams(window.location.search);
-  const moved = MOVED_PAGES[params.get("page")];
-  if (!moved) return;
-  params.set("page", moved.page);
-  Object.entries(moved.params).forEach(([k, v]) => params.set(k, v));
-  window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
-}
 
 function HrScreens() {
-  redirectMovedPage();
   const { can } = usePortalSession();
-  const [page, setPage] = usePersistedPage("hr", PAGE_IDS, "hr-dashboard");
+  const [page, setPage] = usePersistedPage("hr", PAGE_IDS, "hr-dashboard", MOVED_PAGES);
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [refreshing, setRefreshing] = React.useState(false);
   const [summary, setSummary] = React.useState([]);

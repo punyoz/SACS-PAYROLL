@@ -62,7 +62,7 @@ test("half-day leave: the employee files the afternoon, HR approves half a day, 
     await settle(page);
     const card = main(page).locator("li", { hasText: REASON });
     await expect(card).toContainText("0.5 days");
-    await expect(card).toContainText(`${day} (PM)`);
+    await expect(card).toContainText(`${shownDay(day)} (PM)`);
     await card.getByRole("button", { name: "Approve" }).click();
     await confirm(page, "Approve");
     const after = await rows(db().from("leave_requests").select("status").eq("id", saved.id).single());

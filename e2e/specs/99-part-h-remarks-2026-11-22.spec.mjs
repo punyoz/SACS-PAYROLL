@@ -125,8 +125,11 @@ test("preset remarks: same-transaction audit, refusals undo the decision, bulk c
     await card.locator("#rp-label").fill(label);
     await card.getByRole("button", { name: "Add" }).click();
     // 25 a page and more presets since 20261124150000 (the Admin's filings): find the new one by its label.
-    await card.getByRole("searchbox").first().fill(label);
-    await expect(card.getByRole("textbox", { name: `Remark: ${label}` })).toBeVisible();
+    // The list reloads after Add (a search typed meanwhile is lost): search until the new one shows.
+    await expect(async () => {
+      await card.getByRole("searchbox").first().fill(label);
+      await expect(card.getByRole("textbox", { name: `Remark: ${label}` })).toBeVisible({ timeout: 3000 });
+    }).toPass({ timeout: 30000 });
     const offered = await api(page, "GET", "/api/remark-presets?decision=reject&entity_type=leave_request");
     expect(offered.data.presets.map((p) => p.label)).toContain(label);
     await card.getByRole("switch", { name: `Deactivate ${label}` }).click();
