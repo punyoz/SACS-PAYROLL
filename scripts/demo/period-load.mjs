@@ -33,7 +33,20 @@ const EXTRA = [
   ["employee_license_changes", "employee_id in S"],
   ["payroll_subsidy_balances", "employee_id in S"],
 ];
-const ALL = [...SCOPE, ...EXTRA];
+/** --only=nov16 (2026-11-26): the Nov 16-30 payslips and their lines only (a recompute moved to live). */
+const ONLY = (rest.find((a) => a.startsWith("--only=")) || "").split("=")[1] || "";
+const NOV16 = [
+  ["payroll_loan_payments", "employee_id in S and pay_period = 'November 16-30, 2026'"],
+  ["tenure_protection_applications", "employee_id in S and pay_period = 'November 16-30, 2026'"],
+  ["payroll_deductions", "employee_id in S and period_start = '2026-11-16'"],
+  ["payroll_incentives", "employee_id in S and period_start = '2026-11-16'"],
+  ["payroll_review_flags", "employee_id in S and pay_period = 'November 16-30, 2026'"],
+  ["payroll_entries", "employee_id in S and pay_period = 'November 16-30, 2026'"],
+  ["payroll_records", "employee_id in S and period_start = '2026-11-16'"],
+  ["early_bird_winners", "period_start = '2026-11-16'"],
+  ["incentive_recommendations", "employee_id in S and period_start = '2026-11-16'"],
+];
+const ALL = ONLY === "nov16" ? NOV16 : [...SCOPE, ...EXTRA];
 /** Each table once: for inserts, parents first (the reverse of its FIRST place in the delete order). */
 const INSERT_ORDER = [...new Set(ALL.map(([t]) => t))].reverse().map((t) => [t]);
 /** Profile columns the build sets (PII as plain numbers: the target's own trigger encrypts them). */
@@ -83,8 +96,9 @@ async function exportBundle() {
   const config = await db.rows("select section, key, value from system_config where section = 'early_bird' and key = 'incentive_amount'");
   const audit = await db.rows(`select * from audit_logs where created_at >= (select min(created_at) from payroll_runs where period_start >= ${lit(PLAN.FROM)}) - interval '30 minutes'`);
   const actors = await db.rows(`select id, first_name, middle_name, last_name, full_name from profiles where id in (${ACTOR_IDS.map(lit).join(", ")})`);
-  const bundle = { made_at: new Date().toISOString(), kind: "build", scope_rule: "on payroll, Oct 1 to today", tables, records: { profiles, salary, rates, config, audit, actors } };
-  const out = join(DATA_DIR, "period-bundle.json");
+  const bundle = ONLY ? { made_at: new Date().toISOString(), kind: "build", scope_rule: ONLY, tables, records: {} }
+    : { made_at: new Date().toISOString(), kind: "build", scope_rule: "on payroll, Oct 1 to today", tables, records: { profiles, salary, rates, config, audit, actors } };
+  const out = join(DATA_DIR, ONLY ? `period-${ONLY}-bundle.json` : "period-bundle.json");
   writeFileSync(out, JSON.stringify(bundle));
   log(`bundle written: ${out}`);
   for (const [t, rows] of Object.entries(tables)) if (rows.length) log(`  ${t.padEnd(32)} ${rows.length}`);
@@ -108,10 +122,10 @@ async function plan() {
   writeFileSync(rb, JSON.stringify({ made_at: new Date().toISOString(), kind: "rollback", tables: live,
     records: { profiles, salary, rates_remove: (bundle.records.rates || []).map((r) => r.id), config, actors, audit_remove: (bundle.records.audit || []).map((a) => a.id) } }));
   const names = Object.fromEntries((await db.rows(`select id, full_name, employee_id from profiles where id in (${scope.ids.map(lit).join(", ")})`)).map((r) => [r.id, r]));
-  const newNames = Object.fromEntries(bundle.records.profiles.map((p) => [p.id, p.full_name]));
+  const newNames = Object.fromEntries((bundle.records.profiles || []).map((p) => [p.id, p.full_name]));
   log(`Target: ${target}. Scope: ${scope.ids.length} accounts on payroll, ${scope.branches.length} branches, from ${scope.from}.`);
-  const missing = bundle.records.profiles.filter((p) => !scope.ids.includes(p.id));
-  if (missing.length || bundle.records.profiles.length !== scope.ids.length) log(`  DIFFERENCE: the accounts on payroll differ from the bundle's (${missing.length} not on the target).`);
+  const missing = (bundle.records.profiles || []).filter((p) => !scope.ids.includes(p.id));
+  if (!ONLY && (missing.length || (bundle.records.profiles || []).length !== scope.ids.length)) log(`  DIFFERENCE: the accounts on payroll differ from the bundle's (${missing.length} not on the target).`);
   log("\nRows per table (target now -> after):");
   for (const [t] of ALL) {
     const a = live[t]?.length || 0, b = bundle.tables[t]?.length || 0;
