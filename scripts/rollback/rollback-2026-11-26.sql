@@ -43,4 +43,21 @@ ALTER TABLE public.branch_admin_requests DROP COLUMN IF EXISTS archived_reason;
 ALTER TABLE public.branch_admin_requests DROP COLUMN IF EXISTS archived_at;
 DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261126010000';
 DROP FUNCTION IF EXISTS private.readable_dates(text);
+
+-- Migration 20261126020000 (rest-day premium): its rows go, the type list goes back to the live list.
+DELETE FROM public.payroll_rate_configs WHERE rate_type = 'rest_day_premium_pct';
+ALTER TABLE public.payroll_rate_configs DROP CONSTRAINT IF EXISTS payroll_rate_configs_rate_type_check;
+ALTER TABLE public.payroll_rate_configs ADD CONSTRAINT payroll_rate_configs_rate_type_check CHECK (rate_type IN (
+  'hourly', 'daily', 'half_day_pct', 'absent_pct', 'late_days_per_absent',
+  'late_minute_charge_pct', 'early_bird_bonus', 'perfect_attendance_bonus',
+  'sss_pct', 'philhealth_pct', 'pagibig_pct',
+  'overtime_premium_pct', 'regular_holiday_premium_pct', 'special_holiday_premium_pct',
+  'sss_msc_min', 'sss_msc_max', 'philhealth_floor', 'philhealth_ceiling',
+  'pagibig_max_salary', 'working_days_per_year', 'attendance_lock_day',
+  'overload_premium_pct', 'payroll_per_half', 'contribution_method', 'contribution_half',
+  'sss_fixed', 'philhealth_fixed', 'pagibig_fixed', 'carry_after_lock',
+  'benefits_exempt_ceiling', 'sss_er_pct', 'sss_ec_low', 'sss_ec_high', 'sss_ec_threshold',
+  'philhealth_er_pct', 'pagibig_er_pct'
+));
+DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261126020000';
 COMMIT;
