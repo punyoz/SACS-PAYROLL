@@ -23,6 +23,7 @@ import { refuseOwnItem } from "@/lib/rbac/routing";
 import { notify } from "@/lib/branch-requests-server";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
+import { RECEIVED_HOW, REPLY_REASONS, saveReplyFiles } from "@/lib/awol/replies";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -91,6 +92,10 @@ export async function GET(request) {
     const notices = caseIds.length
       ? (await supabase.from("awol_notices").select("id,case_id,kind,title,sent_on,reply_by,separation_on,sent_by_name,inapp_at,emailed_at,email_error,pdf_path").in("case_id", caseIds).order("created_at", { ascending: true })).data || []
       : [];
+    // The replies (employee or recorded by HR), with their attachments (2026-11-24).
+    const replies = caseIds.length
+      ? (await supabase.from("awol_replies").select("id,case_id,kind,reason_code,explanation,return_on,received_on,received_how,attachments,author_name,created_at").in("case_id", caseIds).order("created_at", { ascending: true })).data || []
+      : [];
     const cases = rows.map((row) => {
       const days = (absences.get(row.employee_id) || []).filter((day) => day >= row.first_absent_on).sort();
       return {
@@ -98,6 +103,7 @@ export async function GET(request) {
         automation: row.automation || "auto", automation_reason: row.automation_reason || null, automation_changed_at: row.automation_changed_at || null,
         separation_scheduled_on: row.separation_scheduled_on || null, guards: guardsOf.get(row.id) || row.guards || null,
         notices: notices.filter((n) => n.case_id === row.id).map(({ case_id: _c, ...n }) => n),
+        replies: replies.filter((r) => r.case_id === row.id).map(({ case_id: _c, ...r }) => r),
       };
     });
 
@@ -208,7 +214,7 @@ export async function PATCH(request) {
         : { automation: "auto", automation_reason: closeRemark.text ? `Resumed by ${by.name}: ${closeRemark.text}`.slice(0, 500) : `Resumed by ${by.name}`, automation_changed_at: now, automation_changed_by_name: by.name, review_reason: null };
       if (!closeRemark.code) closeRemark = null;
       description = `${personLabel(person)}'s AWOL case: automation ${action === "stop_automation" ? "stopped" : "resumed"} by ${by.name}.`;
-    } else if (action === "confirm_send") {
+    } else if (action === "confirm_send" || action === "proceed") {
       // One button: AWOL (pay held) and the 1st notice sent (in-app now; PDF + e-mail by the daily delivery).
       closeRemark = await resolveRemark(supabase, body.remark, { decision: "approve", entityType: "awol_case", required: false, fallbackText: body.note });
       if (closeRemark.error) return NextResponse.json({ error: closeRemark.error, code: "remark_invalid" }, { status: 400 });
@@ -219,7 +225,9 @@ export async function PATCH(request) {
       });
       if (statusError) return NextResponse.json({ error: sanitizeError(statusError) }, { status: 500 });
       const replyBy = addDays(today, REPLY_DAYS);
-      patch = { stage: "first_notice", confirmed_at: now, confirmed_by: by.id, confirmed_by_name: by.name, first_notice_sent_on: today, first_notice_reply_by: replyBy };
+      patch = { stage: "first_notice", confirmed_at: now, confirmed_by: by.id, confirmed_by_name: by.name, first_notice_sent_on: today, first_notice_reply_by: replyBy,
+        // "Proceed": the automatic flow runs from here (deadline -> Ready for HR decision).
+        automation: "auto", automation_reason: `Proceeded by ${by.name} after review`, automation_changed_at: now, automation_changed_by_name: by.name };
       description = `${personLabel(person)} confirmed AWOL and the 1st notice sent by ${by.name}; reply by ${replyBy}. Pay held.`;
     } else if (action === "confirm") {
       const statusError = await setEmployeeStatus(supabase, {
@@ -247,27 +255,34 @@ export async function PATCH(request) {
     } else if (action === "record_reply") {
       const reply = normalizeText(body.employee_reply).slice(0, 2000);
       if (reply.length < 3) return NextResponse.json({ error: "Write what the employee said." }, { status: 400 });
+      // 2026-11-24: an offline reply (letter, phone, in person): date, how, summary, attachment; kept with the case.
+      const how = RECEIVED_HOW[normalizeText(body.received_how)] ? normalizeText(body.received_how) : "other";
+      const receivedOn = isDateKey(normalizeText(body.received_on)) ? normalizeText(body.received_on) : today;
+      const replyId = crypto.randomUUID();
+      const files = await saveReplyFiles(supabase, { caseId: row.id, replyId, files: body.attachments });
+      if (files.error) return NextResponse.json({ error: files.error }, { status: 400 });
+      const kept = await supabase.from("awol_replies").insert({
+        id: replyId, case_id: row.id, employee_id: row.employee_id, kind: "hr_record", reason_code: REPLY_REASONS[body.reason_code] ? body.reason_code : null,
+        explanation: reply, received_on: receivedOn, received_how: how, attachments: files.files, author_id: by.id, author_name: by.name, author_role: guard.role,
+      });
+      if (kept.error) return NextResponse.json({ error: sanitizeError(kept.error) }, { status: 500 });
       // A reply stops the automation (the system never judges a reply): HR decides.
       patch = { employee_reply: reply, ...(row.automation === "auto" ? { automation: "response", automation_reason: "Response received: the employee replied. HR decides.", automation_changed_at: now, automation_changed_by_name: by.name } : {}) };
       description = `Reply recorded for ${personLabel(person)}'s AWOL case.`;
     } else if (action === "separate") {
-      const grounds = normalizeText(body.grounds).slice(0, 2000);
-      if (grounds.length < 10) return NextResponse.json({ error: "State the grounds for separation (at least 10 characters)." }, { status: 400 });
-      const effective = normalizeText(body.separation_effective, today);
-      if (!isDateKey(effective) || effective < row.first_absent_on) return NextResponse.json({ error: "Choose the separation date (on or after the first absence)." }, { status: 400 });
-      const statusError = await setEmployeeStatus(supabase, {
-        employeeId: person.id, status: "Separated", caseId: row.id, effectiveOn: effective, actor: guard,
-        reason: `Separated (abandonment) — Notice of Decision: ${grounds}`,
-        extra: { separated_on: effective, separation_reason: "AWOL / abandonment" },
-      });
-      if (statusError) return NextResponse.json({ error: sanitizeError(statusError) }, { status: 500 });
+      // 2026-11-24: HR's decision SENDS the notice of separation (a preset remark: the grounds); the system separates
+      // on its effective date (hr.awol_separation_days later) unless the employee responds first.
+      closeRemark = await resolveRemark(supabase, body.remark, { decision: "approve", entityType: "awol_case", required: true, fallbackText: body.grounds });
+      if (closeRemark.error) return NextResponse.json({ error: closeRemark.error, code: "remark_invalid" }, { status: 400 });
+      const { data: sepSetting } = await supabase.from("system_config").select("value").eq("section", "hr").eq("key", "awol_separation_days").maybeSingle();
+      const sepDays = Math.max(1, Math.min(30, Number(sepSetting?.value) || 3));
+      const effective = addDays(today, sepDays);
       patch = {
-        stage: "closed", outcome: "separated", separation_effective: effective,
-        recommendation: row.recommendation || grounds,
-        recommended_at: row.recommended_at || now, recommended_by: row.recommended_by || by.id, recommended_by_name: row.recommended_by_name || by.name,
-        decided_at: now, decided_by: by.id, decided_by_name: by.name,
+        stage: "second_notice", second_notice_sent_on: today, second_notice_reply_by: effective, separation_scheduled_on: effective,
+        automation: "auto", automation_reason: `Separation decided by ${by.name}: effective ${effective} unless the employee responds first.`, automation_changed_at: now, automation_changed_by_name: by.name,
+        recommendation: closeRemark.text, recommended_at: now, recommended_by: by.id, recommended_by_name: by.name,
       };
-      description = `${personLabel(person)} separated effective ${effective} (AWOL), decided by HR. Paid only through final pay (Accountant → Final Pay, within 30 days).`;
+      description = `${personLabel(person)}: separation decided by ${by.name} (${closeRemark.text}); notice of separation sent, effective ${effective}.`;
     } else if (action === "close") {
       const outcome = normalizeText(body.outcome);
       if (!HR_CLOSE_OUTCOMES.includes(outcome)) return NextResponse.json({ error: "Choose: false alarm, returned, or excused by leave." }, { status: 400 });
@@ -295,7 +310,7 @@ export async function PATCH(request) {
       description = `${personLabel(person)}'s AWOL case closed: ${OUTCOME_LABELS[outcome]}${person.employee_status === "AWOL" ? " — status Active, pay released (held payslips need a Super Admin override)" : ""}.`;
     }
 
-    const remarkDecision = action === "stop_automation" || action === "resume_automation" ? "override" : action === "confirm_send" ? "approve" : "resolve";
+    const remarkDecision = action === "stop_automation" || action === "resume_automation" ? "override" : action === "confirm_send" || action === "proceed" || action === "separate" ? "approve" : "resolve";
     const writer = closeRemark ? remarkClient(closeRemark, { decision: remarkDecision, entityType: "awol_case", module: "hr", table: "employee_awol_cases", ids: [row.id], actor: guard }) : supabase;
     const result = await writer.from("employee_awol_cases").update({ ...patch, updated_at: now }).eq("id", row.id);
     if (result.error) return NextResponse.json({ error: sanitizeError(result.error) }, { status: 500 });
@@ -303,13 +318,16 @@ export async function PATCH(request) {
       actor: guard, module: "hr", action: `awol_${action}`, entity_type: "employee_awol_case", entity_id: row.id,
       status: "success", source: "api", description, metadata: { employee_id: person.id, from: row.stage, ...patch },
     });
+    if (action === "close") {
+      await notify(supabase, [row.employee_id], { kind: "awol_decision", title: "Your attendance case is closed", body: `${OUTCOME_LABELS[patch.outcome] || "Closed"}. See My Notices.`, link_page: "emp-notices" }).catch(() => 0);
+    }
     // A notice HR sends is kept like the system's (2026-11-24): the employee is told in-app now; the PDF and the
     // e-mail follow with the daily delivery (/api/cron/awol-notices).
-    if (action === "first_notice" || action === "second_notice" || action === "confirm_send") {
-      const kind = action === "second_notice" ? "second" : "first";
+    if (action === "first_notice" || action === "second_notice" || action === "confirm_send" || action === "proceed" || action === "separate") {
+      const kind = action === "second_notice" || action === "separate" ? "second" : "first";
       const sentOn = patch.first_notice_sent_on || patch.second_notice_sent_on || today;
       const replyBy = patch.first_notice_reply_by || row.first_notice_reply_by || null;
-      const sent = await supabase.rpc("awol_send_notice", { p_case: row.id, p_kind: kind, p_today: sentOn, p_reply_by: replyBy, p_separation: kind === "second" ? patch.second_notice_reply_by : null });
+      const sent = await supabase.rpc("awol_send_notice", { p_case: row.id, p_kind: kind, p_today: sentOn, p_reply_by: replyBy, p_separation: kind === "second" ? patch.separation_scheduled_on || patch.second_notice_reply_by : null });
       if (sent.error) {
         await notify(supabase, [row.employee_id], {
           kind: `awol_${action}`, title: kind === "first" ? "Notice to return to work" : "Second notice",

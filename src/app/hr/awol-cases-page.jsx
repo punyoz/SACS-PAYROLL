@@ -1,6 +1,7 @@
 "use client";
 
 import { DecisionRemarkDialog } from "@/components/portal/remark-field";
+import { RECEIVED_HOW } from "@/lib/awol/replies";
 
 import * as React from "react";
 import { AlertTriangleIcon, FilePlus2Icon, HourglassIcon, Loader2Icon, PauseCircleIcon, RefreshCwIcon, UserXIcon } from "lucide-react";
@@ -59,6 +60,16 @@ const AUTOMATION = {
   stopped: ["Automation stopped", "muted"],
 };
 
+/** Files chosen in a file input, as { name, type, data (base64) } (the server checks type and size). */
+async function readFiles(list) {
+  const out = [];
+  for (const f of Array.from(list || []).slice(0, 3)) {
+    const data = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(",")[1] || ""); r.onerror = reject; r.readAsDataURL(f); });
+    out.push({ name: f.name, type: f.type, data });
+  }
+  return out;
+}
+
 export function AwolCasesPage({ refreshKey }) {
   const { notify } = usePortalSession();
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
@@ -106,8 +117,12 @@ export function AwolCasesPage({ refreshKey }) {
         if (action === "confirm") body.note = input.note;
         if (action === "first_notice" || action === "second_notice") Object.assign(body, { sent_on: input.sent_on, reply_by: input.reply_by });
         if (action === "second_notice") body.conference_on = input.conference_on;
-        if (action === "record_reply") body.employee_reply = input.text;
-        if (action === "separate") Object.assign(body, { separation_effective: input.separation_effective, grounds: input.text });
+        if (action === "record_reply") Object.assign(body, { employee_reply: input.text, received_on: input.received_on || today, received_how: input.received_how || "in_person", attachments: input.files || [] });
+        if (action === "separate") {
+          const problem = remarkProblem(input.remark, "approve", true);
+          if (problem) throw new Error(problem);
+          Object.assign(body, { remark: input.remark });
+        }
         if (action === "close") {
           // Part H: why it is closed is a preset remark (required).
           const problem = remarkProblem(input.remark, "resolve", true);
@@ -199,7 +214,16 @@ export function AwolCasesPage({ refreshKey }) {
         {c.guards.checks.map((g) => <li key={g.key} className={g.ok ? "text-muted-foreground" : "text-destructive"}>{g.ok ? "✓" : "✗"} {g.label}{g.ok ? "" : `: ${g.detail}`}</li>)}
       </ul>
     ) : <span className="text-xs text-muted-foreground">—</span>) },
-    { key: "notes", header: "Notes", cell: (c) => <p className="max-w-64 text-xs whitespace-normal text-muted-foreground">{c.employee_reply ? `Reply: ${c.employee_reply}` : c.recommendation || c.notes || "—"}</p> },
+    { key: "notes", header: "Replies", cell: (c) => (c.replies?.length ? (
+      <ul className="max-w-72 space-y-1 text-xs whitespace-normal" data-testid="awol-replies">
+        {c.replies.map((r) => (
+          <li key={r.id}>
+            <span className="text-muted-foreground">{r.kind === "hr_record" ? `Recorded by ${r.author_name} (${String(r.received_how).replace("_", " ")})` : r.kind === "follow_up" ? "Follow-up" : "Reply"} · {dateLabel(r.received_on)}{r.return_on ? ` · return ${dateLabel(r.return_on)}` : ""}:</span> {r.explanation}
+            {(r.attachments || []).map((f) => <button key={f.path} type="button" className="ml-1 underline" onClick={() => downloadFile(`/api/hr/awol-cases/notice?reply_file=${encodeURIComponent(f.path)}`, {}, { fallbackName: f.name }).catch((e) => notify("Not downloaded", e.message, "error"))}>{f.name}</button>)}
+          </li>
+        ))}
+      </ul>
+    ) : <p className="max-w-64 text-xs whitespace-normal text-muted-foreground">{c.recommendation || "—"}</p>) },
     {
       key: "actions", header: <span className="sr-only">Actions</span>, align: "right",
       cell: (c) => (canEdit && c.open ? (
@@ -210,16 +234,12 @@ export function AwolCasesPage({ refreshKey }) {
             </Button>
           ))}
           {c.stage === "flagged" ? (
-            <>
-              <Button size="sm" variant="outline" onClick={() => downloadFile(`/api/hr/awol-cases/notice?id=${c.id}`, {}, { fallbackName: "awol-first-notice.pdf" }).catch((e) => notify("Not downloaded", e.message, "error"))}>Review notice (PDF)</Button>
-              <Button size="sm" variant="destructive" onClick={() => confirmSend(c)} data-testid="awol-confirm-send">Confirm &amp; send 1st notice</Button>
-            </>
+            <Button size="sm" variant="outline" onClick={() => downloadFile(`/api/hr/awol-cases/notice?id=${c.id}`, {}, { fallbackName: "awol-first-notice.pdf" }).catch((e) => notify("Not downloaded", e.message, "error"))}>Review notice (PDF)</Button>
           ) : null}
-          {NEXT_STEP[c.stage] && c.stage !== "flagged" && c.automation !== "auto" ? <Button size="sm" onClick={() => open(NEXT_STEP[c.stage][0], c)}>{NEXT_STEP[c.stage][1]}</Button> : null}
-          {c.automation === "auto"
-            ? <Button size="sm" variant="outline" onClick={() => setStopping(c)} data-testid="awol-stop">Stop automation</Button>
-            : <Button size="sm" variant="outline" onClick={() => resume(c)} data-testid="awol-resume">Resume automation</Button>}
-          {c.stage !== "flagged" && c.stage !== "for_decision" ? <Button size="sm" variant="outline" onClick={() => open("record_reply", c)}>Reply</Button> : null}
+          {c.stage === "flagged" && c.automation !== "auto" ? <Button size="sm" onClick={() => open("proceed", c)} data-testid="awol-proceed">Proceed</Button> : null}
+          {c.stage === "for_decision" || (c.automation === "response" && c.stage === "first_notice")
+            ? <Button size="sm" onClick={() => open("separate", c)} data-testid="awol-separate">Separate</Button> : null}
+          <Button size="sm" variant="outline" onClick={() => open("record_reply", c)}>Record reply</Button>
           <Button size="sm" variant="outline" onClick={() => open("close", c)}>Close</Button>
         </div>
       ) : null),
@@ -231,8 +251,9 @@ export function AwolCasesPage({ refreshKey }) {
     confirm: ["Confirm AWOL", "You tried the employee and the emergency contact and could not reach them. Status becomes AWOL and pay is held."],
     first_notice: ["1st notice", "Return-to-Work Order + Notice to Explain, by email and courier to the last known address."],
     second_notice: ["2nd notice", "Final Return-to-Work Order and invitation to an administrative conference."],
-    record_reply: ["Employee's reply", "Write what the employee said or submitted."],
-    separate: ["Separate employee", "Notice of Decision: status becomes Separated and pay settles only through final pay. This cannot be undone here."],
+    record_reply: ["Record a reply", "A reply received by letter, phone or in person. It stops the automation; you decide next."],
+    separate: ["Separate", "Sends the notice of separation now. The employee is separated automatically on its effective date unless they respond first; you can still Close the case before then."],
+    proceed: ["Proceed", "Confirms AWOL (pay on hold) and sends the 1st notice now; from here the case runs automatically."],
     close: ["Close the case", "The employee goes back to Active and pay is released."],
   };
   const fieldFor = (id, label, el) => <div className="space-y-1.5"><Label htmlFor={`hr-awol-${id}`}>{label}</Label>{el}</div>;
@@ -284,9 +305,9 @@ export function AwolCasesPage({ refreshKey }) {
           </DialogHeader>
           {template?.days ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {fieldFor("flag-days", "Days absent before AWOL", <Input id="hr-awol-flag-days" type="number" min={3} max={30} value={template.days.flag_days} onChange={setDay("flag_days")} />)}
+              {fieldFor("flag-days", "Days absent", <Input id="hr-awol-flag-days" type="number" min={3} max={30} value={template.days.flag_days} onChange={setDay("flag_days")} />)}
               {fieldFor("reply-days", "Reply period (calendar days)", <Input id="hr-awol-reply-days" type="number" min={1} max={30} value={template.days.reply_days} onChange={setDay("reply_days")} />)}
-              {fieldFor("separation-days", "Separation after the 2nd notice (days)", <Input id="hr-awol-separation-days" type="number" min={1} max={30} value={template.days.separation_days} onChange={setDay("separation_days")} />)}
+              {fieldFor("separation-days", "Separation after decision (days)", <Input id="hr-awol-separation-days" type="number" min={1} max={30} value={template.days.separation_days} onChange={setDay("separation_days")} />)}
             </div>
           ) : null}
           <Label htmlFor="hr-awol-template-1">1st notice (return to work / explain)</Label>
@@ -339,10 +360,23 @@ export function AwolCasesPage({ refreshKey }) {
                   </>
                 ) : null}
                 {dialog.action === "separate" ? (
-                  <div className="sm:col-span-2">{fieldFor("effective", "Separation effective", <DatePicker id="hr-awol-effective" value={input.separation_effective} onChange={(v) => setInput((c) => ({ ...c, separation_effective: v }))} />)}</div>
+                  <div className="sm:col-span-2">
+                    <RemarkField id="hr-awol-sep" decision="approve" entityType="awol_case" required label="Grounds"
+                      value={input.remark} onChange={(v) => setInput((c) => ({ ...c, remark: v }))} error={error} disabled={busy} />
+                  </div>
                 ) : null}
-                {["record_reply", "separate"].includes(dialog.action) ? (
-                  <div className="sm:col-span-2">{fieldFor("text", dialog.action === "separate" ? "Grounds" : "Reply", <Textarea id="hr-awol-text" rows={4} maxLength={AWOL_RECORD_MAX} value={input.text} onChange={(e) => setInput((c) => ({ ...c, text: e.target.value }))} />)}</div>
+                {dialog.action === "record_reply" ? (
+                  <>
+                    {fieldFor("received", "Received on", <DatePicker id="hr-awol-received" value={input.received_on || today} max={today} onChange={(v) => setInput((c) => ({ ...c, received_on: v }))} />)}
+                    {fieldFor("how", "How", (
+                      <Select value={input.received_how || "in_person"} onValueChange={(v) => setInput((c) => ({ ...c, received_how: v }))}>
+                        <SelectTrigger id="hr-awol-how" className="w-full"><SelectValue /></SelectTrigger>
+                        <SelectContent>{Object.entries(RECEIVED_HOW).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
+                      </Select>
+                    ))}
+                    <div className="sm:col-span-2">{fieldFor("text", "Summary", <Textarea id="hr-awol-text" rows={4} maxLength={AWOL_RECORD_MAX} value={input.text} onChange={(e) => setInput((c) => ({ ...c, text: e.target.value }))} />)}</div>
+                    <div className="sm:col-span-2">{fieldFor("file", "Attachment (optional, PDF / JPG / PNG, 5 MB)", <Input id="hr-awol-file" type="file" accept="application/pdf,image/jpeg,image/png" onChange={async (e) => { const files = await readFiles(e.target.files); setInput((c) => ({ ...c, files })); }} />)}</div>
+                  </>
                 ) : null}
                 {dialog.action === "close" ? (
                   <div className="sm:col-span-2">
@@ -357,7 +391,7 @@ export function AwolCasesPage({ refreshKey }) {
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
               <DialogFooter className="gap-2 sm:gap-2">
                 <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
-                <Button onClick={submit} disabled={busy} variant={dialog.action === "confirm" || dialog.action === "separate" ? "destructive" : "default"}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Save</Button>
+                <Button onClick={submit} disabled={busy} variant={dialog.action === "separate" ? "destructive" : "default"}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Save</Button>
               </DialogFooter>
             </>
           ) : null}

@@ -47,3 +47,20 @@ Every remaining checkbox has a working bulk action; the e2e bulk tests click the
 
 ## What is in / out
 (filled in at release)
+
+## Released 2026-11-24 (daytime, at the owner's request)
+
+| Step | Result |
+|---|---|
+| Pre-checks (11:33) | 194 migrations; no payroll being processed, no drafts; only Main's Nov 1–15 run pending (untouched since Nov 20) |
+| AWOL | paused **before** the migrations (released paused) |
+| Backup | `backups/2026-11-24_1134` (database + storage) + `rollback-r4.sql` |
+| Rollback SQL | `scripts/rollback/rollback-2026-11-24-admin-hr.sql`, built from live's definitions, run and rolled back on the test database |
+| Migrations | 5 applied, **199 = 199** |
+| Vercel | `CRON_SECRET` set (production; never shown); daily cron `/api/cron/awol-notices` 17:00 UTC |
+| Merge | PR #54 → ehdd `8891733`; prod `68hw4ejiy` Ready; **rollback target `4xro4z4kq`** |
+| Live checks (signed out) | /login 200, health ok, portals redirect, new / changed APIs 401, cron route 401 without / with a wrong secret |
+| Live checks (database) | 11 "file" presets, 3 card-history entries, digests on, AWOL 5 / 5 / 3 and paused, 4 old cases "Needs review", bucket present, nothing waiting for an Admin |
+| Tests | unit 1615 pass (18 new); smoke 13 / 15, the other 2 failed only because the full browser run was using the same test database at the same time (October already paid; a leave overlap): not app faults; the full run continues locally |
+
+AWOL dry run (live, nothing written): nobody would be processed tonight or in the next 5 days. All 10 on-payroll accounts with no taps since Nov 23 fail "Branch had normal taps" (no one taps on live yet). Earliest possible: the night of Fri Nov 27. **Risk:** once the demo employees tap at Main Branch, the Main Branch team accounts with no taps would pass every guard.

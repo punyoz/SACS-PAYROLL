@@ -114,23 +114,25 @@ describe("AWOL case flow", () => {
     expect(paolo().employee_status).toBe("Active");
   });
 
-  it("HR separates after both notices, with no Admin approval", async () => {
+  // 2026-11-24: HR decides the separation; the decision SENDS the notice of separation and the system separates on its
+  // effective date (scripts/checks/awol-automatic-scenarios.sql covers the nightly step).
+  const inDays = (n) => new Date(Date.parse(`${new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10)}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+  it("HR decides the separation after the 1st notice: the notice of separation is sent; not separated yet", async () => {
     await hr("PATCH", { case_id: "case-paolo", action: "confirm", note: "Unreachable" });
-    // Not before the 2nd notice.
-    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "No reply to either notice." })).status).toBe(409);
+    // Not before a notice.
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", grounds: "No reply to the notice." })).status).toBe(409);
     await hr("PATCH", { case_id: "case-paolo", action: "first_notice", sent_on: "2026-11-12" });
-    await hr("PATCH", { case_id: "case-paolo", action: "second_notice", sent_on: "2026-11-18" });
-    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "short" })).status).toBe(400);
-    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-11-01", grounds: "No reply to either notice." })).status).toBe(400);
-    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "No reply to either notice; missed the conference." })).status).toBe(200);
-    expect(paolo()).toMatchObject({ employee_status: "Separated", separated_on: "2026-12-07" });
-    expect(theCase()).toMatchObject({ stage: "closed", outcome: "separated", separation_effective: "2026-12-07", decided_by: "u-hr" });
+    // The grounds are required.
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate" })).status).toBe(400);
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", grounds: "No reply to the notice to return and explain." })).status).toBe(200);
+    expect(theCase()).toMatchObject({ stage: "second_notice", separation_scheduled_on: inDays(3), automation: "auto", recommended_by: "u-hr" });
+    expect(paolo().employee_status).not.toBe("Separated");
   });
 
-  it("HR can decide a case that was already sent to the Admin", async () => {
-    Object.assign(theCase(), { stage: "for_decision", recommendation: "Separate" });
-    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "No reply to either notice." })).status).toBe(200);
-    expect(theCase()).toMatchObject({ stage: "closed", outcome: "separated", decided_by: "u-hr", recommendation: "Separate" });
+  it("HR can decide a case that is ready for decision", async () => {
+    Object.assign(theCase(), { stage: "for_decision" });
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", grounds: "No reply by the deadline." })).status).toBe(200);
+    expect(theCase()).toMatchObject({ stage: "second_notice", recommendation: expect.stringMatching(/No reply by the deadline/) });
   });
 
   it("closing as returned sets the employee back to Active (pay released)", async () => {

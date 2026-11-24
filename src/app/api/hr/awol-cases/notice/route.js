@@ -23,6 +23,20 @@ export async function GET(request) {
     const guard = await requirePermission(request, "awol_cases", "read");
     if (guard.denied) return guard.denied;
     // 2026-11-24: a notice that was SENT (awol_notices): its stored PDF, or rendered from the text kept with it.
+    // A reply's attachment (2026-11-24): HR and the Super Admin, for the branches they cover.
+    const replyFile = new URL(request.url).searchParams.get("reply_file") || "";
+    if (replyFile) {
+      const supabase = getServiceClient();
+      const caseId = replyFile.split("/")[0];
+      if (!UUID.test(caseId)) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const { data: kase } = await supabase.from("employee_awol_cases").select("branch_id").eq("id", caseId).maybeSingle();
+      if (!kase) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const foreign = denyForeignBranch(guard, kase.branch_id);
+      if (foreign) return foreign;
+      const { data } = await supabase.storage.from("awol-replies").download(replyFile);
+      if (!data) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      return new NextResponse(Buffer.from(await data.arrayBuffer()), { status: 200, headers: { "Content-Type": data.type || "application/octet-stream", "Cache-Control": "no-store" } });
+    }
     const noticeId = new URL(request.url).searchParams.get("notice") || "";
     if (UUID.test(noticeId)) {
       const supabase = getServiceClient();
