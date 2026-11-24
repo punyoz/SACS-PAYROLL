@@ -29,9 +29,10 @@ export const FIVE = [
   { tag: "emp-demo3", first: "Liza", last: "Ferrer", employee_type: "Teaching", position: "Teacher", employment_status: "Provisional",
     date_hired: "2026-06-15", basic_salary: 21000, note: "Teacher, Provisional from Jun 2026 (no PRC license yet)" },
   { tag: "emp-demo4", first: "Ramon", last: "Salazar", employee_type: "Non-Teaching", position: "Registrar Staff", employment_status: "Regular",
-    date_hired: "2023-07-03", basic_salary: 18000, note: "Non-teaching office staff, Regular since 2023" },
-  { tag: "emp-demo5", first: "Nestor", last: "Pascual", employee_type: "Non-Teaching", position: "Utility Staff", employment_status: "Contractual",
-    staff_group: "Maintenance", date_hired: "2026-01-05", contract_end_date: "2026-12-15", basic_salary: 13500, note: "Maintenance, Contractual (contract ends Dec 15, 2026)" },
+    date_hired: "2023-07-03", basic_salary: 18000, note: "Non-teaching office staff, Regular since 2023; absent from Nov 18 (the AWOL case)" },
+  // 2026-11-24: Maintenance is a POSITION (no Group field any more).
+  { tag: "emp-demo5", first: "Nestor", last: "Pascual", employee_type: "Non-Teaching", position: "Maintenance", employment_status: "Contractual",
+    date_hired: "2026-01-05", contract_end_date: "2026-12-15", basic_salary: 13500, note: "Maintenance, Contractual (contract ends Dec 15, 2026)" },
 ];
 export const ADMIN = { tag: "emp-demo-admin", first: "Demo", last: "Admin Main", role: "admin" };
 

@@ -51,6 +51,13 @@ const NOVEMBER = {
   "emp-demo5": { "2026-11-06": ["07:44", "18:35"], "2026-11-10": ["08:22", "17:06"] },
 };
 
+/**
+ * The AWOL case (2026-11-24): Ramon stops coming from Wed Nov 18 (card active, on his schedule, no request).
+ * No taps from then on, in the build and in the daily tap job, while his case is open.
+ */
+const AWOL = { tag: "emp-demo4", from: "2026-11-18" };
+const awolAbsent = (p, day) => p.tag === AWOL.tag && day >= AWOL.from;
+
 /** An ordinary day's taps, stable per person and day (a rebuild is identical). */
 function ordinary(tag, day) {
   const h = [...`${tag}${day}`].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 997, 7);
@@ -64,6 +71,7 @@ function tapsSql(people, from, to, { plan = true } = {}) {
   for (let day = from; day <= to; day = addDays(day, 1)) {
     if (isWeekend(day)) continue;
     for (const p of people) {
+      if (awolAbsent(p, day)) continue;
       const special = plan ? NOVEMBER[p.tag]?.[day] : undefined;
       if (special === "none") continue;
       const [tin, tout] = special || ordinary(p.tag, day);
@@ -115,7 +123,7 @@ async function build() {
         position: p.position || null, basic_salary: p.basic_salary || null, employee_status: "Active", is_demo: true } });
     }
     await db.exec(["begin;", ...all.map((p) => profileInsert(p)),
-      ...people.map((p) => `update profiles set employment_status = ${lit(p.employment_status)}, employment_type = 'Full-time', staff_group = ${lit(p.staff_group || null)},
+      ...people.map((p) => `update profiles set employment_status = ${lit(p.employment_status)}, employment_type = 'Full-time', staff_group = null,
         contract_end_date = ${lit(p.contract_end_date || null)}, on_payroll = true, address = 'Demo Street, Antipolo City, Rizal',
         emergency_contact_name = 'Demo Contact', emergency_contact_relationship = 'Spouse', emergency_contact_address = 'Demo Street, Antipolo City, Rizal',
         emergency_contact_number = ${lit(p.cp_number.replace(/^0999/, "0998"))} where id = ${lit(p.id)};`),
@@ -125,7 +133,13 @@ async function build() {
 
   await stage("RFID cards (HR registers)", async () => {
     for (const p of people) ok(`card ${p.tag}`, await as(HR).post("/api/rfid/cards", { action: "register", employee_id: p.id, uid: p.rfid_uid, reason: "Demo card issued" }));
-    return `${people.length} cards`;
+    // The cards were issued before their first November tap (Oct 28), not on the build day: they tap from Oct 30.
+    const ids = people.map((p) => lit(p.id)).join(", ");
+    await db.exec(`begin; alter table rfid_cards disable trigger user; alter table rfid_card_events disable trigger user;
+      update rfid_cards set registered_at = '2026-10-28 08:00+08', created_at = '2026-10-28 08:00+08', updated_at = '2026-10-28 08:00+08' where employee_id in (${ids});
+      update rfid_card_events set created_at = '2026-10-28 08:00+08', effective_on = '2026-10-28' where employee_id in (${ids});
+      alter table rfid_cards enable trigger user; alter table rfid_card_events enable trigger user; commit;`);
+    return `${people.length} cards (issued Oct 28)`;
   });
 
   // From Oct 30: the November 1-15 payslip's attendance window starts there.
@@ -266,8 +280,35 @@ async function build() {
     return `${people.length} drafts`;
   });
 
+  // 2026-11-24 (owner's choice: a planted case, AWOL automation stays paused on live). Opened exactly as the
+  // nightly job opens one: the real guards for the absence; a failed guard (Main Branch's data gap) makes it
+  // "Needs review"; then HR's own Proceed confirms AWOL (pay on hold) and sends the 1st notice.
+  await stage("AWOL case for Ramon (opened as the nightly job does; HR proceeds)", async () => {
+    const ramon = people.find((p) => p.tag === AWOL.tag);
+    const [g] = await db.rows(`select public.awol_case_guards(${lit(ramon.id)}::uuid, ${lit(AWOL.from)}::date, ${lit(yesterday)}::date) g`);
+    const guards = g.g;
+    const failed = (guards.checks || []).filter((c) => !c.ok).map((c) => `${c.label}: ${c.detail}`).join("; ");
+    const [lastPresent] = await db.rows(`select max(log_date)::text d from attendance_logs where employee_id = ${lit(ramon.id)} and log_date < ${lit(AWOL.from)} and time_in is not null`);
+    const caseId = randomUUID();
+    await db.exec(`insert into employee_awol_cases (id, employee_id, branch_id, first_absent_on, last_present_on, stage, auto_flagged, notes, guards, automation, automation_reason, automation_changed_at, automation_changed_by_name)
+      values (${lit(caseId)}, ${lit(ramon.id)}, ${lit(ramon.branch_id)}, ${lit(AWOL.from)}, ${lit(lastPresent.d)}, 'flagged', true,
+        'Opened by System, rule: 5 scheduled working days absent with no taps and no request.', ${lit(guards)}::jsonb,
+        ${guards.ok ? "'auto'" : "'needs_review'"}, ${guards.ok ? "null" : lit(`A guard failed: ${failed}`)}, now(), 'System');`);
+    if (guards.ok) throw new Error("every guard passed: the nightly job would have proceeded by itself; check the build");
+    ok("HR proceeds", await as(HR).patch("/api/hr/awol-cases", { case_id: caseId, action: "proceed", remark: { code: "other", extra: "Checked: Main Branch's data gap is the real staff not tapping yet; Ramon has no request and no tap." } }));
+    const [c] = await db.rows(`select stage, automation, first_notice_reply_by::text reply_by from employee_awol_cases where id = ${lit(caseId)}`);
+    return `${c.stage}, ${c.automation}, reply by ${c.reply_by} (guard failed first: ${failed})`;
+  });
+
 
   await report(db, people);
+  // Leave credits (one shared pool, 2026-11-24), as each employee's My Requests shows them.
+  for (const p of people) {
+    const res = await as(p).get("/api/employee/leave-requests");
+    const pool = res.data?.balance?.pool;
+    const by = pool ? Object.entries(pool.used_by_type || {}).filter(([, n]) => n).map(([t, n]) => `${t.replace(" Leave", "")} ${n}`).join(", ") : "";
+    log(`   ${p.first}: ${pool ? `Leave credits: ${pool.used} of ${pool.allotment} days used · ${pool.remaining} days left${by ? ` (${by})` : ""}` : `no pool (status ${res.status})`}`);
+  }
 }
 
 async function report(db, people) {
@@ -327,7 +368,8 @@ async function taps() {
   const [branch] = await db.rows("select * from branches where code = 'BR-001'");
   const { people } = fiveRoster(branch);
   const live = await db.rows(`select id from profiles where id in (${people.map((p) => lit(p.id)).join(", ")}) and not archived`);
-  const active = people.filter((p) => live.some((l) => l.id === p.id));
+  const open = await db.rows(`select employee_id from employee_awol_cases where employee_id in (${people.map((p) => lit(p.id)).join(", ")}) and stage <> 'closed'`);
+  const active = people.filter((p) => live.some((l) => l.id === p.id) && p.tag !== AWOL.tag && !open.some((o) => o.employee_id === p.id));
   if (!active.length) return console.log("The five are not on the target. Nothing done.");
   const ids = active.map((p) => lit(p.id)).join(", ");
   const [last] = await db.rows(`select max(log_date)::text d from attendance_logs where employee_id in (${ids}) and time_in is not null`);
@@ -338,7 +380,7 @@ async function taps() {
   if (from > until) return console.log(`Nothing to add: the five's taps already reach ${last.d}.`);
   const [auto] = await db.rows(`select count(*)::int n from attendance_logs where employee_id in (${ids}) and log_date between ${lit(from)} and ${lit(until)}
     and time_in is null and time_out is null and status = 'Absent' and changed_by is null and leave_request_id is null`);
-  console.log(`Will add ordinary taps for ${active.length} demo employees, school days ${from} to ${until}, replacing ${auto.n} automatic Absent day(s). Nothing else changes.`);
+  console.log(`Will add ordinary taps for ${active.length} demo employees (not Ramon: his AWOL absence continues), school days ${from} to ${until}, replacing ${auto.n} automatic Absent day(s). Nothing else changes.`);
   if (!(await confirm("Add them? (yes/no)"))) return console.log("Nothing done.");
   await db.exec(`begin; alter table attendance_logs disable trigger user;
     delete from attendance_logs where employee_id in (${ids}) and log_date between ${lit(from)} and ${lit(until)}
