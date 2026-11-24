@@ -1,6 +1,7 @@
 import { leaveApprovedAfterFinal } from "@/lib/payroll/final-payslips";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
+import { branchCounts } from "@/lib/branch-counts";
 import { sanitizeError } from "@/lib/api-error";
 import { readLeaveRequestsWithoutProof } from "@/lib/leave-requests/store";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
@@ -237,7 +238,18 @@ export async function GET(request) {
         detail: a.status === "couldnt_decide" ? `Couldn't decide: ${a.reason || "no reason given"}` : "Waiting too long" }));
     } catch { /* ignore */ }
 
+    // Per branch, the same numbers each branch's Admin sees (src/lib/branch-counts.js, 2026-11-24).
+    let byBranch = [];
+    try {
+      let bq = supabase.from("branches").select("id,name,status").order("name", { ascending: true });
+      if (!guard.branchExempt && guard.branchId) bq = bq.eq("id", guard.branchId);
+      const { data: brs } = await bq;
+      const open = (brs || []).filter((b) => String(b.status || "active").toLowerCase() !== "closed");
+      byBranch = await Promise.all(open.map(async (b) => ({ branch_id: b.id, branch_name: b.name, ...(await branchCounts(supabase, b.id, today)) })));
+    } catch { /* ignore */ }
+
     return NextResponse.json({
+      branch_counts: byBranch,
       action_needed: actionNeeded,
       total_employees: totalEmployees,
       teaching_staff: teaching,

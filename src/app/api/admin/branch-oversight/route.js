@@ -27,6 +27,7 @@ import { recommendationsFor } from "@/lib/automation/leave-recommendations";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { leaveBalancesFor } from "@/lib/leave-requests/store";
 import { NextResponse } from "next/server";
+import { branchCounts } from "@/lib/branch-counts";
 import { invalidateUsersCache } from "@/lib/auth/users-cache";
 import { trackBranchReport } from "@/lib/automation/incident-tracking";
 import { sanitizeError } from "@/lib/api-error";
@@ -175,7 +176,10 @@ async function dashboardView(supabase, branchId, staff) {
     ...(announcements.data || []).map((a) => ({ at: a.created_at, text: `Announcement posted: ${a.title}` })),
   ].filter((a) => a.at).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 12);
   const active = staff.filter((p) => !p.archived);
+  // The same numbers HR sees for this branch (src/lib/branch-counts.js, 2026-11-24).
+  const branchNumbers = await branchCounts(supabase, branchId, today);
   return {
+    branch_counts: branchNumbers,
     today,
     rest_day: weekend ? "Weekend" : holiday ? holiday.name : null,
     attendance: counts,
