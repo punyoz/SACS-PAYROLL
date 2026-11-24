@@ -1,6 +1,5 @@
 "use client";
 
-import { BranchCountsCard } from "@/components/portal/branch-counts-card";
 
 import * as React from "react";
 import { ActivityIcon, CalendarDaysIcon, CheckCircle2Icon, ClockAlertIcon, InboxIcon, UsersIcon, XCircleIcon } from "lucide-react";
@@ -58,7 +57,7 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
       </section>
 
       {/* 2026-11-24: the same numbers HR sees for this branch (the Automation card is gone: the system runs by itself). */}
-      <BranchCountsCard counts={data?.branch_counts} />
+      {/* The "By branch" card was removed (owner, 2026-11-24); its counts stay on Approvals, Action needed and Branch Reports. */}
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <Card id="admin-not-tapped" className="min-w-0 scroll-mt-20 shadow-xs">

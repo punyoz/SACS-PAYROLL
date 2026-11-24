@@ -123,12 +123,13 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
           Incentives, overload, loans and cash advances the Accountant filed, and the Perfect Attendance and Early Bird incentives the system computed each cutoff (marked &ldquo;system&rdquo;). Payroll pays or deducts them only once HR approves; a rejected one is kept, never paid.
           {data && !canDecide ? " Read-only: HR decides." : ""}
         </CardDescription>
-        <CardAction>
+        <CardAction className="flex flex-wrap items-center justify-end gap-2">
+          <FilterTabs value={tab} onValueChange={setTab} label="Approval filter" options={[{ value: "pending", label: "Pending", count: data?.pending || undefined }, { value: "decided", label: "Decided" }]} />
           <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        <DataTable toolbar={<><FilterTabs value={tab} onValueChange={setTab} label="Approval filter" options={[{ value: "pending", label: "Pending", count: data?.pending || undefined }, { value: "decided", label: "Decided" }]} />{filters.toolbar}</>}
+        <DataTable toolbar={filters.toolbar}
           columns={columns} rows={rows} rowKey={(i) => `${i.kind}-${i.id}`} loading={state.loading && !data} error={state.error} onRetry={load}
           searchPlaceholder="Search employee, type or details…" caption="Incentive and loan approvals" minWidth={1000}
           empty={{ title: tab === "pending" ? "Nothing waiting for HR" : "No decisions yet", icon: ClipboardCheckIcon }}

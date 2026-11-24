@@ -119,10 +119,10 @@ export function BranchRequestsReview({ refreshKey, kinds, title, description, ic
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Icon className="size-4 text-gold-text" aria-hidden="true" />{title}</CardTitle>
         {description ? <CardDescription>{description}</CardDescription> : null}
-        <CardAction><Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
+        <CardAction className="flex flex-wrap items-center justify-end gap-2">{hasPendingState ? <FilterTabs value={tab} onValueChange={setTab} label="Request filter" options={[{ value: "pending", label: "Pending" }, { value: "decided", label: "Decided" }, { value: "all", label: "All" }]} /> : null}<Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        <DataTable toolbar={<>{hasPendingState ? <FilterTabs value={tab} onValueChange={setTab} label="Request filter" options={[{ value: "pending", label: "Pending" }, { value: "decided", label: "Decided" }, { value: "all", label: "All" }]} /> : null}{requestFilters.toolbar}</>}
+        <DataTable toolbar={requestFilters.toolbar}
           columns={columns} rows={requestFilters.rows} loading={state.loading && !state.data} error={state.error} onRetry={load}
           searchPlaceholder="Search employee, branch or remark…" empty={{ title: tab === "pending" && hasPendingState ? "Nothing waiting" : "Nothing here yet", icon: Icon }} caption={title} minWidth={1150}
           selection={!readOnly && shared.length ? bulkRequests.selection : null} />

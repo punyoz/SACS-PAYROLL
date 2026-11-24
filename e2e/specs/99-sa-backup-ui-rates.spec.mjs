@@ -201,17 +201,31 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     ["hr", "hr-transfers", "HR transfers"],
     ["hr", "hr-tenure", "HR tenure protection"],
     ["hr", "hr-payroll-records", "HR payroll records"],
-    ["hr", "hr-adjustment-approvals", "HR incentive & loan approvals"],
-    ["hr", "hr-branch-requests", "HR branch requests"],
     ["hr", "hr-rfid-cards", "HR RFID cards"],
     ["accountant", "ac-monitoring", "Accountant payroll monitoring"],
-    ["admin", "adm-leaves", "Admin leave recommendations"],
     // Attendance pages left this list with the attendance redesign (2026-11-09):
     // their own toolbar is checked by e2e/attendance/ui.spec.mjs.
     ["admin", "adm-maintenance", "Admin RFID cards"],
     // Moved to the shared toolbar on 2026-11-08 (decision 4).
     ["hr", "hr-payroll-approval", "HR payroll approval"],
   ];
+  // The approvals lists use the shared approvals filter bar (2026-11-24): Pending / Decided + Refresh in the card
+  // header; search first, then the dropdowns, on the same row (never one control per line).
+  const FILTER_BAR_PAGES = [["hr", "hr-adjustment-approvals", "HR incentive & loan approvals"], ["hr", "hr-branch-requests", "HR branch requests"], ["admin", "adm-leaves", "Admin leave"]];
+  await step(page, "4b. Approvals filter bar: toggle in the header; search and dropdowns on one row", async () => {
+    for (const [role, pageId, label] of FILTER_BAR_PAGES) {
+      monitor.at(label);
+      await as(page, role, pageId);
+      await settle(page);
+      const bar = main(page).locator('[data-owns-search="true"]').first();
+      await bar.waitFor();
+      const search = await bar.locator('input[type="search"]').boundingBox();
+      const first = await bar.locator('[data-slot="select-trigger"]').first().boundingBox();
+      check(`Filter bar: ${label}`, Boolean(search && first) && search.x < first.x && Math.abs(search.y - first.y) < 8 && first.width <= 260, "search, then compact dropdowns on the same row");
+      const header = main(page).locator('[data-slot="card-action"]').first();
+      check(`Toggle in header: ${label}`, (await header.getByRole("tab").count()) + (await header.getByRole("radio").count()) + (await header.getByRole("button", { name: /Pending|Waiting for HR/ }).count()) > 0, "Pending / Decided beside Refresh");
+    }
+  });
   await step(page, "4/6. Search first, tabs and dropdowns on the same row; no arrows beside tabs", async () => {
     for (const [role, pageId, label] of TOOLBAR_PAGES) {
       monitor.at(label);

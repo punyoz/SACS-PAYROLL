@@ -786,7 +786,8 @@ export async function POST(request) {
       const unmatched = await unmatchedCardReason(supabase, rfidCode);
       return refuse({
         refusedEmployee: unmatched.employee, reason: unmatched.reason, status: 404, code: unmatched.code,
-        error: unmatched.code === "card_inactive" ? "Card inactive. It no longer records attendance." : unmatched.code === "card_unknown" ? "Card not recognized." : "RFID not matched to an active employee.",
+        error: unmatched.code === "card_inactive" ? "Card inactive. It no longer records attendance." : unmatched.code === "card_unknown" ? "Card not recognized."
+          : unmatched.code === "not_on_payroll" ? "Not on payroll: this account does not record attendance." : "RFID not matched to an active employee.",
       });
     }
 

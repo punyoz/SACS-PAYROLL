@@ -1,6 +1,5 @@
 "use client";
 
-import { BranchCountsCard } from "@/components/portal/branch-counts-card";
 
 import * as React from "react";
 import { FinalPayWaitingCard } from "./final-pay-approvals-page";
@@ -86,7 +85,7 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
       {/* Final pay waiting for HR, with days left (20261120010000). */}
       <FinalPayWaitingCard refreshKey={refreshKey} onOpen={() => onNavigate?.("hr-final-pay-approvals")} />
       <ActionNeededCard data={d.action_needed} />
-      <BranchCountsCard rows={d.branch_counts || []} />
+      {/* The "By branch" card was removed (owner, 2026-11-24); its counts stay on Approvals, Action needed and Branch Reports. */}
       {/* Part E: what the system did, prepared and could not decide. */}
       <section aria-label="Today at a glance" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Total employees" value={d.total_employees ?? 0} hint="Active staff on record" icon={UsersIcon} loading={loading} href={portalHref("hr-employees")} actionLabel="View active employees" />
