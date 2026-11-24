@@ -311,7 +311,7 @@ async function unusedLeave(supabase, person, daily) {
 /** The conversion line joins the earnings, gross and net when it pays something. */
 function addLeaveConversion(breakdown, conversion) {
   if (!conversion?.enabled || !(conversion.amount > 0)) return breakdown;
-  breakdown.earnings.push({ kind: "leave_conversion", label: "Unused leave conversion", amount: conversion.amount, note: `${conversion.paid_days} day(s) × daily rate` });
+  breakdown.earnings.push({ kind: "leave_conversion", label: "Unused leave conversion", amount: conversion.amount, note: `${conversion.paid_days} day${Number(conversion.paid_days) === 1 ? "" : "s"} × daily rate` });
   breakdown.gross = peso(breakdown.gross + conversion.amount);
   breakdown.net_pay = peso(breakdown.net_pay + conversion.amount);
   breakdown.leave_conversion = conversion.amount;

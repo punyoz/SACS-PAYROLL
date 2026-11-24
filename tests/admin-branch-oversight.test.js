@@ -181,9 +181,10 @@ describe("branch isolation", () => {
   it("refuses branch B's records to the Admin of branch A, by id", async () => {
     // Manual attendance flags are refused for every record since 2026-11-24 (the system flags them); nothing is written.
     expect((await file(who.adminA, { kind: "attendance_flag", ref_id: LOG_B, note: "Wrong time" })).status).toBe(409);
-    expect((await file(who.adminA, { kind: "leave_endorsement", ref_id: "lr-b", decision: "endorse", note: "Fine by me" })).status).toBe(404);
-    expect((await file(who.adminA, { kind: "transfer_endorsement", ref_id: TR_B, decision: "endorse", note: "Fine by me" })).status).toBe(404);
-    expect((await file(who.adminA, { kind: "incident_report", employee_id: BEN, incident_type: "no_show", incident_date: TODAY, note: "Absent" })).status).toBe(404);
+    // 2026-11-24: the Admin no longer endorses anything (refused for any branch); what it files is branch-scoped.
+    expect((await file(who.adminA, { kind: "leave_endorsement", ref_id: "lr-b", decision: "endorse", note: "Fine by me" })).status).toBe(409);
+    expect((await file(who.adminA, { kind: "transfer_endorsement", ref_id: TR_B, decision: "endorse", note: "Fine by me" })).status).toBe(409);
+    expect((await file(who.adminA, { kind: "incident_report", employee_id: BEN, incident_type: "no_show", incident_date: TODAY, note: "Absent today" })).status).toBe(404);
     expect(table("branch_admin_requests")).toHaveLength(0);
   });
 
@@ -198,9 +199,11 @@ describe("branch isolation", () => {
 
 describe("the Admin cannot decide", () => {
   it("refuses HR's decisions and the Admin's own payroll / approval routes", async () => {
-    // Part E step 3: a schedule change names an HR schedule, or "none" (none fits) with the note.
-    await file(who.adminA, { kind: "schedule_request", employee_id: ANA, request_type: "schedule", schedule_key: "none", effective_from: TODAY, requested: "7 to 3", note: "Please" });
-    const id = table("branch_admin_requests")[0].id;
+    // 2026-11-24: the Admin no longer files schedule requests (refused, nothing written); an earlier one stays HR's to decide.
+    expect((await file(who.adminA, { kind: "schedule_request", employee_id: ANA, request_type: "schedule", schedule_key: "none", effective_from: TODAY, requested: "7 to 3", note: "Please" })).status).toBe(409);
+    expect(table("branch_admin_requests")).toHaveLength(0);
+    table("branch_admin_requests").push({ id: "bar-old", branch_id: A, kind: "schedule_request", employee_id: ANA, status: "pending", details: {}, admin_note: "Earlier request", history: [], created_by: ADMIN_A, created_by_name: "Admin A", created_at: new Date().toISOString() });
+    const id = "bar-old";
     expect((await json(hrRequests.PATCH(req(who.adminA, "/api/hr/branch-requests", "PATCH", { id, decision: "approve", note: "self" })))).status).toBe(403);
     expect((await json(hrRequests.GET(req(who.adminA, "/api/hr/branch-requests")))).status).toBe(403);
     const { proxy } = await import("@/proxy");
@@ -213,17 +216,17 @@ describe("the Admin cannot decide", () => {
   });
 });
 
-describe("leave recommendation", () => {
-  it("the Admin endorses, HR sees it and decides, the Admin sees the result and is notified", async () => {
-    expect((await file(who.adminA, { kind: "leave_endorsement", ref_id: "lr-a", decision: "endorse", note: "Has a medical certificate" })).status).toBe(200);
-    const hrView = await json(hrRequests.GET(req(who.hr, "/api/hr/branch-requests?kind=leave_endorsement")));
-    expect(hrView.body.requests[0]).toMatchObject({ ref_id: "lr-a", status: "endorsed", status_label: "Endorsed", admin_note: "Has a medical certificate", branch_name: "Main" });
-    expect(table("notifications").some((n) => n.recipient_id === HR)).toBe(true);
+describe("leave: the Admin views, HR decides (2026-11-24)", () => {
+  it("the Admin cannot endorse; the leave goes straight to HR; the Admin sees HR's decision with who and when", async () => {
+    expect((await file(who.adminA, { kind: "leave_endorsement", ref_id: "lr-a", decision: "endorse", note: "Has a medical certificate" })).status).toBe(409);
+    expect(table("branch_admin_requests")).toHaveLength(0);
+    const before = await view(who.adminA, "view=leaves");
+    expect(before.body.leaves[0]).toMatchObject({ id: "lr-a", pending: true, recommendation: null });
     const decided = await json(leaves.PATCH(req(who.hr, "/api/hr/leave-requests", "PATCH", { id: "lr-a", action: "approve" })));
     expect(decided.status).toBe(200);
-    expect(table("notifications").some((n) => n.recipient_id === ADMIN_A && n.kind === "leave_endorsement_decided")).toBe(true);
     const after = await view(who.adminA, "view=leaves");
-    expect(after.body.leaves[0]).toMatchObject({ status: "approved", hr_status_label: "Approved", recommendation: expect.objectContaining({ status: "endorsed" }) });
+    expect(after.body.leaves[0]).toMatchObject({ status: "approved", hr_status_label: "Approved", pending: false });
+    expect(after.body.leaves[0].decided_at).toBeTruthy();
   });
 });
 
@@ -347,14 +350,19 @@ describe("incentive recommendation", () => {
 });
 
 describe("attendance issues are flagged by the system (2026-11-24)", () => {
-  it("an Admin cannot file a manual attendance flag, even on their own branch; the page offers Note / Object on the system's flag", async () => {
+  it("an Admin cannot file a manual attendance flag, even on their own branch; the page has no Note / Object (view only), only the message thread", async () => {
     const { readFileSync } = await import("node:fs");
     const route = readFileSync("src/app/api/admin/branch-oversight/route.js", "utf8");
     expect(route).toMatch(/if \(kind === "attendance_flag"\) return bad\("Attendance issues are flagged automatically/);
     const page = readFileSync("src/app/admin/attendance-page.jsx", "utf8");
     expect(page).not.toContain("Flag issue</Button>");
     expect(page).not.toContain("title={`Flag issue");
-    expect(page).toMatch(/action: target\.action/);
+    expect(page).not.toMatch(/action: target\.action/);
+    expect(page).not.toMatch(/>Note<\/Button>|>Object<\/Button>/);
+    expect(page).toMatch(/<ItemThread itemType="automation_action"/);
+    // The server refuses an Admin's note / objection (no Admin step).
+    const automation = readFileSync("src/app/api/automation/route.js", "utf8");
+    expect(automation).toMatch(/if \(action === "note" \|\| action === "object"\) \{\n\s+return NextResponse\.json\(\{ error: "The system sends this straight to HR/);
     // Incidents stay manual.
     expect(readFileSync("src/app/admin/requests-pages.jsx", "utf8")).toMatch(/kind="incident_report"/);
   });

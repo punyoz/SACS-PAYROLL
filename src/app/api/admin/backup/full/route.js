@@ -117,7 +117,7 @@ export async function POST(request) {
   try {
     const check = await reverifyPassword(guard, body.password, "backup");
     if (check.locked) {
-      return NextResponse.json({ error: `Too many incorrect passwords. Try again in ${Math.ceil(check.retryAfterMs / 60000)} minute(s).`, code: "locked" }, { status: 429 });
+      return NextResponse.json({ error: `Too many incorrect passwords. Try again in ${Math.ceil(check.retryAfterMs / 60000)} minute${Number(Math.ceil(check.retryAfterMs / 60000)) === 1 ? "" : "s"}.`, code: "locked" }, { status: 429 });
     }
     if (!check.valid) {
       await appendAuditLog({ actor: guard, module: "backup", action: "backup_password_failed", entity_type: "backup", status: "failed", source: "api",

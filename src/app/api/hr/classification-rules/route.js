@@ -143,7 +143,7 @@ export async function POST(request) {
       const after = await loadLeaveRules(supabase);
       const warnings = legalMinimumWarnings(after, effectiveFrom);
       await appendAuditLog({ actor: guard, module: "employees", action: "leave_credit_rules_change", entity_type: "leave_credit_rules", entity_id: effectiveFrom, status: "success", source: "api",
-        description: `Leave credits from ${effectiveFrom} saved by ${by}: ${insert.length} value${insert.length === 1 ? "" : "s"}${note ? ` (${note})` : ""}${warnings.length ? `; ${warnings.length} combination(s) below the 5-day service incentive leave` : ""}.`,
+        description: `Leave credits from ${effectiveFrom} saved by ${by}: ${insert.length} value${insert.length === 1 ? "" : "s"}${note ? ` (${note})` : ""}${warnings.length ? `; ${warnings.length} combination${Number(warnings.length) === 1 ? "" : "s"} below the 5-day service incentive leave` : ""}.`,
         metadata: { effective_from: effectiveFrom, rows: insert.map(({ created_by, created_by_name, ...r }) => r), warnings } });
       return NextResponse.json({ success: true, warnings });
     }

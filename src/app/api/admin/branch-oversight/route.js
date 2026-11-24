@@ -423,7 +423,7 @@ async function reportPdf(report, branchName) {
       ["Days attended / expected", `${report.summary.attended_days} / ${report.summary.expected_days}`],
       ["Late days", String(report.summary.late_days)],
       ["Leave days", String(report.summary.leave_days)],
-      ...report.leave_usage.map((t) => [`Leave: ${t.leave_type}`, `${t.days} day(s), ${t.requests} request(s)`]),
+      ...report.leave_usage.map((t) => [`Leave: ${t.leave_type}`, `${t.days} day${Number(t.days) === 1 ? "" : "s"}, ${t.requests} request${Number(t.requests) === 1 ? "" : "s"}`]),
     ],
     columns: [
       { header: "Employee", width: 150 }, { header: "Attended", width: 55, align: "right" }, { header: "Absent", width: 50, align: "right" },

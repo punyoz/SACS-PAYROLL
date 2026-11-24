@@ -66,8 +66,8 @@ export function FinalPayBreakdown({ b, leaveConversion = null }) {
                 <TableCell>Unused leave conversion <span className={cn("ml-1 rounded px-1.5 text-xs", leaveConversion.enabled ? "bg-success/15 text-success" : "bg-muted")}>{leaveConversion.enabled ? "On" : "Off"}</span></TableCell>
                 <TableCell className="max-w-md text-xs whitespace-normal">
                   {leaveConversion.enabled
-                    ? `${leaveConversion.paid_days} of ${leaveConversion.days} unused day(s) × ${money(leaveConversion.daily)}. `
-                    : `${leaveConversion.days} unused day(s) × ${money(leaveConversion.daily)} would be ${money(leaveConversion.would_be)}. `}
+                    ? `${leaveConversion.paid_days} of ${leaveConversion.days} unused day${Number(leaveConversion.days) === 1 ? "" : "s"} × ${money(leaveConversion.daily)}. `
+                    : `${leaveConversion.days} unused day${Number(leaveConversion.days) === 1 ? "" : "s"} × ${money(leaveConversion.daily)} would be ${money(leaveConversion.would_be)}. `}
                   {leaveConversion.note}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{money(leaveConversion.amount || 0)}</TableCell>
