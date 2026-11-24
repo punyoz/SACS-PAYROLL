@@ -16,23 +16,27 @@ import { fetchJson, jsonBody } from "@/lib/portal/api";
  */
 
 const ROLE = { hr: "HR", admin: "Branch Admin", super_admin: "Super Admin" };
+/** The HR ↔ branch Admin threads (2026-11-26): only these roles see the button (the server refuses others). */
+const THREAD_ROLES = new Set(["hr", "admin", "super_admin"]);
 const when = (iso) => new Date(iso).toLocaleString("en-US", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 
 /** Message counts for a list's rows: { [id]: n }. */
 export function useThreadCounts(itemType, ids, refreshKey = 0) {
+  const { role } = usePortalSession();
   const [counts, setCounts] = React.useState({});
   const key = ids.filter(Boolean).slice(0, 500).join(",");
+  const allowed = THREAD_ROLES.has(String(role || "").toLowerCase());
   React.useEffect(() => {
-    if (!key) { setCounts({}); return undefined; }
+    if (!key || !allowed) { setCounts({}); return undefined; }
     let alive = true;
     fetchJson(`/api/branch-messages?item_type=${itemType}&ids=${key}`).then((d) => { if (alive) setCounts(d.counts || {}); }).catch(() => {});
     return () => { alive = false; };
-  }, [itemType, key, refreshKey]);
+  }, [itemType, key, refreshKey, allowed]);
   return counts;
 }
 
 export function ItemThread({ itemType, itemId, title = "Messages", count = 0, onSent }) {
-  const { notify } = usePortalSession();
+  const { notify, role } = usePortalSession();
   const [open, setOpen] = React.useState(false);
   const [messages, setMessages] = React.useState(null);
   const [text, setText] = React.useState("");
@@ -57,6 +61,7 @@ export function ItemThread({ itemType, itemId, title = "Messages", count = 0, on
     } catch (e) { notify("Not sent", e.message, "error"); } finally { setBusy(false); }
   }
 
+  if (!THREAD_ROLES.has(String(role || "").toLowerCase())) return null; // Accountant / Employee: no HR ↔ Admin thread
   const n = messages ? messages.length : count;
   return (
     <>

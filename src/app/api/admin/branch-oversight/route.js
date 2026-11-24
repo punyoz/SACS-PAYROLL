@@ -106,7 +106,7 @@ function range(url, { days = 0 } = {}) {
 }
 
 async function branchRequests(supabase, branchId, kinds) {
-  let query = supabase.from("branch_admin_requests").select("*").eq("branch_id", branchId);
+  let query = supabase.from("branch_admin_requests").select("*").eq("branch_id", branchId).is("archived_at", null);
   if (kinds?.length) query = query.in("kind", kinds);
   const result = await query.order("created_at", { ascending: false }).limit(1000);
   if (result.error) return { error: NOT_READY, rows: [] };

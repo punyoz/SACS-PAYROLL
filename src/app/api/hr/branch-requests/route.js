@@ -56,7 +56,7 @@ export async function GET(request) {
     const status = normalizeText(url.searchParams.get("status")).toLowerCase() || "all";
     const branchId = normalizeText(url.searchParams.get("branch_id"));
     const supabase = getAdminClient();
-    let query = supabase.from("branch_admin_requests").select("*").in("kind", wanted.length ? wanted : allowed);
+    let query = supabase.from("branch_admin_requests").select("*").in("kind", wanted.length ? wanted : allowed).is("archived_at", null);
     if (status === "pending") query = query.eq("status", "pending");
     if (status === "decided") query = query.neq("status", "pending");
     if (UUID.test(branchId)) query = query.eq("branch_id", branchId);

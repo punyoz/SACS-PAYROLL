@@ -166,6 +166,7 @@ const API_MODULES = [
   // Payslip schedule, loans, AWOL, licensed-teacher subsidy (20261009010000).
   ["/api/accountant/loans", "loans"],
   ["/api/accountant/final-pay", "process_payroll"],
+  ["/api/accountant/approved-overtime", "process_payroll"],  // read-only: HR-approved overtime & substitutions (2026-11-26)
   ["/api/hr/awol-cases", "awol_cases"],
   ["/api/hr/teacher-license", "teacher_license"],
   ["/api/admin/approvals", "payroll_approvals"],
