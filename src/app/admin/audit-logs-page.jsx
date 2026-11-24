@@ -169,7 +169,7 @@ export function AuditLogsPage({ refreshKey, limit = 250, csvName = () => "sacs-a
             error={state.error}
             onRetry={load}
             searchable={false}
-            pageSize={20}
+            pageSize={10}
             empty={{ title: "No audit logs found for current filters", icon: ScrollTextIcon }}
             caption="Audit logs"
             minWidth={1100}
