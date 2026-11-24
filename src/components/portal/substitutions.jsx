@@ -1,5 +1,9 @@
 "use client";
 
+import { dateLabel } from "@/lib/portal/payroll-preview";
+
+import { ItemThread } from "@/components/portal/item-thread";
+
 import * as React from "react";
 import { Loader2Icon, PlusIcon, RefreshCwIcon, UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,23 +25,34 @@ import { ExportButtons } from "@/components/portal/export-buttons";
 import { cn } from "@/lib/utils";
 
 /*
- * Substitute teaching (Part C, 2026-11-22): the branch Admin arranges a
- * substitute (from the suggestions: same level and branch, tapped in that day,
- * not on leave, under the weekly cap); HR approves (a preset remark); payroll
- * pays it when the substitute's taps cover it. role: "admin" | "hr" | "accountant".
+ * Substitute teaching (Part C, 2026-11-22; 2026-11-24): when a teacher's leave
+ * or half day is approved, the system proposes a substitution for each school
+ * day; HR picks the teacher from the suggestions (same level and branch,
+ * tapped in that day, not on leave, under the weekly cap) and approves. HR
+ * files one by hand only for an unplanned absence (approved on filing).
+ * Payroll pays it when the substitute's taps cover it. role: "hr" | "accountant".
  */
 
 const STATUS_TONE = { pending: "gold", approved: "success", rejected: "danger", cancelled: "muted" };
-const TAP = { confirmed: ["success", "Confirmed by taps"], waiting: ["muted", "Waiting for the day"], no_taps: ["danger", "No taps: not paid"] };
-const EMPTY = { absent: "", date: "", start: "", end: "", periods: "1", class_section: "", subject: "", substitute: "", leave_request_id: "" };
+const TAP = { confirmed: ["success", "Confirmed by taps"], waiting: ["muted", "Waiting for the day"], no_taps: ["danger", "No taps: not paid"], no_substitute: ["gold", "No teacher picked yet"] };
+const EMPTY = { absent: "", date: "", start: "", end: "", periods: "1", class_section: "", subject: "", substitute: "", reason: "" };
+const UNPLANNED = { no_show: "No-show", sudden_illness: "Sudden illness", other: "Other unplanned absence" };
 
-function ArrangeDialog({ open, initial, teachers, onClose, onSaved }) {
+/**
+ * HR picks the substitute: on a system proposal (`proposal`: the day, hours and periods are set; approve with the
+ * picked teacher) or for an unplanned absence (filed and approved at once).
+ */
+function ArrangeDialog({ open, initial, proposal = null, teachers, onClose, onSaved }) {
   const { notify } = usePortalSession();
   const [f, setF] = React.useState(EMPTY);
   const [found, setFound] = React.useState(null); // { suggestions, cap, future }
   const [error, setError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
-  React.useEffect(() => { if (open) { setF({ ...EMPTY, ...(initial || {}) }); setFound(null); setError(""); } }, [open, initial]);
+  React.useEffect(() => {
+    if (!open) return;
+    setF(proposal ? { ...EMPTY, absent: proposal.absent_employee_id, date: proposal.sub_date, start: String(proposal.start_time).slice(0, 5), end: String(proposal.end_time).slice(0, 5), periods: String(proposal.periods) } : { ...EMPTY, ...(initial || {}) });
+    setFound(null); setError("");
+  }, [open, initial, proposal]);
   const set = (k) => (v) => { setF((c) => ({ ...c, [k]: v?.target ? v.target.value : v, ...(k === "absent" || k === "date" ? { substitute: "" } : {}) })); if (k === "absent" || k === "date" || k === "periods") setFound(null); };
 
   async function find() {
@@ -50,13 +65,19 @@ function ArrangeDialog({ open, initial, teachers, onClose, onSaved }) {
   async function save() {
     setError("");
     if (!f.substitute) { setError("Choose the substitute."); return; }
+    if (!proposal && !f.reason) { setError("Choose why the absence was unplanned."); return; }
     setBusy(true);
     try {
-      await fetchJson("/api/substitutions", jsonBody("POST", {
-        absent_employee_id: f.absent, substitute_id: f.substitute, sub_date: f.date, start_time: f.start, end_time: f.end,
-        periods: Number(f.periods), class_section: f.class_section, subject: f.subject, leave_request_id: f.leave_request_id || undefined,
-      }));
-      notify("Substitution sent to HR", "HR approves it; payroll pays it when the substitute's taps cover the time.", "success");
+      if (proposal) {
+        await fetchJson("/api/substitutions", jsonBody("PATCH", { id: proposal.id, action: "approve", substitute_id: f.substitute, periods: Number(f.periods) }));
+        notify("Substitution approved", "Payroll pays it when the substitute's taps cover the time.", "success");
+      } else {
+        await fetchJson("/api/substitutions", jsonBody("PATCH", {
+          action: "file_unplanned", unplanned_reason: f.reason, absent_employee_id: f.absent, substitute_id: f.substitute, sub_date: f.date,
+          start_time: f.start, end_time: f.end, periods: Number(f.periods), class_section: f.class_section, subject: f.subject,
+        }));
+        notify("Substitution filed and approved", "Payroll pays it when the substitute's taps cover the time.", "success");
+      }
       onSaved();
       onClose();
     } catch (e) { setError(e.message || "Not saved."); } finally { setBusy(false); }
@@ -66,10 +87,25 @@ function ArrangeDialog({ open, initial, teachers, onClose, onSaved }) {
     <Dialog open onOpenChange={(o) => { if (!o && !busy) onClose(); }}>
       <DialogContent className="sm:max-w-lg" data-testid="arrange-substitute">
         <DialogHeader>
-          <DialogTitle>Arrange a substitute</DialogTitle>
-          <DialogDescription>Suggestions: teachers of the same level and branch who tapped in that day, are not on leave and are under the weekly cap. You pick; HR approves.</DialogDescription>
+          <DialogTitle>{proposal ? `Pick the substitute · ${proposal.absent_name}` : "Substitute for an unplanned absence"}</DialogTitle>
+          <DialogDescription>{proposal
+            ? `${dateLabel(proposal.sub_date)} ${String(proposal.start_time).slice(0, 5)}–${String(proposal.end_time).slice(0, 5)}, ${proposal.periods} period${proposal.periods === 1 ? "" : "s"} (from the approved leave). Suggestions: same level and branch, tapped in that day, not on leave, under the weekly cap. Approving saves your pick.`
+            : "Only for a no-show or a sudden illness: planned leave gets a system proposal. Suggestions: same level and branch, tapped in that day, not on leave, under the weekly cap. Filed and approved at once."}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
+          {proposal ? null : (
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="sub-reason">Unplanned absence</Label>
+            <Select value={f.reason} onValueChange={(v) => setF((c) => ({ ...c, reason: v }))}>
+              <SelectTrigger id="sub-reason" className="w-full"><SelectValue placeholder="Choose" /></SelectTrigger>
+              <SelectContent>{Object.entries(UNPLANNED).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          )}
+          {proposal ? (
+            <div className="space-y-1.5"><Label htmlFor="sub-periods">Class periods covered</Label><Input id="sub-periods" type="number" min={1} max={proposal.periods} value={f.periods} onChange={set("periods")} /><p className="text-xs text-muted-foreground">Up to {proposal.periods}; the weekly cap counts these.</p></div>
+          ) : null}
+          {proposal ? null : (<>
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="sub-absent">Absent teacher</Label>
             <SearchableSelect id="sub-absent" label="Absent teacher" value={f.absent} onValueChange={set("absent")} placeholder="Choose the teacher"
@@ -81,6 +117,7 @@ function ArrangeDialog({ open, initial, teachers, onClose, onSaved }) {
           <div className="space-y-1.5"><Label htmlFor="sub-end">End</Label><Input id="sub-end" type="time" value={f.end} onChange={set("end")} /></div>
           <div className="space-y-1.5"><Label htmlFor="sub-class">Class / section <span className="font-normal text-muted-foreground">(optional)</span></Label><Input id="sub-class" maxLength={80} value={f.class_section} onChange={set("class_section")} placeholder="e.g. Grade 5" /></div>
           <div className="space-y-1.5"><Label htmlFor="sub-subject">Subject <span className="font-normal text-muted-foreground">(optional)</span></Label><Input id="sub-subject" maxLength={80} value={f.subject} onChange={set("subject")} /></div>
+          </>)}
           <div className="space-y-2 sm:col-span-2">
             <Button type="button" variant="outline" size="sm" onClick={find}><UsersIcon aria-hidden="true" />Find substitutes</Button>
             {found ? (found.suggestions.length ? (
@@ -101,7 +138,7 @@ function ArrangeDialog({ open, initial, teachers, onClose, onSaved }) {
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button onClick={save} disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Send to HR</Button>
+          <Button onClick={save} disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}{proposal ? "Approve with this teacher" : "File and approve"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -112,13 +149,14 @@ export function SubstitutionsPanel({ role, refreshKey = 0 }) {
   const { notify } = usePortalSession();
   const [state, setState] = React.useState({ loading: true, error: "", rows: [], teachers: [], onLeave: [] });
   const [arrange, setArrange] = React.useState(null);
+  const [picking, setPicking] = React.useState(null);
   const [deciding, setDeciding] = React.useState(null);
   const load = React.useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: "" }));
     try {
       const [list, people] = await Promise.all([
         fetchJson("/api/substitutions"),
-        role === "admin" ? fetchJson("/api/substitutions?teachers=1") : Promise.resolve({ teachers: [], on_leave: [] }),
+        role === "hr" ? fetchJson("/api/substitutions?teachers=1") : Promise.resolve({ teachers: [], on_leave: [] }),
       ]);
       setState({ loading: false, error: "", rows: list.substitutions || [], teachers: people.teachers || [], onLeave: people.on_leave || [] });
     } catch (e) { setState((s) => ({ ...s, loading: false, error: e.message || "Could not load the substitutions." })); }
@@ -127,32 +165,34 @@ export function SubstitutionsPanel({ role, refreshKey = 0 }) {
 
   const filters = useApprovalFilters(state.rows, {
     prefix: "sub", typeLabel: "Status", people: role === "hr",
-    get: { name: (r) => `${r.substitute_name} ${r.absent_name}`, code: (r) => r.substitute_code, type: (r) => r.status, filed: (r) => r.created_at, requested: (r) => r.sub_date, branch: (r) => r.branch_id, employeeId: (r) => r.substitute_id },
+    get: { name: (r) => `${r.substitute_name || ""} ${r.absent_name}`, code: (r) => r.substitute_code, type: (r) => r.status, filed: (r) => r.created_at, requested: (r) => r.sub_date, branch: (r) => r.branch_id, employeeId: (r) => r.substitute_id },
   });
   const send = (r, decision, remark) => fetchJson("/api/substitutions", jsonBody("PATCH", { id: r.id, action: decision, remark }));
   const bulk = useBulkDecisions({
     entityType: "substitution", onDone: load, send,
     decisions: [{ decision: "approve", label: "Approve" }, { decision: "reject", label: "Reject", destructive: true }],
-    isSelectable: (r) => role === "hr" && r.status === "pending",
+    // A proposal needs its own pick: not in the bulk approve.
+    isSelectable: (r) => role === "hr" && r.status === "pending" && !r.needs_substitute,
     label: (r) => `${r.substitute_name} ${r.sub_date}`,
-    rowLabel: (r) => `${r.substitute_name} covering ${r.absent_name} · ${r.sub_date} ${r.start_time}-${r.end_time}`,
+    rowLabel: (r) => `${r.substitute_name || "(teacher to pick)"} covering ${r.absent_name} · ${dateLabel(r.sub_date)} ${r.start_time}-${r.end_time}`,
   });
 
   const columns = [
-    { key: "sub_date", header: "Date", sortable: true, cell: (r) => <div><p className="font-medium">{r.sub_date}</p><p className="text-xs text-muted-foreground">{r.start_time}-{r.end_time} · {r.periods} period{r.periods === 1 ? "" : "s"}</p></div> },
-    { key: "who", header: "Substitute → covering", cell: (r) => <div><p className="font-medium">{r.substitute_name}</p><p className="text-xs text-muted-foreground">covering {r.absent_name}{r.class_section ? `, ${r.class_section}` : ""}{r.subject ? ` (${r.subject})` : ""}</p></div>, searchValue: (r) => `${r.substitute_name} ${r.absent_name}` },
+    { key: "sub_date", header: "Date", sortable: true, cell: (r) => <div><p className="font-medium">{dateLabel(r.sub_date)}</p><p className="text-xs text-muted-foreground">{r.start_time}-{r.end_time} · {r.periods} period{r.periods === 1 ? "" : "s"}</p></div> },
+    { key: "who", header: "Substitute → covering", cell: (r) => <div><p className="font-medium">{r.substitute_name || <span className="text-gold-text">Pick a teacher</span>}</p><p className="text-xs text-muted-foreground">covering {r.absent_name}{r.class_section ? `, ${r.class_section}` : ""}{r.subject ? ` (${r.subject})` : ""}</p></div>, searchValue: (r) => `${r.substitute_name} ${r.absent_name}` },
     { key: "tap", header: "Taps", cell: (r) => <StatusBadge tone={TAP[r.tap_check]?.[0] || "muted"}>{TAP[r.tap_check]?.[1] || r.tap_check}</StatusBadge> },
     { key: "status", header: "Status", sortable: true, cell: (r) => <div className="space-y-0.5"><StatusBadge tone={STATUS_TONE[r.status] || "muted"}>{r.status}</StatusBadge>{r.decided_by_name ? <p className="text-xs text-muted-foreground">{r.decided_by_name}{r.decision_note ? ` · ${r.decision_note}` : ""}</p> : null}</div> },
-    { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (r) => (r.status !== "pending" ? null : role === "hr" ? (
+    { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (r) => (role !== "hr" ? null : (
       <div className="flex justify-end gap-1.5">
+        <ItemThread itemType="substitution" itemId={r.id} title={`Messages · ${r.absent_name}`} />
+        {r.status !== "pending" ? null : <>
         <Button size="sm" variant="outline" className="text-destructive" onClick={() => setDeciding({ row: r, decision: "reject" })}>Reject</Button>
-        <Button size="sm" onClick={() => setDeciding({ row: r, decision: "approve" })}>Approve</Button>
+        {r.needs_substitute
+          ? <Button size="sm" onClick={() => setPicking(r)} data-testid="pick-substitute">Pick teacher</Button>
+          : <Button size="sm" onClick={() => setDeciding({ row: r, decision: "approve" })}>Approve</Button>}
+        </>}
       </div>
-    ) : role === "admin" ? (
-      <Button size="sm" variant="outline" onClick={async () => {
-        try { await fetchJson("/api/substitutions", jsonBody("PATCH", { id: r.id, action: "cancel" })); await load(); } catch (e) { notify("Not cancelled", e.message, "error"); }
-      }}>Cancel</Button>
-    ) : null) },
+    )) },
   ];
 
   return (
@@ -160,34 +200,23 @@ export function SubstitutionsPanel({ role, refreshKey = 0 }) {
       <CardHeader>
         <CardTitle>Substitute teaching</CardTitle>
         <CardDescription>
-          {role === "admin" ? "Arrange a substitute for a teacher on leave or absent. HR approves; payroll pays it when the substitute's taps cover the time."
-            : "Approve or reject the branch Admins' substitutions. Paid only when the substitute's taps cover the time: inside their shift ₱ per period, outside it as overtime, above the standard load at the overload rate."}
+          {role === "hr"
+            ? "A teacher's approved leave or half day proposes a substitution for each school day: pick the teacher and approve. File one by hand only for an unplanned absence. Paid only when the substitute's taps cover the time: inside their shift ₱ per period, outside it as overtime, above the standard load at the overload rate."
+            : "Substitutions HR approved; paid when the substitute's taps cover the time."}
         </CardDescription>
         <CardAction className="flex gap-2">
-          {role === "admin" ? <Button size="sm" onClick={() => setArrange({})}><PlusIcon aria-hidden="true" />Arrange substitute</Button> : null}
+          {role === "hr" ? <Button size="sm" variant="outline" onClick={() => setArrange({})}><PlusIcon aria-hidden="true" />Unplanned absence</Button> : null}
           <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        {role === "admin" && state.onLeave.length ? (
-          <div className="rounded-lg border p-3" data-testid="teachers-on-leave">
-            <p className="mb-2 text-sm font-semibold">Teachers on leave (7 days back to 14 ahead)</p>
-            <ul className="space-y-1 text-sm">
-              {state.onLeave.map((l) => (
-                <li key={l.id} className="flex flex-wrap items-center justify-between gap-2">
-                  <span>{l.employee_name} · {l.leave_type}{l.half_day ? ` (${l.half_day})` : ""} · {l.start_date}{l.end_date !== l.start_date ? ` to ${l.end_date}` : ""}</span>
-                  <Button size="sm" variant="outline" onClick={() => setArrange({ absent: l.employee_id, date: l.start_date, leave_request_id: l.id })}>Arrange substitute</Button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        <DataTable toolbar={filters.toolbar} columns={columns} rows={filters.rows} loading={state.loading} error={state.error} onRetry={load} pageSize={15}
+        <DataTable toolbar={filters.toolbar} columns={columns} rows={filters.rows} loading={state.loading} error={state.error} onRetry={load}
           caption="Substitutions" minWidth={900} empty={{ title: "No substitutions in this range", icon: UsersIcon }}
           selection={role === "hr" ? bulk.selection : null} />
         {bulk.dialog}
       </CardContent>
       <ArrangeDialog open={Boolean(arrange)} initial={arrange} teachers={state.teachers} onClose={() => setArrange(null)} onSaved={load} />
+      <ArrangeDialog open={Boolean(picking)} proposal={picking} teachers={state.teachers} onClose={() => setPicking(null)} onSaved={load} />
       <DecisionRemarkDialog
         open={Boolean(deciding)} idPrefix="sub-remark" decision={deciding?.decision || "approve"} entityType="substitution"
         destructive={deciding?.decision === "reject"} confirmLabel={deciding?.decision === "reject" ? "Reject" : "Approve"}
@@ -213,7 +242,7 @@ export function SubstitutionsActionNeededCard({ refreshKey = 0, onOpen }) {
     <div role="status" className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm" data-testid="substitutions-action-needed">
       <p className="font-semibold">Action needed: substitutions approved after their cutoff ({rows.length})</p>
       <p className="mb-1 text-xs text-muted-foreground">Their cutoff was already processed: they are paid on the next payslip as an adjustment when you process it.</p>
-      <ul className="space-y-0.5">{rows.slice(0, 8).map((r) => <li key={r.id}>{r.substitute_name} · {r.sub_date} {r.start_time}-{r.end_time}, covering {r.absent_name}</li>)}</ul>
+      <ul className="space-y-0.5">{rows.slice(0, 8).map((r) => <li key={r.id}>{r.substitute_name} · {dateLabel(r.sub_date)} {r.start_time}-{r.end_time}, covering {r.absent_name}</li>)}</ul>
       {onOpen ? <Button size="sm" variant="outline" className="mt-2" onClick={onOpen}>Open Process Payroll</Button> : null}
     </div>
   );

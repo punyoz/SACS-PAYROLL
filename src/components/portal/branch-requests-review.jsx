@@ -1,5 +1,7 @@
 "use client";
 
+import { ItemThread, useThreadCounts } from "@/components/portal/item-thread";
+
 import * as React from "react";
 import { CheckIcon, InboxIcon, Loader2Icon, RefreshCwIcon, XIcon } from "lucide-react";
 import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
@@ -84,6 +86,8 @@ export function BranchRequestsReview({ refreshKey, kinds, title, description, ic
     }
   }
 
+  // HR <-> branch Admin messages on each item (2026-11-24).
+  const threadCounts = useThreadCounts("branch_admin_request", (state.data?.requests || []).map((r) => r.id), state.data);
   const columns = [
     { key: "branch_name", header: "Branch", sortable: true, cell: (r) => r.branch_name || "Your branch" },
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", cell: (r) => r.employee_name || "—", searchValue: (r) => r.employee_name },
@@ -98,6 +102,7 @@ export function BranchRequestsReview({ refreshKey, kinds, title, description, ic
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <HistoryButton request={r} />
+          <ItemThread itemType="branch_admin_request" itemId={r.id} count={threadCounts[r.id] || 0} title={`Messages · ${r.kind_label}${r.employee_name ? ` · ${r.employee_name}` : ""}`} />
           {!readOnly && r.status === "pending" ? (REQUEST_KINDS[r.kind]?.decisions || []).map((decision) => (
             <Button key={decision} size="sm" variant={decision === "reject" ? "outline" : "default"} className={cn(decision === "reject" && "text-destructive")}
               onClick={() => { setDialog({ row: r, decision }); setRemark(EMPTY_REMARK); setError(""); }}>
@@ -118,7 +123,7 @@ export function BranchRequestsReview({ refreshKey, kinds, title, description, ic
       </CardHeader>
       <CardContent className="space-y-4">
         <DataTable toolbar={<>{hasPendingState ? <FilterTabs value={tab} onValueChange={setTab} label="Request filter" options={[{ value: "pending", label: "Pending" }, { value: "decided", label: "Decided" }, { value: "all", label: "All" }]} /> : null}{requestFilters.toolbar}</>}
-          columns={columns} rows={requestFilters.rows} loading={state.loading && !state.data} error={state.error} onRetry={load} pageSize={15}
+          columns={columns} rows={requestFilters.rows} loading={state.loading && !state.data} error={state.error} onRetry={load}
           searchPlaceholder="Search employee, branch or remark…" empty={{ title: tab === "pending" && hasPendingState ? "Nothing waiting" : "Nothing here yet", icon: Icon }} caption={title} minWidth={1150}
           selection={!readOnly && shared.length ? bulkRequests.selection : null} />
         {bulkRequests.dialog}

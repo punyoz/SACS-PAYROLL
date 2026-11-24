@@ -1,5 +1,7 @@
 "use client";
 
+import { dateLabel } from "@/lib/portal/payroll-preview";
+
 import { AttendanceCorrectionByDate, MyCorrectionRequests, useMyCorrections } from "@/components/portal/attendance-correction-form";
 import { describeSplit, splitForBalance } from "@/lib/leave-requests/split";
 import * as React from "react";
@@ -271,42 +273,32 @@ const days = (n) => `${n} ${Number(n) === 1 ? "day" : "days"}`;
 
 function LeaveBalance({ balance, loading }) {
   const bal = balance || { with_pay_allotment: 0, with_pay_used: 0, with_pay_remaining: 0, without_pay_used: 0 };
-  // Yearly credits per leave type (20261121010000).
-  const types = Object.entries(bal.by_type || {});
+  // ONE pool a year shared by Vacation, Sick and Emergency leave (2026-11-24); per type: what was used.
+  const pool = bal.pool || { allotment: bal.with_pay_allotment, used: bal.with_pay_used, remaining: bal.with_pay_remaining, used_by_type: {} };
+  const usedByType = Object.entries(pool.used_by_type || {}).filter(([, n]) => Number(n) > 0);
   const statutory = (bal.statutory || []).filter((t) => !t.refusal);
+  const percent = pool.allotment > 0 ? Math.min(100, Math.round((pool.used / pool.allotment) * 100)) : 0;
+  const short = (t) => t.replace(/ Leave$/, "");
 
   return (
     <Card className="shadow-xs">
       <CardHeader>
-        <CardTitle>Leave balance</CardTitle>
-        <CardDescription>This year&apos;s leave with pay, by type</CardDescription>
+        <CardTitle>Leave credits</CardTitle>
+        <CardDescription>This year&apos;s leave with pay: one total for vacation, sick and emergency leave</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? <Skeleton className="h-24 w-full" /> : (
           <>
-            <div className="space-y-3">
-              {types.map(([type, b]) => {
-                const percent = b.allotment > 0 ? Math.min(100, Math.round((b.used / b.allotment) * 100)) : 0;
-                return (
-                  <div key={type}>
-                    <div className="mb-1.5 flex items-baseline justify-between gap-2 text-sm">
-                      <span className="text-muted-foreground">{type}</span>
-                      <span className="tabular-nums font-medium">{b.used} of {days(b.allotment)} used · {days(b.remaining)} left</span>
-                    </div>
-                    <Progress value={percent} aria-label={`${type}: ${b.used} of ${b.allotment} days used`} />
-                  </div>
-                );
-              })}
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg border bg-success/8 p-3">
-                <p className="text-xs text-muted-foreground">With pay remaining</p>
-                <p className="mt-0.5 tabular-nums text-lg font-semibold text-success">{days(bal.with_pay_remaining)}</p>
+            <div data-testid="leave-credits">
+              <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                <span className="font-medium">Leave credits</span>
+                <span className="tabular-nums font-medium">{pool.used} of {days(pool.allotment)} used · {days(pool.remaining)} left</span>
               </div>
-              <div className="rounded-lg border bg-warning/8 p-3">
-                <p className="text-xs text-muted-foreground">Without pay used</p>
-                <p className="mt-0.5 tabular-nums text-lg font-semibold text-warning">{days(bal.without_pay_used)}</p>
-              </div>
+              <Progress value={percent} aria-label={`Leave credits: ${pool.used} of ${pool.allotment} days used`} />
+              <p className="mt-1.5 text-xs text-muted-foreground" data-testid="leave-credits-by-type">
+                {usedByType.length ? `Used: ${usedByType.map(([t, n]) => `${short(t)} ${n}`).join(", ")}` : "None used yet"}
+                {bal.without_pay_used ? ` · without pay: ${days(bal.without_pay_used)}` : ""}
+              </p>
             </div>
             {statutory.length ? (
               <div className="space-y-1.5 border-t pt-3">
@@ -340,7 +332,7 @@ const REQUEST_COLUMNS = [
     ),
     searchValue: (r) => r.leave_type,
   },
-  { key: "start_date", header: "Dates", sortable: true, cell: (r) => (r.half_day ? `${r.start_date}, ${HALF_LABEL[r.half_day] || "half day"}` : `${r.start_date} to ${r.end_date}`), searchValue: (r) => `${r.start_date} ${r.end_date}` },
+  { key: "start_date", header: "Dates", sortable: true, cell: (r) => (r.half_day ? `${dateLabel(r.start_date)}, ${HALF_LABEL[r.half_day] || "half day"}` : `${dateLabel(r.start_date)} to ${dateLabel(r.end_date)}`), searchValue: (r) => `${r.start_date} ${r.end_date}` },
   { key: "reason", header: "Reason", className: "max-w-xs whitespace-normal text-muted-foreground", cell: (r) => r.reason, searchValue: (r) => r.reason },
   {
     key: "submitted_at",

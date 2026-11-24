@@ -1,18 +1,26 @@
 "use client";
 
 import * as React from "react";
-import { CalendarClockIcon, ClockIcon, CreditCardIcon, SirenIcon, StarIcon } from "lucide-react";
+import { CalendarClockIcon, ClockIcon, CreditCardIcon, RefreshCwIcon, SirenIcon, StarIcon, UsersRoundIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataTable } from "@/components/portal/data-table";
+import { FilterTabs } from "@/components/portal/filter-tabs";
+import { ItemThread, useThreadCounts } from "@/components/portal/item-thread";
 import { manilaDateKey } from "@/lib/portal/format";
 import { dateLabel, money } from "@/lib/portal/payroll-preview";
-import { INCIDENT_TYPES, OVERTIME_TYPES, RFID_ISSUE_TYPES, SCHEDULE_REQUEST_TYPES } from "@/lib/branch-requests";
+import { INCIDENT_TYPES, RFID_ISSUE_TYPES } from "@/lib/branch-requests";
 import { fetchJson } from "@/lib/portal/api";
-import { RequestsPage } from "./oversight-shared";
+import { cn } from "@/lib/utils";
+import { RequestsPage, useBranchView } from "./oversight-shared";
+import { HrDecision } from "./endorsement-pages";
 
 /*
- * The branch Admin's reports and requests to HR (/api/admin/branch-oversight,
- * kind = …). The Admin files; HR (or, for RFID, the Super Admin) decides;
- * every one stays listed with its status, HR's remark and history.
+ * The branch Admin's pages (2026-11-24: view and monitor). The Admin FILES
+ * only what the system cannot detect (incident reports, incentive proposals,
+ * RFID issues), each with a preset remark; everything else the system checks
+ * and sends straight to HR, and the Admin follows it here with HR's decision.
  */
 
 export function IncidentReportsPage({ refreshKey }) {
@@ -40,36 +48,16 @@ export function IncidentReportsPage({ refreshKey }) {
   );
 }
 
+/** Schedules: HR changes work schedules; the Admin's earlier requests and HR's decisions stay listed (view only). */
 export function ScheduleRequestsPage({ refreshKey }) {
-  const today = manilaDateKey();
-  // Part E step 3: a schedule change names one of HR's work schedules; HR's approval applies it from that date.
-  const [schedules, setSchedules] = React.useState({});
-  React.useEffect(() => {
-    let alive = true;
-    fetchJson("/api/admin/branch-oversight?view=schedules").then((d) => {
-      if (!alive) return;
-      const list = d.schedules || [];
-      setSchedules(Object.fromEntries([...list.map((p) => [p.schedule_key, `${p.name} (${p.work_start}–${p.work_end})`]), ["none", "None fits: describe it in the note"]]));
-    }).catch(() => setSchedules({ none: "None fits: describe it in the note" }));
-    return () => { alive = false; };
-  }, [refreshKey]);
   return (
     <RequestsPage
       refreshKey={refreshKey}
       kind="schedule_request"
+      readOnly
       icon={CalendarClockIcon}
-      title="Work schedule & class-load requests"
-      description="Ask HR to change an employee's work schedule or class load. Pick one of HR's work schedules: once HR approves, the system applies it from the date you chose. A class-load change stays a note for HR."
-      buttonLabel="Request a change"
-      initial={{ request_type: "schedule", effective_from: today }}
-      fields={[
-        { id: "employee_id", label: "Employee", type: "employee", wide: true },
-        { id: "request_type", label: "Change", type: "select", options: SCHEDULE_REQUEST_TYPES },
-        { id: "schedule_key", label: "Work schedule", type: "select", options: schedules, wide: true, when: (v) => v.request_type === "schedule",
-          hint: "If none fits, choose \"None fits\" and describe it: HR creates the schedule first." },
-        { id: "effective_from", label: "Starting", type: "date", min: today },
-        { id: "requested", label: "Note (what should change)", type: "textarea", wide: true, placeholder: "e.g. needs 7:00 AM – 3:00 PM; or add Grade 8 Math (5 hours a week)" },
-      ]}
+      title="Work schedules"
+      description="HR changes work schedules and class loads; the system applies each change from its date. Earlier requests from your branch and HR's decisions are kept here. View only."
       columns={[
         { key: "change", header: "Requested change", cell: (r) => <div className="max-w-72 text-xs whitespace-normal"><p className="font-medium">{r.details?.request_type_label} · from {dateLabel(r.details?.effective_from)}</p>{r.details?.schedule_name ? <p>{r.details.schedule_name}</p> : null}<p>{r.details?.requested}</p></div>, searchValue: (r) => `${r.details?.schedule_name || ""} ${r.details?.requested || ""}` },
       ]}
@@ -101,31 +89,56 @@ export function RfidIssuesPage({ refreshKey }) {
   );
 }
 
+const hm = (t) => String(t || "").slice(0, 5);
+const SUB_STATUS = (s) => (s.needs_substitute ? "Waiting for HR to pick a teacher" : s.status === "pending" ? "Waiting for HR" : s.status === "approved" ? "Approved" : s.status === "rejected" ? "Rejected" : "Cancelled");
+
+/** Overtime & substitute teaching (view only): the branch's overtime requests and substitutions with HR's decision. */
 export function OvertimeConfirmationsPage({ refreshKey }) {
-  const today = manilaDateKey();
+  const [tab, setTab] = React.useState("overtime");
+  const view = useBranchView("overtime", {}, refreshKey);
+  const [subs, setSubs] = React.useState({ loading: true, rows: [], error: null });
+  const loadSubs = React.useCallback(async () => {
+    try { setSubs({ loading: false, rows: (await fetchJson("/api/substitutions")).substitutions || [], error: null }); }
+    catch (e) { setSubs((c) => ({ ...c, loading: false, error: e.message })); }
+  }, []);
+  React.useEffect(() => { loadSubs(); }, [loadSubs, refreshKey]);
+  const overtime = view.data?.overtime || [];
+  const otCounts = useThreadCounts("overtime_request", overtime.map((r) => r.id), view.data);
+  const subCounts = useThreadCounts("substitution", subs.rows.map((r) => r.id), subs.rows.length);
+  const otColumns = [
+    { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (r) => `${r.employee_name} ${r.employee_code}` },
+    { key: "day", header: "Day", sortValue: (r) => r.request_date, cell: (r) => <div className="text-xs"><p>{dateLabel(r.request_date)}</p><p className="text-muted-foreground">{hm(r.planned_start)}–{hm(r.planned_end)}{r.late_filing ? " · filed late" : ""}</p></div> },
+    { key: "reason", header: "Reason", cell: (r) => <p className="max-w-56 text-xs whitespace-normal">{r.reason}</p>, searchValue: (r) => r.reason },
+    { key: "hr", header: "HR decision", cell: (r) => <HrDecision status={r.status} label={r.status === "pending" ? "Waiting for HR" : r.status[0].toUpperCase() + r.status.slice(1)} by={r.decided_by_name} at={r.decided_at} remark={r.decision_note} /> },
+    { key: "msg", header: <span className="sr-only">Messages</span>, align: "right", cell: (r) => <ItemThread itemType="overtime_request" itemId={r.id} count={otCounts[r.id] || 0} title={`Messages · ${r.employee_name}`} /> },
+  ];
+  const subColumns = [
+    { key: "absent", header: "Absent teacher", className: "font-medium", cell: (s) => s.absent_name, searchValue: (s) => `${s.absent_name} ${s.substitute_name || ""}` },
+    { key: "day", header: "Day", sortValue: (s) => s.sub_date, cell: (s) => <div className="text-xs"><p>{dateLabel(s.sub_date)}</p><p className="text-muted-foreground">{hm(s.start_time)}–{hm(s.end_time)} · {s.periods} period{s.periods === 1 ? "" : "s"}</p></div> },
+    { key: "sub", header: "Substitute", cell: (s) => <span className="text-xs">{s.substitute_name || "Not picked yet"}</span> },
+    { key: "hr", header: "HR decision", cell: (s) => <HrDecision status={s.needs_substitute ? "pending" : s.status} label={SUB_STATUS(s)} by={s.decided_by_name} at={s.decided_at} remark={s.decision_note} /> },
+    { key: "msg", header: <span className="sr-only">Messages</span>, align: "right", cell: (s) => <ItemThread itemType="substitution" itemId={s.id} count={subCounts[s.id] || 0} title={`Messages · ${s.absent_name}`} /> },
+  ];
+  const loading = tab === "overtime" ? view.loading : subs.loading;
   return (
-    <RequestsPage
-      refreshKey={refreshKey}
-      kind="overtime_confirmation"
-      icon={ClockIcon}
-      title="Overtime & substitute teaching"
-      description="Confirm (Endorse) that overtime or substitute teaching really happened, or say it did not (Not endorse). The Accountant sees your confirmation before paying it."
-      buttonLabel="Confirm work"
-      dialogDescription="Endorse = it happened. Not endorse = it did not happen as claimed."
-      decisions
-      initial={{ work_type: "overtime", work_date: today }}
-      fields={[
-        { id: "employee_id", label: "Employee", type: "employee", wide: true },
-        { id: "work_type", label: "Work", type: "select", options: OVERTIME_TYPES },
-        { id: "work_date", label: "Day", type: "date", max: today },
-        { id: "hours", label: "Hours", type: "number", min: "0.25", max: "24", step: "0.25" },
-        { id: "covered_for", label: "Covered for (substitute)", type: "text", when: (v) => v.work_type === "substitute", placeholder: "Teacher / class" },
-      ]}
-      columns={[
-        { key: "work", header: "Work", cell: (r) => <div className="text-xs"><p className="font-medium">{r.details?.work_type_label} · {r.details?.hours} h</p><p className="text-muted-foreground">{dateLabel(r.details?.work_date)}{r.details?.covered_for ? ` · for ${r.details.covered_for}` : ""}</p></div>, searchValue: (r) => r.details?.work_type_label },
-      ]}
-      empty={{ title: "No confirmations yet", icon: ClockIcon }}
-    />
+    <Card className="min-w-0 shadow-xs">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><ClockIcon className="size-4 text-gold-text" aria-hidden="true" />Overtime & substitute teaching</CardTitle>
+        <CardDescription>Your branch&apos;s overtime requests and substitutions. The system prepares each one (a teacher&apos;s approved leave proposes the substitution) and sends it straight to HR; HR decides and the taps confirm the pay. View only.</CardDescription>
+        <CardAction><Button variant="outline" size="sm" onClick={() => { view.load(); loadSubs(); }} disabled={loading}><RefreshCwIcon className={cn(loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
+      </CardHeader>
+      <CardContent>
+        {tab === "overtime" ? (
+          <DataTable key="ot" toolbar={<FilterTabs value={tab} onValueChange={setTab} label="Show" options={[{ value: "overtime", label: "Overtime" }, { value: "subs", label: "Substitutions" }]} />}
+            columns={otColumns} rows={overtime} loading={view.first} error={view.error} onRetry={view.load}
+            searchPlaceholder="Search name, ID or details…" empty={{ title: "No overtime requests", icon: ClockIcon }} caption="Branch overtime requests" minWidth={900} />
+        ) : (
+          <DataTable key="subs" toolbar={<FilterTabs value={tab} onValueChange={setTab} label="Show" options={[{ value: "overtime", label: "Overtime" }, { value: "subs", label: "Substitutions" }]} />}
+            columns={subColumns} rows={subs.rows} loading={subs.loading && !subs.rows.length} error={subs.error} onRetry={loadSubs}
+            searchPlaceholder="Search name, ID or details…" empty={{ title: "No substitutions", icon: UsersRoundIcon }} caption="Branch substitutions" minWidth={900} />
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -138,9 +151,9 @@ export function IncentiveEndorsementsPage({ refreshKey }) {
       kind="incentive_endorsement"
       exportable
       icon={StarIcon}
-      title="Incentive recommendations"
-      description="Recommend an incentive or overload pay for an employee of your branch. HR approves it; it is then added to payroll."
-      buttonLabel="Recommend an incentive"
+      title="Incentive proposals"
+      description="Propose a discretionary incentive or overload pay for an employee of your branch (what the system cannot compute). HR approves it; it is then added to payroll. Rule-based incentives are computed by the system after the cutoff and go to HR directly."
+      buttonLabel="Propose an incentive"
       initial={{ kind: "incentive", item_date: today }}
       banner={(data) => {
         const c = data?.cutoffs?.[month];
@@ -163,9 +176,9 @@ export function IncentiveEndorsementsPage({ refreshKey }) {
         { id: "description", label: "What it is for", type: "text", wide: true, placeholder: "e.g. Coaching the quiz bee team" },
       ]}
       columns={[
-        { key: "item", header: "Recommended", cell: (r) => <div className="text-xs"><p className="font-medium">{r.details?.kind === "overload" ? `Overload ${r.details?.hours} h` : money(r.details?.amount)}</p><p className="max-w-56 whitespace-normal text-muted-foreground">{r.details?.description} · {dateLabel(r.details?.item_date)}</p></div>, searchValue: (r) => r.details?.description },
+        { key: "item", header: "Proposed", cell: (r) => <div className="text-xs"><p className="font-medium">{r.details?.kind === "overload" ? `Overload ${r.details?.hours} h` : money(r.details?.amount)}</p><p className="max-w-56 whitespace-normal text-muted-foreground">{r.details?.description} · {dateLabel(r.details?.item_date)}</p></div>, searchValue: (r) => r.details?.description },
       ]}
-      empty={{ title: "No recommendations yet", icon: StarIcon }}
+      empty={{ title: "No proposals yet", icon: StarIcon }}
     />
   );
 }

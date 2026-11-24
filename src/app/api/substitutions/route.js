@@ -1,14 +1,19 @@
 /**
  * Substitute teaching (Part C, 2026-11-22; 20261123020000). Attendance and
- * payroll only: no timetable. The proxy maps this route to "branch_oversight"
- * (the Admin files, HR decides, the Accountant reads).
+ * payroll only: no timetable. The proxy maps this route to "branch_oversight".
+ * 2026-11-24: an approved teacher's leave gets a system proposal per school day
+ * (src/lib/substitutions/proposals.js); HR picks the teacher and approves. HR
+ * files one by hand only for an unplanned absence. The Admin views only.
  *
  *   GET  ?from=&to=&status=             the substitutions (Admin: own branch), each with its tap check
  *   GET  ?suggest=1&absent=&date=&periods=   suggested substitutes (same level and branch, tapped in
  *                                       that day, not on leave, under the weekly cap)
- *   POST { absent_employee_id, substitute_id, sub_date, start_time, end_time, periods, class_section?, subject?, leave_request_id? }  (Admin)
- *   PATCH { id, action: "approve" | "reject", remark }   (HR; a preset remark, required to reject)
- *   PATCH { id, action: "cancel" }                      (the Admin, while pending)
+ *   PATCH { action: "file_unplanned", unplanned_reason: no_show|sudden_illness|other, absent_employee_id,
+ *           substitute_id, sub_date, start_time, end_time, periods, class_section?, subject? }   (HR: approved on filing)
+ *   PATCH { id, action: "approve", substitute_id?, periods?, remark }   (HR; a proposal needs the picked teacher; periods covered)
+ *   PATCH { id, action: "reject", remark }   (HR; a preset remark)
+ *   PATCH { id, action: "cancel" }           (HR, while pending)
+ *   POST  refused (the Admin no longer files)
  */
 
 import { NextResponse } from "next/server";
@@ -23,7 +28,9 @@ import { lateSubstitutions, minutesOf, readSubstitutionSettings, suggestSubstitu
 
 const UUID = /^[0-9a-f-]{36}$/i;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
-const COLUMNS = "id,branch_id,sub_date,absent_employee_id,substitute_id,start_time,end_time,periods,class_section,subject,leave_request_id,status,created_by_name,created_at,decided_by_name,decided_at,decision_note";
+const COLUMNS = "id,branch_id,sub_date,absent_employee_id,substitute_id,start_time,end_time,periods,class_section,subject,leave_request_id,status,source,created_by_name,created_at,decided_by_name,decided_at,decision_note";
+/** HR files a substitution by hand only for an unplanned absence (2026-11-24); planned leave gets a system proposal. */
+const UNPLANNED = { no_show: "No-show", sudden_illness: "Sudden illness", other: "Other unplanned absence" };
 const addDays = (key, n) => new Date(Date.parse(`${key}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
 const manilaMinutes = (iso) => {
   if (!iso) return null;
@@ -45,7 +52,7 @@ async function weekPeriods(supabase, ids, date, exceptId = null) {
   // Id lists are read in chunks (tests/scale-queries.test.js).
   const { data } = ids ? await fetchAllIn(q, "substitute_id", ids) : await q();
   const map = new Map();
-  for (const r of data || []) if (r.id !== exceptId) map.set(r.substitute_id, (map.get(r.substitute_id) || 0) + Number(r.periods || 0));
+  for (const r of data || []) if (r.id !== exceptId && r.substitute_id) map.set(r.substitute_id, (map.get(r.substitute_id) || 0) + Number(r.periods || 0));
   return map;
 }
 
@@ -127,10 +134,10 @@ export async function GET(request) {
     const { data, error } = await q;
     if (error) throw error;
     const rows = data || [];
-    const who = await people(supabase, [...new Set(rows.flatMap((r) => [r.absent_employee_id, r.substitute_id]))]);
+    const who = await people(supabase, [...new Set(rows.flatMap((r) => [r.absent_employee_id, r.substitute_id]).filter(Boolean))]);
     const dates = [...new Set(rows.map((r) => r.sub_date))];
     const { data: logs } = dates.length
-      ? await supabase.from("attendance_logs").select("employee_id,log_date,time_in,time_out").in("log_date", dates).eq("archived_duplicate", false).in("employee_id", [...new Set(rows.map((r) => r.substitute_id))])
+      ? await supabase.from("attendance_logs").select("employee_id,log_date,time_in,time_out").in("log_date", dates).eq("archived_duplicate", false).in("employee_id", [...new Set(rows.map((r) => r.substitute_id).filter(Boolean)), "00000000-0000-0000-0000-000000000000"])
       : { data: [] };
     const tapOf = new Map((logs || []).map((l) => [`${l.employee_id}|${l.log_date}`, { in: manilaMinutes(l.time_in), out: manilaMinutes(l.time_out) }]));
     const today = manilaDateKey();
@@ -141,11 +148,13 @@ export async function GET(request) {
         return {
           ...r,
           absent_name: who.get(r.absent_employee_id)?.full_name || "—",
-          substitute_name: who.get(r.substitute_id)?.full_name || "—",
-          substitute_code: who.get(r.substitute_id)?.employee_id || "",
+          substitute_name: r.substitute_id ? who.get(r.substitute_id)?.full_name || "—" : null,
+          substitute_code: r.substitute_id ? who.get(r.substitute_id)?.employee_id || "" : "",
+          // A system proposal (from approved leave) waits for HR to pick the teacher.
+          needs_substitute: !r.substitute_id && r.status === "pending",
           hours: (minutesOf(r.end_time) - minutesOf(r.start_time)) / 60,
           // Taps confirm it; a past day without covering taps is flagged to HR (not paid).
-          tap_check: confirmed ? "confirmed" : r.sub_date >= today ? "waiting" : "no_taps",
+          tap_check: !r.substitute_id ? "no_substitute" : confirmed ? "confirmed" : r.sub_date >= today ? "waiting" : "no_taps",
         };
       }),
     });
@@ -154,12 +163,19 @@ export async function GET(request) {
   }
 }
 
-export async function POST(request) {
-  try {
-    const guard = await requirePermission(request, "branch_oversight", "create");
-    if (guard.denied) return guard.denied;
-    if (guard.role !== "admin") return NextResponse.json({ error: "The branch Admin records substitutions; HR approves them." }, { status: 403 });
-    const body = await request.json().catch(() => ({}));
+/**
+ * HR files a substitution for an unplanned absence (no-show, sudden illness), decided by that HR on filing.
+ * Reached by PATCH { action: "file_unplanned", ... } (HR holds update on this module, not create); the branch
+ * Admin's POST is refused (2026-11-24).
+ */
+async function fileUnplanned(guard, body) {
+    // 2026-11-24: the system proposes a substitution from an approved leave; HR files one by hand only for an
+    // unplanned absence (no-show, sudden illness), decided by that HR on filing. The branch Admin does not file.
+    if (guard.role !== "hr" && guard.role !== "super_admin") {
+      return NextResponse.json({ error: "Substitutions come from approved leave (the system proposes them; HR picks the teacher). HR files one by hand only for an unplanned absence." }, { status: 409 });
+    }
+    const unplanned = UNPLANNED[String(body.unplanned_reason || "")] ? String(body.unplanned_reason) : null;
+    if (!unplanned) return NextResponse.json({ error: "A substitution filed by hand is for an unplanned absence: choose No-show, Sudden illness or Other unplanned absence." }, { status: 400 });
     const absentId = String(body.absent_employee_id || "");
     const substituteId = String(body.substitute_id || "");
     const date = String(body.sub_date || "");
@@ -180,21 +196,33 @@ export async function POST(request) {
     if (!out.suggestions.some((s) => s.id === substituteId)) {
       return NextResponse.json({ error: `That teacher cannot substitute here: same level and branch, tapped in that day, not on leave, and at most ${out.cap} periods a week.` }, { status: 400 });
     }
+    // Planned leave is covered by the system's proposal, not a second filing.
+    const { data: onLeave } = await supabase.from("leave_requests").select("id").eq("employee_id", absentId).eq("status", "approved").lte("start_date", date).gte("end_date", date).limit(1);
+    if ((onLeave || []).length) return NextResponse.json({ error: "This teacher is on approved leave that day: the system has proposed the substitution. Pick the teacher on it." }, { status: 409 });
     const absent = (await supabase.from("profiles").select("branch_id").eq("id", absentId).maybeSingle()).data;
-    const by = guard.session?.full_name || guard.session?.email || "Admin";
+    const by = guard.session?.full_name || guard.session?.email || "HR";
+    const now = new Date().toISOString();
     const { data, error } = await supabase.from("substitutions").insert({
       branch_id: absent?.branch_id || null, sub_date: date, absent_employee_id: absentId, substitute_id: substituteId,
       start_time: body.start_time, end_time: body.end_time, periods, class_section: text(body.class_section), subject: text(body.subject),
-      leave_request_id: body.leave_request_id ? String(body.leave_request_id).slice(0, 80) : null,
-      created_by: guard.userId, created_by_name: by,
+      leave_request_id: null, source: "unplanned", status: "approved",
+      created_by: guard.userId, created_by_name: by, decided_by: guard.userId, decided_by_name: by, decided_at: now,
+      decision_note: `Unplanned absence: ${UNPLANNED[unplanned]}`,
     }).select(COLUMNS).single();
     if (error) {
       if (String(error.code) === "23505") return NextResponse.json({ error: "This substitute already has a substitution at that time." }, { status: 409 });
       throw error;
     }
-    await appendAuditLog({ actor: guard, module: "branch_oversight", action: "substitution_filed", entity_type: "substitution", entity_id: data.id, branch_id: data.branch_id,
-      description: `Substitution filed for ${date} ${body.start_time}-${body.end_time} (${periods} period${periods === 1 ? "" : "s"}) by ${by}.` });
+    await appendAuditLog({ actor: guard, module: "payroll", action: "substitution_filed_unplanned", entity_type: "substitution", entity_id: data.id, branch_id: data.branch_id,
+      description: `Substitution for an unplanned absence (${UNPLANNED[unplanned]}) on ${date} ${body.start_time}-${body.end_time} (${periods} period${periods === 1 ? "" : "s"}), filed and approved by ${by}.` });
     return NextResponse.json({ substitution: data }, { status: 201 });
+}
+
+export async function POST(request) {
+  try {
+    const guard = await requirePermission(request, "branch_oversight", "create");
+    if (guard.denied) return guard.denied;
+    return await fileUnplanned(guard, await request.json().catch(() => ({})));
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
@@ -207,6 +235,7 @@ export async function PATCH(request) {
     const body = await request.json().catch(() => ({}));
     const id = String(body.id || "");
     const action = String(body.action || "");
+    if (action === "file_unplanned") return await fileUnplanned(guard, body);
     if (!UUID.test(id)) return NextResponse.json({ error: "Choose a substitution." }, { status: 400 });
     const supabase = getServiceClient();
     const { data: row } = await supabase.from("substitutions").select(COLUMNS).eq("id", id).maybeSingle();
@@ -218,19 +247,38 @@ export async function PATCH(request) {
     const now = new Date().toISOString();
 
     if (action === "cancel") {
-      if (guard.role !== "admin") return NextResponse.json({ error: "The branch Admin cancels its own filing." }, { status: 403 });
+      if (guard.role !== "hr" && guard.role !== "super_admin") return NextResponse.json({ error: "HR cancels a substitution." }, { status: 403 });
       const { error } = await supabase.from("substitutions").update({ status: "cancelled", updated_at: now }).eq("id", id).eq("status", "pending");
       if (error) throw error;
       return NextResponse.json({ ok: true });
     }
     if (action !== "approve" && action !== "reject") return NextResponse.json({ error: "Approve or reject." }, { status: 400 });
     if (guard.role !== "hr" && guard.role !== "super_admin") return NextResponse.json({ error: "HR approves substitutions." }, { status: 403 });
-    if (String(row.substitute_id) === String(guard.userId)) return NextResponse.json({ error: "Your own substitution is decided by another HR account." }, { status: 403 });
+    // A system proposal: HR picks the teacher from the suggestions (the same rules as Part C).
+    let substituteId = row.substitute_id;
+    // The class periods the substitute really covers (1 up to the proposal's; the weekly cap counts these).
+    let periods = Number(row.periods);
+    if (action === "approve" && !substituteId) {
+      substituteId = String(body.substitute_id || "");
+      if (!UUID.test(substituteId)) return NextResponse.json({ error: "Pick the substitute teacher." }, { status: 400 });
+      if (body.periods !== undefined) {
+        const n = Number(body.periods);
+        if (!Number.isInteger(n) || n < 1 || n > Number(row.periods)) return NextResponse.json({ error: `The periods covered are 1 to ${row.periods}.` }, { status: 400 });
+        periods = n;
+      }
+      const out = await suggestions(supabase, guard, { absentId: row.absent_employee_id, date: row.sub_date, periods });
+      if (out.denied) return out.denied;
+      if (out.error) return NextResponse.json({ error: out.error }, { status: 404 });
+      if (!out.suggestions.some((x) => x.id === substituteId)) {
+        return NextResponse.json({ error: `That teacher cannot substitute here: same level and branch, tapped in that day, not on leave, and at most ${out.cap} periods a week.` }, { status: 400 });
+      }
+    }
+    if (String(substituteId) === String(guard.userId)) return NextResponse.json({ error: "Your own substitution is decided by another HR account." }, { status: 403 });
     const remark = await resolveRemark(supabase, body.remark, { decision: action, entityType: "substitution", fallbackText: body.note });
     if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
     const decider = remarkClient(remark, { decision: action, entityType: "substitution", module: "payroll", table: "substitutions", ids: [id], actor: guard });
     const { data, error } = await decider.from("substitutions").update({
-      status: action === "approve" ? "approved" : "rejected", decided_by: guard.userId, decided_by_name: by, decided_at: now, decision_note: remark.text || null, updated_at: now,
+      status: action === "approve" ? "approved" : "rejected", ...(action === "approve" ? { substitute_id: substituteId, periods } : {}), decided_by: guard.userId, decided_by_name: by, decided_at: now, decision_note: remark.text || null, updated_at: now,
     }).eq("id", id).eq("status", "pending").select(COLUMNS).maybeSingle();
     if (error) throw error;
     if (!data) return NextResponse.json({ error: "This substitution was decided at the same time. Refresh." }, { status: 409 });

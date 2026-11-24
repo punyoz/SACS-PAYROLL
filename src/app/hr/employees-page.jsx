@@ -23,6 +23,7 @@ import { UserAvatar } from "@/components/portal/user-avatar";
 import { FilterTabs } from "@/components/portal/filter-tabs";
 import { EMPLOYMENT_STATUS_OPTIONS, EMPLOYMENT_TYPE_OPTIONS } from "@/lib/employees/classification";
 import { useUrlParam } from "@/components/portal/use-url-param";
+import { branchOptions, isArchivedBranch } from "@/lib/branches/archived";
 
 /*
  * User Management (loadHREmployees / renderHREmployeeTable,
@@ -30,7 +31,7 @@ import { useUrlParam } from "@/components/portal/use-url-param";
  * rows always load so the Archived count is right) and /api/admin/branches.
  */
 
-export function useBranches(refreshKey, { withStatus = false } = {}) {
+export function useBranches(refreshKey, { withStatus = false, includeArchived = false } = {}) {
   const [branches, setBranches] = React.useState([]);
   // Loaded, or given up after the retries: only then is a branch truly "Unknown" (2026-11-22).
   const [loaded, setLoaded] = React.useState(false);
@@ -40,7 +41,7 @@ export function useBranches(refreshKey, { withStatus = false } = {}) {
     // A failed lookup used to leave every branch as "Unknown branch" until
     // the next refresh: try again a few times, a little later each time.
     const attempt = (n) => {
-      fetchJson("/api/admin/branches")
+      fetchJson(includeArchived ? "/api/admin/branches?include_archived=1" : "/api/admin/branches")
         .then((data) => { if (!cancelled) { setBranches(data.branches || []); setLoaded(true); } })
         .catch(() => {
           if (cancelled) return;
@@ -50,12 +51,12 @@ export function useBranches(refreshKey, { withStatus = false } = {}) {
     };
     attempt(0);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [refreshKey]);
+  }, [refreshKey, includeArchived]);
   return withStatus ? { branches, loaded } : branches;
 }
 
 export function EmployeesPage({ refreshKey }) {
-  const { branches, loaded: branchesLoaded } = useBranches(refreshKey, { withStatus: true });
+  const { branches, loaded: branchesLoaded } = useBranches(refreshKey, { withStatus: true, includeArchived: true });
   const [state, setState] = React.useState({ loading: true, error: null, employees: [] });
   // Kept in the address (a dashboard link opens a filtered list).
   const [filter, setFilter] = useUrlParam("emp_filter", "all");
@@ -110,7 +111,7 @@ export function EmployeesPage({ refreshKey }) {
   }, [branches]);
 
   const inBranch = state.employees.filter((e) => {
-    if (branch === "all") return true;
+    if (branch === "all" || branch === "archived_branches") return true;
     if (branch === "unassigned") return !e.branch_id;
     return String(e.branch_id || "") === branch;
   });
@@ -119,20 +120,20 @@ export function EmployeesPage({ refreshKey }) {
     all: active.length,
     teaching: active.filter((e) => e.employee_type?.toLowerCase() === "teaching").length,
     "non-teaching": active.filter((e) => e.employee_type?.toLowerCase() === "non-teaching").length,
-    maintenance: active.filter((e) => e.staff_group === "Maintenance").length,
+    maintenance: active.filter((e) => String(e.position || "").toLowerCase() === "maintenance").length,
     archived: inBranch.filter((e) => e.archived).length,
     unconfirmed: active.filter((e) => e.classification_unconfirmed).length,
   };
   // Memoized: DataTable reports its rows back through onRowsShown (setShownRows), so a new array every render loops forever.
   const rows = React.useMemo(() => {
-    const list = state.employees.filter((e) => (branch === "all" ? true : branch === "unassigned" ? !e.branch_id : String(e.branch_id || "") === branch));
+    const list = state.employees.filter((e) => (branch === "all" || branch === "archived_branches" ? true : branch === "unassigned" ? !e.branch_id : String(e.branch_id || "") === branch));
     const classified = list
       .filter((e) => empStatus === "all" || e.employment_status === empStatus);
     if (filter === "archived") return classified.filter((e) => e.archived);
     const live = classified.filter((e) => !e.archived);
     if (filter === "unconfirmed") return live.filter((e) => e.classification_unconfirmed);
-    // Maintenance: a group within Non-Teaching (2026-11-23).
-    if (filter === "maintenance") return live.filter((e) => e.staff_group === "Maintenance");
+    // Maintenance is a position (2026-11-24).
+    if (filter === "maintenance") return live.filter((e) => String(e.position || "").toLowerCase() === "maintenance");
     return filter === "all" ? live : live.filter((e) => e.employee_type?.toLowerCase() === filter);
   }, [state.employees, branch, filter, empStatus]);
 
@@ -142,7 +143,7 @@ export function EmployeesPage({ refreshKey }) {
       cell: (e) => <span className="flex items-center gap-2"><UserAvatar userId={e.id} name={e.full_name} className="size-7" fallbackClassName="text-[10px]" />{e.full_name}</span>,
     },
     { key: "employee_id", header: "ID", className: "font-mono text-xs", cell: (e) => e.employee_id || "—", searchValue: (e) => e.employee_id },
-    { key: "employee_type", header: "Category", cell: (e) => [e.employee_type, e.staff_group].filter(Boolean).join(" · ") || "—", searchValue: (e) => `${e.employee_type || ""} ${e.staff_group || ""}` },
+    { key: "employee_type", header: "Category", cell: (e) => e.employee_type || "—", searchValue: (e) => e.employee_type || "" },
     {
       key: "employment_status", header: "Employment", sortable: true, sortValue: (e) => `${e.employment_status}`,
       searchValue: (e) => `${e.employment_status || ""}`,
@@ -194,8 +195,8 @@ export function EmployeesPage({ refreshKey }) {
   const [shownRows, setShownRows] = React.useState(null);
   function exportList() {
     downloadCsv(`sacs-employees-${new Date().toISOString().slice(0, 10)}.csv`,
-      ["Employee ID", "Name", "Email", "Branch", "Type", "Group", "Employment status", "Position", "Status", "Date hired", "Contact number"],
-      (shownRows || rows).map((e) => [e.employee_id || "", e.full_name || "", e.email || "", branchName(e.branch_id) || "", e.employee_type || "", e.staff_group || "",
+      ["Employee ID", "Name", "Email", "Branch", "Type", "Employment status", "Position", "Status", "Date hired", "Contact number"],
+      (shownRows || rows).map((e) => [e.employee_id || "", e.full_name || "", e.email || "", branchName(e.branch_id) || "", e.employee_type || "",
         e.employment_status || "", e.position || "",
         e.archived ? "Archived" : e.employee_status || "Active", e.date_hired || "", e.cp_number || ""]));
   }
@@ -237,7 +238,8 @@ export function EmployeesPage({ refreshKey }) {
                   <SelectContent>
                     <SelectItem value="all">All branches</SelectItem>
                     <SelectItem value="unassigned">Unassigned</SelectItem>
-                    {branches.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
+                    {branchOptions(branches, { showArchived: branch === "archived_branches", selected: branch }).map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.name}{isArchivedBranch(b) ? " (archived)" : ""}</SelectItem>)}
+                    {branches.some(isArchivedBranch) ? <SelectItem value="archived_branches">All branches + archived</SelectItem> : null}
                   </SelectContent>
                 </Select>
               </>
@@ -248,7 +250,7 @@ export function EmployeesPage({ refreshKey }) {
             loading={state.loading}
             error={state.error}
             onRetry={load}
-            pageSize={15}
+           
             searchPlaceholder="Search name, ID, email, position or branch…"
             empty={{ title: "No employees found", icon: UsersIcon }}
             caption="Staff list"
@@ -272,8 +274,8 @@ export function EmployeesPage({ refreshKey }) {
       <EmployeeFormDialog
         mode={dialog?.mode || "add"}
         employee={dialog?.employee || null}
-        branches={branches}
-        defaultBranch={branch !== "all" && branch !== "unassigned" ? branch : ""}
+        branches={branchOptions(branches, { selected: dialog?.employee?.branch_id })}
+        defaultBranch={branch !== "all" && branch !== "unassigned" && branch !== "archived_branches" ? branch : ""}
         branchName={branchName}
         open={Boolean(dialog)}
         onOpenChange={(open) => { if (!open) setDialog(null); }}
@@ -293,7 +295,7 @@ export function EmployeesPage({ refreshKey }) {
             id: e.id, full_name: e.full_name, employee_code: e.employee_id, branch_name: branchName(e.branch_id),
             ...(String(e.role || "employee").toLowerCase() === "hr" ? { disabled: true, hint: "an HR login is separated by the Super Admin" } : {}),
           }))}
-        showBranch={branches.length > 1}
+        showBranch={branchOptions(branches).length > 1}
         field={{ key: "effective", label: "Last day", kind: "date" }}
         pasteLabel="One line per employee: their employee ID (or name), then the last day (YYYY-MM-DD)"
         pastePlaceholder={"SACS-0101, 2027-05-31\nSACS-0102, 2027-05-31"}

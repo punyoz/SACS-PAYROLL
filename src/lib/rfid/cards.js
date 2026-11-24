@@ -21,6 +21,8 @@ export const CARD_ACTION_LABELS = Object.freeze({
   deactivated: "Deactivated",
   reactivated: "Reactivated",
   marked_lost: "Marked lost",
+  // 2026-11-24: a test lost-card report removed (shown, never a silent gap).
+  lost_report_removed: "Test lost-card report removed",
   imported: "Imported",
 });
 

@@ -676,7 +676,7 @@ function PayrollRunsApproval({ refreshKey, onChanged }) {
               error={state.error}
               onRetry={load}
               searchable={false}
-              pageSize={15}
+             
               rowKey={(r) => r.id}
               rowClassName={(r) => (r.flagged_employees ? "bg-warning/5" : undefined)}
               empty={{

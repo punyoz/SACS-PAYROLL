@@ -84,7 +84,6 @@ export function normalizeEmployeeFields(body = {}) {
     employee_type: pickOption(body.employee_type, EMPLOYEE_TYPE_OPTIONS),
     employment_type: "Full-time",
     // Maintenance is a group within Non-Teaching (2026-11-23), not a category.
-    staff_group: pickOption(body.employee_type, EMPLOYEE_TYPE_OPTIONS) === "Non-Teaching" && body.staff_group === "Maintenance" ? "Maintenance" : null,
     employment_status: pickOption(body.employment_status, EMPLOYMENT_STATUS_OPTIONS),
     employee_status: pickOption(body.employee_status, ACCOUNT_STATUS_OPTIONS),
     position: normalizeText(body.position),
@@ -109,7 +108,6 @@ const FIELD_LABELS = {
   sex: "Sex",
   civil_status: "Civil status",
   employee_type: "Category",
-  staff_group: "Group",
   employment_type: "Employment type",
   employment_status: "Employment status",
   employee_status: "Account status",

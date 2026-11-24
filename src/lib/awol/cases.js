@@ -41,10 +41,18 @@ export const TRANSITIONS = Object.freeze({
   confirm: { from: ["flagged"], to: "confirmed" },
   first_notice: { from: ["confirmed"], to: "first_notice" },
   second_notice: { from: ["first_notice"], to: "second_notice" },
-  // HR's own decision after both notices (Notice of Decision served).
-  separate: { from: ["second_notice", "for_decision"], to: "closed" },
+  // 2026-11-24: HR decides the separation once the reply deadline passed (or after a response): it SENDS the notice of
+  // separation; the system separates on its effective date (awol_daily_review).
+  separate: { from: ["first_notice", "for_decision"], to: "second_notice" },
   close: { from: ["flagged", "confirmed", "first_notice", "second_notice", "for_decision"], to: "closed" },
-  record_reply: { from: ["confirmed", "first_notice", "second_notice", "for_decision"], to: null },
+  record_reply: { from: ["flagged", "confirmed", "first_notice", "second_notice", "for_decision"], to: null },
+  // 2026-11-24 (AWOL fully automatic): HR's one button on a case the system left for review (pay hold + 1st notice);
+  // HR stops / resumes the automation on any open case.
+  confirm_send: { from: ["flagged"], to: "first_notice" },
+  // "Proceed" on a case the guards left for review: the automatic flow runs (confirmed + 1st notice now).
+  proceed: { from: ["flagged"], to: "first_notice" },
+  stop_automation: { from: ["flagged", "confirmed", "first_notice", "second_notice", "for_decision"], to: null },
+  resume_automation: { from: ["flagged", "confirmed", "first_notice", "second_notice", "for_decision"], to: null },
 });
 
 export function canTransition(action, stage) {

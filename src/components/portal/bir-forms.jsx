@@ -197,7 +197,7 @@ export function BirFormsCard({ refreshKey = 0 }) {
             rows={rows}
             rowKey={(r) => r.employee_id}
             loading={state.loading && !data}
-            pageSize={15}
+           
             searchPlaceholder="Search employee…"
             empty={{ title: `No paid payslips in ${shownYear || "this year"}`, icon: FileTextIcon }}
             caption={`BIR forms ${shownYear}`}
@@ -381,7 +381,7 @@ export function YearEndTaxCard({ refreshKey = 0 }) {
             rows={rows}
             rowKey={(r) => r.id}
             loading={state.loading && !data}
-            pageSize={15}
+           
             searchPlaceholder="Search employee…"
             empty={{ title: `No annualization for ${shownYear || "this year"} yet`, description: readOnly ? "Nobody has run it for this year." : "Choose Run annualization.", icon: CalculatorIcon }}
             caption={`Year-end tax annualization ${shownYear}`}

@@ -1,5 +1,7 @@
 "use client";
 
+import { MaintenancePage } from "../admin/maintenance-page";
+
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
@@ -19,6 +21,7 @@ import { EmployeeAttendanceRecord } from "@/components/portal/attendance/employe
 import { EmployeesPage } from "./employees-page";
 import { SubstitutionsReportCard } from "@/components/portal/substitutions";
 import { SubstitutionsPanel } from "@/components/portal/substitutions";
+import { AutomationSettings } from "@/components/portal/automation-settings";
 import { DecisionReasonsCard, RemarkPresetsCard } from "@/components/portal/remark-presets-manager";
 import { ClassificationRulesPage } from "./classification-rules-page";
 import { TransfersPage } from "./transfers-page";
@@ -35,7 +38,6 @@ import { fetchJson } from "@/lib/portal/api";
 import { TenureProtectionPanel } from "@/components/portal/tenure-protection";
 import { BranchRequestsReview } from "@/components/portal/branch-requests-review";
 import { RfidCardsPanel } from "@/components/portal/rfid/rfid-cards-panel";
-import { RfidTerminalLauncher } from "../admin/maintenance-page";
 import { HolidayDutyPage } from "@/components/portal/holiday-duty";
 import { RatesSection } from "@/app/super-admin/rates-section";
 import { PayrollSettingsSection } from "@/app/super-admin/tax-section";
@@ -70,8 +72,8 @@ const NAV = [
       { id: "hr-leaves", label: "Approvals", icon: InboxIcon, tabs: [
         { id: "hr-leaves", label: "Leave, overtime & corrections", module: "leave_approval" },
         { id: "hr-transfers", label: "Transfers", module: "transfer_requests" },
-        // What the branch Admins send (2026-10-20): schedules, incidents, RFID issues, incentives.
-        { id: "hr-branch-requests", label: "Branch requests", module: "branch_oversight" },
+        // What the branch Admins file (2026-11-24: incidents and incentive proposals; the Admin no longer endorses).
+        { id: "hr-branch-requests", label: "From branch admins", module: "branch_oversight" },
         // Incentives, overload and loans the Accountant filed, and the system's rule-based incentives.
         { id: "hr-adjustment-approvals", label: "Incentives & loans", module: "payroll_approvals" },
         { id: "hr-subsidy-approvals", label: "Subsidies", module: "payroll_approvals" },
@@ -81,9 +83,8 @@ const NAV = [
         { id: "hr-attendance", label: "Monitoring", module: "attendance" },
         { id: "hr-schedules", label: "Work schedules", module: "work_schedules" },
         { id: "hr-holidays", label: "Holidays & Duty", module: "attendance" },
-        // RFID registration and terminals for every branch (2026-10-21).
-        { id: "hr-rfid-cards", label: "RFID cards", module: "rfid_devices" },
-        { id: "hr-rfid-terminals", label: "RFID terminal", module: "rfid_devices" },
+        // RFID in one tab (2026-11-24): cards, the terminal, card history and RFID issues.
+        { id: "hr-rfid-cards", label: "RFID", module: "rfid_devices" },
       ] },
       { id: "hr-payroll-records", label: "Payroll Records", icon: ReceiptTextIcon, module: "payroll_records" },
       { id: "hr-reports", label: "Reports", icon: FileBarChartIcon, module: "hr_reports" },
@@ -93,6 +94,8 @@ const NAV = [
         { id: "hr-classification-rules", label: "Status & leave rules", module: "user_management" },
         // Part H (2026-11-22): the remarks offered on every decision.
         { id: "hr-remark-presets", label: "Preset remarks", module: "user_management" },
+        // 2026-11-24: the module switches, Pause all, the digests and the activity log (no dashboard card).
+        { id: "hr-automation", label: "Automation", module: "user_management" },
       ] },
     ],
   },
@@ -111,14 +114,14 @@ const TITLES = {
   "hr-attendance": "Attendance Monitoring",
   "hr-schedules": "Work Schedules",
   "hr-holidays": "Holidays & Duty",
-  "hr-rfid-cards": "RFID Cards",
-  "hr-rfid-terminals": "RFID Terminal",
+  "hr-rfid-cards": "RFID",
   "hr-payroll-approval": "Payroll Approval",
   "hr-payroll-records": "Payroll Records",
   [EMPLOYEE_PAGE]: "Employee Attendance Record",
   "hr-leaves": "Leave Approval",
   "hr-awol": "AWOL Cases",
-  "hr-branch-requests": "Branch Requests",
+  "hr-branch-requests": "From Branch Admins",
+  "hr-automation": "Automation",
   "hr-subsidy-approvals": "Subsidy Approvals",
   "hr-adjustment-approvals": "Incentive & Loan Approvals",
   "hr-gov-rates": "Government Rates",
@@ -138,13 +141,13 @@ const DESCRIPTIONS = {
   "hr-tenure": "Set who is not deducted for absence, lateness, holidays, suspensions and school breaks under a tenure contract clause, and grant or revoke it per employee. Every change is logged.",
   "hr-schedules": "Create, change and assign employee work schedules, and set the Early Bird incentive. Every change takes effect from a date and is logged.",
   "hr-holidays": "The school is closed on holidays. Choose who must still report, and approve holiday work done without an assignment.",
-  "hr-rfid-cards": "Register, replace, deactivate and reactivate employees' RFID cards for every branch. Only an Active card records attendance; every action is kept in the card history.",
-  "hr-rfid-terminals": "Open the tap-in / tap-out screen for an RFID reader.",
+  "hr-rfid-cards": "Register, replace, deactivate and reactivate RFID cards for every branch, open the RFID Terminal, and follow the card history and the RFID issues. Only an Active card records attendance.",
   [EMPLOYEE_PAGE]: "One employee's attendance, corrections and leave.",
   "hr-leaves": "Review, approve, or reject employee leave applications and monitor leave history.",
   "hr-subsidy-approvals": "Approve or reject the subsidies the Accountant processed: missed-month adjustments, subsidy advances and excess-advance settlements. HR is the only approver; every decision stays in the history.",
   "hr-awol": "Unexcused absences flagged by the nightly check or reported by a branch Admin: confirm, send the notices, and separate or close each case.",
-  "hr-branch-requests": "Attendance flags, schedule requests, incentive recommendations, RFID issues and overtime confirmations sent by the branch Admins. HR decides; the Admin is notified.",
+  "hr-branch-requests": "What the branch Admins filed: incident reports and incentive proposals, with the Admin's name and remark. HR decides; the Admin sees the decision and is notified. Message the Admin on an item if you need to.",
+  "hr-automation": "The automatic checks: switch modules on or off, pause everything, set the daily digests, and see what the system did (with Undo).",
   "hr-reports": "Generate attendance reports and employee record summaries for documentation.",
   "hr-adjustment-approvals": "Approve or reject the incentives, overload, loans and cash advances the Accountant filed. Payroll pays or deducts only approved ones; a rejection needs a reason and the Accountant is notified.",
   "hr-gov-rates": "Change the daily rate and the SSS, PhilHealth and Pag-IBIG rates for future pay periods (with a reason; the Super Admin is notified). The hourly rate is the daily rate ÷ 8, automatic; the withholding tax table is fixed by law.",
@@ -161,6 +164,8 @@ const MOVED_PAGES = {
   "hr-final-pay-approvals": { page: "hr-payroll-approval", params: { pa_section: "final-pay" } },
   // A leave notification names the Employee page; HR's own Leave & Overtime is hr-my-leave (2026-11-22).
   "emp-leave": { page: "hr-my-leave", params: {} },
+  // 2026-11-24: one RFID tab.
+  "hr-rfid-terminals": { page: "hr-rfid-cards", params: {} },
 };
 
 /** An old address (?page=hr-final-pay-approvals): rewritten before the page is read. */
@@ -238,8 +243,11 @@ function HrScreens() {
         {current === "hr-transfers" ? <TransfersPage refreshKey={refreshKey} /> : null}
         {current === "hr-tenure" ? <TenureProtectionPanel refreshKey={refreshKey} /> : null}
         {current === "hr-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
-        {current === "hr-rfid-cards" ? <RfidCardsPanel refreshKey={refreshKey} /> : null}
-        {current === "hr-rfid-terminals" ? <RfidTerminalLauncher text="Open the dedicated tap-in/tap-out screen for an RFID reader. It accepts cards from every branch, replaces this view and is locked behind your HR password." /> : null}
+        {current === "hr-rfid-cards" ? (
+          <MaintenancePage refreshKey={refreshKey} description="Every branch's RFID cards, the RFID Terminal, the RFID issues the branch Admins report, and the card history."
+            issues={<BranchRequestsReview refreshKey={refreshKey} kinds={["rfid_issue"]} title="RFID issues" description="Lost or broken cards and faulty readers reported by the branch Admins. HR or the Super Admin marks them resolved." />} />
+        ) : null}
+        {current === "hr-automation" ? <AutomationSettings refreshKey={refreshKey} /> : null}
         {current === "hr-payroll-approval" ? <PayrollApprovalPage key={sectionKey} refreshKey={refreshKey} onChanged={() => { reloadPending(); reloadFinalPay(); }} counts={{ runs: pendingRuns, finalPay: pendingFinalPay }} /> : null}
         {current === "hr-payroll-records" ? <PayrollRecordsPage refreshKey={refreshKey} /> : null}
         {current === "hr-holidays" ? <><HolidayDutyPage refreshKey={refreshKey} /><SpecialDaysPanel refreshKey={refreshKey} /></> : null}
@@ -263,11 +271,10 @@ function HrScreens() {
         ) : null}
         {current === "hr-branch-requests" ? (
           <div className="flex flex-col gap-4">
-            <BranchRequestsReview refreshKey={refreshKey} kinds={["attendance_flag"]} title="Attendance flags" description="Records a branch Admin asked HR to check. Override the record in Attendance if needed, then mark it resolved." />
-            <BranchRequestsReview refreshKey={refreshKey} kinds={["schedule_request"]} title="Work schedule & class-load requests" description="Approve or reject. Apply an approved change in Work Schedules." />
-            <BranchRequestsReview refreshKey={refreshKey} kinds={["incentive_endorsement"]} title="Incentive recommendations" description="Approving adds the incentive or overload to payroll, counted by today's date (after the month's cutoff it moves to next month's payroll)." />
-            <BranchRequestsReview refreshKey={refreshKey} kinds={["rfid_issue"]} title="RFID issues" description="Lost or broken cards and faulty readers. HR or the Super Admin marks them resolved." />
-            <BranchRequestsReview refreshKey={refreshKey} kinds={["overtime_confirmation"]} readOnly title="Overtime & substitute-teaching confirmations" description="The branch Admin's confirmation; the Accountant reads it before paying. Nothing to decide here." />
+            <BranchRequestsReview refreshKey={refreshKey} kinds={["incentive_endorsement"]} title="Incentive proposals" description="Discretionary incentives and overload the branch Admin proposed. Approving adds it to payroll, counted by today's date (after the month's cutoff it moves to next month's payroll)." />
+            <BranchRequestsReview refreshKey={refreshKey} kinds={["incident_report"]} title="Incident reports" description="A reported no-show is already in AWOL Cases (flagged). Handle the case there, then mark the report resolved with a remark for the Admin." />
+            {/* Earlier items from before the Admin became view-only (2026-11-24): kept, still closable. */}
+            <BranchRequestsReview refreshKey={refreshKey} kinds={["attendance_flag", "schedule_request", "overtime_confirmation"]} title="Earlier items from the branch Admins" description="Sent before the branch Admins became view-only. Close what is still pending; nothing new arrives here." />
           </div>
         ) : null}
         {current === "hr-subsidy-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}

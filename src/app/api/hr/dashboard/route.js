@@ -1,6 +1,7 @@
 import { leaveApprovedAfterFinal } from "@/lib/payroll/final-payslips";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
+import { branchCounts } from "@/lib/branch-counts";
 import { sanitizeError } from "@/lib/api-error";
 import { readLeaveRequestsWithoutProof } from "@/lib/leave-requests/store";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
@@ -12,6 +13,8 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { isOnPayroll } from "@/lib/payroll/on-payroll";
+import { isArchivedBranch } from "@/lib/branches/archived";
+
 
 // Statuses attendance_missing_days leaves out (20261110020000 private.is_active_staff).
 const GONE = ["Inactive", "Archived", "Separated"];
@@ -228,7 +231,35 @@ export async function GET(request) {
       }
     } catch { /* ignore */ }
 
+    // 2026-11-24: on payroll with no ACTIVE RFID card: AWOL never runs for them (no taps prove nothing).
+    actionNeeded.no_card = [];
+    try {
+      const { data: staff } = await supabase.from("profiles").select("id,full_name,role").eq("archived", false).eq("on_payroll", true).in("role", ["employee", "accountant", "hr"]);
+      const { data: cards } = await supabase.from("rfid_cards").select("employee_id").eq("status", "active");
+      const has = new Set((cards || []).map((k) => String(k.employee_id)));
+      actionNeeded.no_card = (staff || []).filter((p) => !has.has(String(p.id))).map((p) => ({ id: p.id, full_name: p.full_name }));
+    } catch { /* ignore */ }
+    // 2026-11-24 (no Automation card): what the system could not decide, and what waits too long, with the reason.
+    actionNeeded.automation = [];
+    try {
+      const { data: stuck } = await supabase.from("automation_actions").select("id,summary,reason,status,escalated_at,created_at,module")
+        .or("status.eq.couldnt_decide,and(status.in.(with_hr,open),escalated_at.not.is.null)").order("created_at", { ascending: false }).limit(50);
+      actionNeeded.automation = (stuck || []).map((a) => ({ id: a.id, full_name: a.summary,
+        detail: a.status === "couldnt_decide" ? `Couldn't decide: ${a.reason || "no reason given"}` : "Waiting too long" }));
+    } catch { /* ignore */ }
+
+    // Per branch, the same numbers each branch's Admin sees (src/lib/branch-counts.js, 2026-11-24).
+    let byBranch = [];
+    try {
+      let bq = supabase.from("branches").select("id,name,status").order("name", { ascending: true });
+      if (!guard.branchExempt && guard.branchId) bq = bq.eq("id", guard.branchId);
+      const { data: brs } = await bq;
+      const open = (brs || []).filter((b) => !isArchivedBranch(b));
+      byBranch = await Promise.all(open.map(async (b) => ({ branch_id: b.id, branch_name: b.name, ...(await branchCounts(supabase, b.id, today)) })));
+    } catch { /* ignore */ }
+
     return NextResponse.json({
+      branch_counts: byBranch,
       action_needed: actionNeeded,
       total_employees: totalEmployees,
       teaching_staff: teaching,

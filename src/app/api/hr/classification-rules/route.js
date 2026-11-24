@@ -16,7 +16,7 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import {
-  CATEGORY_OPTIONS, CREDIT_LEAVE_TYPES, EMPLOYMENT_STATUS_OPTIONS, EMPLOYMENT_TYPE_OPTIONS, HR_SETTINGS,
+  CATEGORY_OPTIONS, CREDIT_LEAVE_TYPES, POOL_LEAVE_TYPE, EMPLOYMENT_STATUS_OPTIONS, EMPLOYMENT_TYPE_OPTIONS, HR_SETTINGS,
   leaveRuleFor, legalMinimumWarnings, payRuleFor,
 } from "@/lib/employees/classification";
 import { loadLeaveRules, loadPayRules, loadStatutoryLeaves } from "@/lib/employees/classification-server";
@@ -40,7 +40,8 @@ export async function GET(request) {
     const on = today();
     const leave = combos().map((c) => ({
       ...c,
-      days: Object.fromEntries(CREDIT_LEAVE_TYPES.map((t) => {
+      // One shared pool a year (2026-11-24): one "days per year" per Category x Status.
+      days: Object.fromEntries([POOL_LEAVE_TYPE].map((t) => {
         const rule = leaveRuleFor(leaveRules, t, c, on);
         return [t, rule ? { days: Number(rule.days_per_year), effective_from: rule.effective_from, note: rule.note } : null];
       })),
@@ -54,7 +55,7 @@ export async function GET(request) {
       const n = Number((config.data || []).find((r) => r.key === key)?.value);
       return [key, { ...def, value: Number.isFinite(n) && n > 0 ? n : def.fallback }];
     }));
-    return NextResponse.json({ leave, pay, upcoming, warnings: legalMinimumWarnings(leaveRules, on), settings, leave_types: CREDIT_LEAVE_TYPES, statutory });
+    return NextResponse.json({ leave, pay, upcoming, warnings: legalMinimumWarnings(leaveRules, on), settings, leave_types: [POOL_LEAVE_TYPE], statutory });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
@@ -130,7 +131,7 @@ export async function POST(request) {
       const insert = [];
       for (const r of rows) {
         const days = Number(r.days_per_year);
-        if (!CREDIT_LEAVE_TYPES.includes(r.leave_type)) return NextResponse.json({ error: "Unknown leave type." }, { status: 400 });
+        if (r.leave_type !== POOL_LEAVE_TYPE && !CREDIT_LEAVE_TYPES.includes(r.leave_type)) return NextResponse.json({ error: "Unknown leave type." }, { status: 400 });
         if (!Number.isFinite(days) || days < 0 || days > 366 || Math.round(days * 2) !== days * 2) {
           return NextResponse.json({ error: `${r.leave_type}: days must be 0 to 366, in half days.` }, { status: 400 });
         }
@@ -143,7 +144,7 @@ export async function POST(request) {
       const after = await loadLeaveRules(supabase);
       const warnings = legalMinimumWarnings(after, effectiveFrom);
       await appendAuditLog({ actor: guard, module: "employees", action: "leave_credit_rules_change", entity_type: "leave_credit_rules", entity_id: effectiveFrom, status: "success", source: "api",
-        description: `Leave credits from ${effectiveFrom} saved by ${by}: ${insert.length} value${insert.length === 1 ? "" : "s"}${note ? ` (${note})` : ""}${warnings.length ? `; ${warnings.length} combination(s) below the 5-day service incentive leave` : ""}.`,
+        description: `Leave credits from ${effectiveFrom} saved by ${by}: ${insert.length} value${insert.length === 1 ? "" : "s"}${note ? ` (${note})` : ""}${warnings.length ? `; ${warnings.length} combination${Number(warnings.length) === 1 ? "" : "s"} below the 5-day service incentive leave` : ""}.`,
         metadata: { effective_from: effectiveFrom, rows: insert.map(({ created_by, created_by_name, ...r }) => r), warnings } });
       return NextResponse.json({ success: true, warnings });
     }

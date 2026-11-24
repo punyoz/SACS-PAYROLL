@@ -52,7 +52,7 @@ export const BACKUP_GROUPS = Object.freeze([
   },
   {
     key: "leave", label: "Leave requests and balances",
-    description: "Every leave request, each employee's leave balance for this year and last year, the leave credit rules and overrides, and the statutory leave settings.",
+    description: "Every leave request, each employee's leave credits for this year and last year, the leave credit rules and overrides, and the statutory leave settings.",
     computed: ["leave_balances"], tables: ["leave_requests", "overtime_requests", "substitutions", "leave_credit_rules", "leave_credit_overrides", "statutory_leave_types"],
   },
   {
@@ -308,7 +308,7 @@ export async function leaveBalancesFile(supabase, actorId, context, filters) {
       }
     }
   }
-  return { key: "leave_balances", name: "leave_balances.csv", title: "Leave balances", description: `This year and last year (${year} and ${year - 1}), approved leave only. Not filtered by date.`, columns, rows: rows() };
+  return { key: "leave_balances", name: "leave_balances.csv", title: "Leave credits", description: `This year and last year (${year} and ${year - 1}), approved leave only. Not filtered by date.`, columns, rows: rows() };
 }
 
 /** Pay rates as payroll uses them now: default and per branch, daily and hourly (÷ 8). */

@@ -1,5 +1,9 @@
 "use client";
 
+import { dateLabel } from "@/lib/portal/payroll-preview";
+
+import { ItemThread } from "@/components/portal/item-thread";
+
 import { SystemRecommendation } from "@/components/portal/system-recommendation";
 import { HrCorrectionRequests } from "@/components/portal/hr-correction-requests";
 import { HrOvertimeRequests } from "@/components/portal/overtime-requests";
@@ -44,12 +48,12 @@ const range = (req) => ({
   proof: req.proof_url || req.proof_data || (req.has_stored_proof ? "stored" : ""),
 });
 
-/** The branch Admin's recommendation on a leave request; HR still decides. */
+/** An earlier note from the branch Admin (before the Admin became view-only, 2026-11-24); nothing when there is none. */
 function AdminRecommendation({ rec, compact = false }) {
-  if (!rec) return compact ? <span className="text-xs text-muted-foreground">—</span> : <p className="text-xs text-muted-foreground">Branch Admin: no recommendation yet</p>;
+  if (!rec) return null;
   return (
     <div className={compact ? "max-w-56 text-xs whitespace-normal" : "rounded-md border bg-muted/40 px-2.5 py-1.5 text-xs"}>
-      <p className="flex flex-wrap items-center gap-1.5">{compact ? null : <span className="font-medium">Branch Admin:</span>}<StatusBadge tone={STATUS_TONES[rec.status] || "muted"}>{rec.status_label}</StatusBadge></p>
+      <p className="flex flex-wrap items-center gap-1.5">{compact ? null : <span className="font-medium">Earlier note from the branch Admin:</span>}<StatusBadge tone={STATUS_TONES[rec.status] || "muted"}>{rec.status_label}</StatusBadge></p>
       <p className="mt-0.5">{rec.admin_note}</p>
       <p className="text-muted-foreground">{rec.created_by_name}</p>
     </div>
@@ -124,7 +128,7 @@ export function LeavesPage({ refreshKey }) {
       if (Array.isArray(conflicts) && conflicts.length) {
         notify(
           "Leave overlaps recorded attendance",
-          `These days already have an RFID tap and were left as recorded, not marked On Leave: ${conflicts.map((c) => `${c.log_date} (${c.status})`).join(", ")}. Resolve them in Attendance if needed.`,
+          `These days already have an RFID tap and were left as recorded, not marked On Leave: ${conflicts.map((c) => `${dateLabel(c.log_date)} (${c.status})`).join(", ")}. Resolve them in Attendance if needed.`,
           "error",
         );
       }
@@ -161,7 +165,8 @@ export function LeavesPage({ refreshKey }) {
     { key: "leave_type", header: "Leave type", sortable: true, searchValue: (r) => r.leave_type },
     { key: "duration", header: "Duration", className: "whitespace-nowrap tabular-nums", cell: (r) => { const x = range(r); return `${x.days}d · ${x.from} – ${x.to}`; } },
     { key: "reason", header: "Reason", className: "max-w-48 truncate text-muted-foreground", cell: (r) => r.reason || "—", searchValue: (r) => r.reason },
-    { key: "branch_admin", header: "Branch Admin", cell: (r) => <AdminRecommendation rec={recs.get(r.id)} compact /> },
+    // 2026-11-24: the branch Admin follows the request; HR and the Admin can message each other on it.
+    { key: "branch_admin", header: <span className="sr-only">Messages with the branch Admin</span>, align: "right", cell: (r) => <ItemThread itemType="leave_request" itemId={r.id} title={`Messages · ${r.employee_name || "leave request"}`} /> },
     { key: "proof", header: "Proof", cell: (r) => (range(r).proof ? <Button variant="outline" size="sm" onClick={() => openProof(r)}><PaperclipIcon aria-hidden="true" />View</Button> : "—") },
     {
       key: "status",
@@ -296,7 +301,7 @@ export function LeavesPage({ refreshKey }) {
             loading={state.loading}
             error={state.error}
             onRetry={load}
-            pageSize={15}
+            pageSize={10}
             searchPlaceholder="Search employee, type, reason or decision…"
             empty={{ title: "No leave history yet", icon: CalendarDaysIcon }}
             caption="Leave history"

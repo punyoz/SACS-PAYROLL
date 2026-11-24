@@ -1,5 +1,7 @@
 "use client";
 
+import { AutomationSettings } from "@/components/portal/automation-settings";
+
 import { DecisionReasonsCard } from "@/components/portal/remark-presets-manager";
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
@@ -71,13 +73,14 @@ const NAV = [
       // Read-only, every branch, with dates, branch filter and export (alpha test B1).
       { id: "sa-attendance", label: "Attendance Records", icon: CalendarCheckIcon, module: "attendance" },
       { id: "sa-maintenance", label: "RFID", icon: CreditCardIcon, tabs: [
-        { id: "sa-maintenance", label: "Cards", module: "system_maintenance" },
-        { id: "sa-rfid-terminal", label: "Terminal", module: "system_maintenance" },
-        { id: "sa-rfid-issues", label: "Issues", module: "system_maintenance" },
+        // One RFID page (2026-11-24): cards, terminal, issues and card history.
+        { id: "sa-maintenance", label: "RFID", module: "system_maintenance" },
       ] },
       { id: "sa-config", label: "System", icon: SettingsIcon, tabs: [
         { id: "sa-config", label: "Configuration", module: "system_configuration" },
         { id: "sa-backup", label: "Backup & Recovery", module: "backup_recovery" },
+        // 2026-11-24: Settings > Automation (no dashboard card).
+        { id: "sa-automation", label: "Automation", module: "system_configuration" },
       ] },
       { id: "sa-audit", label: "Audit & Monitoring", icon: ScrollTextIcon, module: "audit_logs" },
     ],
@@ -90,8 +93,8 @@ const PAGE_IDS = NAV_ITEMS.map((item) => item.id);
 // Page titles stay as before (the tab labels are shorter).
 const TITLES = {
   "sa-dashboard": "Dashboard", "sa-fallback": "Items Waiting on Fallback", "sa-announcements": "Announcements", "sa-accounts": "Admin & HR Accounts",
-  "sa-roles": "Roles & Permissions", "sa-branches": "Branch Management", "sa-attendance": "Attendance Records", "sa-maintenance": "RFID Cards",
-  "sa-rfid-terminal": "RFID Terminal", "sa-rfid-issues": "RFID Issues", "sa-config": "System Configuration", "sa-backup": "Backup & Recovery",
+  "sa-roles": "Roles & Permissions", "sa-branches": "Branch Management", "sa-attendance": "Attendance Records", "sa-maintenance": "RFID",
+  "sa-config": "System Configuration", "sa-backup": "Backup & Recovery", "sa-automation": "Automation",
   "sa-audit": "Audit & Monitoring", "sa-profile": "Profile",
 };
 
@@ -101,18 +104,29 @@ const DESCRIPTIONS = {
   "sa-accounts": "Create and maintain the login accounts of Super Admin, Admin and HR staff. Employee and Accountant accounts are managed by HR.",
   "sa-branches": "Manage branch information and status across all branches.",
   "sa-roles": "What each role can reach across the system.",
-  "sa-maintenance": "Register, replace, deactivate and look up RFID cards for every branch.",
-  "sa-rfid-terminal": "Open the tap-in / tap-out screen for an RFID reader.",
-  "sa-rfid-issues": "Lost or broken cards and faulty readers reported by branch Admins.",
+  "sa-maintenance": "Every branch's RFID cards, the RFID Terminal, the RFID issues the branch Admins report, and the card history.",
   "sa-attendance": "View-only attendance records of every branch, by date range, with export. Corrections are HR's.",
   "sa-config": "System-wide settings, payroll rules, attendance policies and holidays.",
+  "sa-automation": "The automatic checks: switch modules on or off, pause everything, set the daily digests, and see what the system did.",
   "sa-audit": "System-wide audit trails, login activity and transaction history across all branches.",
   "sa-announcements": "Post to the whole school or one branch, edit your own, and delete any announcement (moderation).",
   "sa-backup": "Database status, manual exports and recovery procedures.",
   "sa-profile": null,
 };
 
+
+/** Old addresses (2026-11-24: one RFID page): rewritten before the page is read. */
+function redirectMovedPage(moved) {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const to = moved[params.get("page")];
+  if (!to) return;
+  params.set("page", to);
+  window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
+}
+
 function SuperAdminScreens() {
+  redirectMovedPage({ "sa-rfid-terminal": "sa-maintenance", "sa-rfid-issues": "sa-maintenance" });
   const { can } = usePortalSession();
   const [page, setPage] = usePersistedPage("super_admin", PAGE_IDS, "sa-dashboard");
   const [refreshKey, setRefreshKey] = React.useState(0);
@@ -164,24 +178,12 @@ function SuperAdminScreens() {
       {/* The board needs the attendance actions context (read-only here: the
           server refuses any Super Admin change to attendance). */}
       {current === "sa-attendance" ? <AttendanceActionsProvider><AttendanceStatusBoard refreshKey={refreshKey} branchFilter readOnly defaultPreset="this_month" urlKey="sa_att" title="Attendance records" help="Every branch, view only. Corrections are HR's." /></AttendanceActionsProvider> : null}
-      {current === "sa-rfid-terminal" ? (
-        <MaintenancePage refreshKey={refreshKey} section="terminal" auditActor={null}
-          terminalText="Open the dedicated tap-in/tap-out screen for an RFID reader. It accepts cards from every branch, replaces this view and is locked behind your Super Admin password." />
-      ) : null}
       {current === "sa-maintenance" ? (
-        <MaintenancePage
-          section="cards"
-          refreshKey={refreshKey}
-          registrationText="Assign or update RFID UIDs for employees. The UID is used to match RFID card taps to attendance records. Void a card that is lost or no longer in use."
-          auditActor={null}
-          terminalText="Open the dedicated tap-in/tap-out screen for an RFID reader. It accepts cards from every branch, replaces this view and is locked behind your Super Admin password."
-        />
-      ) : null}
-      {current === "sa-rfid-issues" ? (
-        <BranchRequestsReview refreshKey={refreshKey} kinds={["rfid_issue"]} title="RFID issues reported by branch Admins"
-          description="Lost or broken cards and faulty readers. Fix the card or reader, then mark the report resolved with a remark." />
+        <MaintenancePage refreshKey={refreshKey} description="Every branch's RFID cards, the RFID Terminal, the RFID issues the branch Admins report, and the card history."
+          issues={<BranchRequestsReview refreshKey={refreshKey} kinds={["rfid_issue"]} title="RFID issues" description="Lost or broken cards and faulty readers. Fix the card or reader, then mark the report resolved with a remark." />} />
       ) : null}
       {current === "sa-config" ? <ConfigPage refreshKey={refreshKey} /> : null}
+      {current === "sa-automation" ? <AutomationSettings refreshKey={refreshKey} /> : null}
       {current === "sa-audit" ? (
         <AuditLogsPage refreshKey={refreshKey} limit={200} csvName={() => `sacs-sa-audit-${manilaDateKey()}.csv`} auditActor={null} />
       ) : null}

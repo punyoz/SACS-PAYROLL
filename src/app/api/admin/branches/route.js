@@ -8,6 +8,7 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { can, isBranchExempt } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { BRANCH_NAME_MAX, BRANCH_NAME_PATTERN } from "@/lib/input-limits";
+import { BRANCH_ARCHIVED, isArchivedBranch } from "@/lib/branches/archived";
 
 /** The branch-name rule the Add / Edit branch box and branches_name_valid share. */
 function branchNameError(name) {
@@ -53,7 +54,9 @@ export async function GET(request) {
       return NextResponse.json({ error: sanitizeError(result.error) }, { status: 500 });
     }
 
-    const rows = (result.data || []).map(shapeBranch);
+    // Archived branches (2026-11-24) only with ?include_archived=1 (history views, labels, Branch Management).
+    const includeArchived = request.nextUrl?.searchParams?.get("include_archived") === "1";
+    const rows = (result.data || []).map(shapeBranch).filter((b) => includeArchived || !isArchivedBranch(b));
 
     // Super Admin always sees every branch. A branch-scoped role sees every
     // branch ONLY if it can act on transfer_requests (currently just Admin):
@@ -161,6 +164,11 @@ export async function PATCH(request) {
     if (!name) return NextResponse.json({ error: "Branch name is required." }, { status: 400 });
     if (branchNameError(name)) return NextResponse.json({ error: branchNameError(name) }, { status: 400 });
     if (!location) return NextResponse.json({ error: "Branch location is required." }, { status: 400 });
+    // Archiving (2026-11-24): only once nobody active is left in the branch; archived, never deleted.
+    if (isArchivedBranch({ status }) && !isArchivedBranch(existing.data)) {
+      const { count } = await supabase.from("profiles").select("id", { count: "exact", head: true }).eq("branch_id", id).eq("archived", false);
+      if (count) return NextResponse.json({ error: `This branch still has ${count} active account${count === 1 ? "" : "s"}: transfer or archive them first.` }, { status: 409 });
+    }
 
     const result = await supabase
       .from("branches")
@@ -179,7 +187,7 @@ export async function PATCH(request) {
       action: "update",
       entity_type: "branch",
       entity_id: id,
-      description: `Branch "${name}" was updated.`,
+      description: status === BRANCH_ARCHIVED && existing.data.status !== BRANCH_ARCHIVED ? `Branch "${name}" was archived.` : `Branch "${name}" was updated.`,
       status: "success",
       source: "api",
       metadata: { name, location, code, status },

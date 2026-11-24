@@ -85,6 +85,7 @@ import { LEFT_OUT_LABELS, firstHalfChange, firstHalfLabelOf } from "@/lib/payrol
 import { textLimitError } from "@/lib/input-limits";
 import { loadDemoIds, notDemo } from "@/lib/demo";
 import { reportResponse, wantsFile } from "@/lib/export/report-file";
+import { isArchivedBranch } from "@/lib/branches/archived";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { remarks: [1000, "The remarks"] };
@@ -397,11 +398,14 @@ export async function GET(request) {
 
     const listMeta = async () => {
       const [branches, periods] = await Promise.all([
-        supabase.from("branches").select("id,name").order("name", { ascending: true }),
+        supabase.from("branches").select("id,name,status").order("name", { ascending: true }),
         scopeRuns(supabase.from("payroll_runs").select("period_label,period_start").in("status", SUBMITTED), guard).order("period_start", { ascending: false }),
       ]);
       return {
-        branches: (branches.data || []).filter((b) => guard.branchExempt || String(b.id) === String(guard.branchId)),
+        // Archived branches (2026-11-24) stay out of the branch filter.
+        branches: (branches.data || []).filter((b) => guard.branchExempt || String(b.id) === String(guard.branchId))
+          .filter((b) => !isArchivedBranch(b))
+          .map(({ status: _s, ...b }) => b),
         periods: [...new Set((periods.data || []).map((p) => p.period_label))],
       };
     };

@@ -43,6 +43,9 @@ function Section({ icon: Icon, title, children }) {
 export function StaffProfilePage({ roleLabel, showPosition = false, employeeIdLabel = false, accountOnly = false }) {
   const { ctx, updateContext } = usePortalSession();
   const { open } = useAccountDialogs();
+  // 2026-11-24: an account not on payroll (Admin, Super Admin, kept system accounts) has no government
+  // contributions, salary, date hired or tenure to show. Unknown until the profile loads: hidden meanwhile.
+  const [onPayroll, setOnPayroll] = React.useState(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -51,6 +54,7 @@ export function StaffProfilePage({ roleLabel, showPosition = false, employeeIdLa
       .then((data) => {
         const stored = data?.profile;
         if (cancelled || !stored) return;
+        setOnPayroll(stored.on_payroll !== false);
         const patch = {};
         REFRESH_KEYS.forEach((key) => {
           if (key === "staff_id") { if (stored.staff_id) patch.staff_id = stored.staff_id; } else patch[key] = stored[key] || "";
@@ -106,7 +110,7 @@ export function StaffProfilePage({ roleLabel, showPosition = false, employeeIdLa
             { label: "Address", value: ctx?.emergency_contact_address, wide: true },
           ]} />
         </Section>
-        {accountOnly ? null : (
+        {accountOnly || onPayroll !== true ? null : (
           <Section icon={ShieldCheckIcon} title="Government contributions">
             <InfoList items={[
               { label: "SSS number", value: ctx?.sss_number },

@@ -8,6 +8,7 @@ import { requestDays } from "@/lib/leave-requests/split";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import {
   CREDIT_LEAVE_TYPES,
+  POOL_LEAVE_TYPE,
   CLASSIFICATION_FIELDS,
   SIL_LEAVE_TYPES,
   classificationOn,
@@ -106,6 +107,21 @@ export async function leaveBalances(supabase, employeeIds, year, { requests = nu
       && Number(String(r.start_date).slice(0, 4)) === Number(year));
     const paid = (type) => mine.filter((r) => r.leave_type === type && String(r.pay_status || "with_pay").toLowerCase() !== "without_pay")
       .reduce((sum, r) => sum + requestDays(r), 0);
+    const withoutPay = mine.filter((r) => String(r.pay_status).toLowerCase() === "without_pay").reduce((s, r) => s + requestDays(r), 0);
+    if (entitlement[POOL_LEAVE_TYPE]) {
+      // ONE pool (2026-11-24): every credit type draws from it; each type's "remaining" is the pool's, so every
+      // check (filing, approval split, Final Pay) reads the shared total.
+      const e = entitlement[POOL_LEAVE_TYPE];
+      const used = CREDIT_LEAVE_TYPES.reduce((s, t) => s + paid(t), 0);
+      const remaining = Math.max(0, e.days - used);
+      const by_type = Object.fromEntries(CREDIT_LEAVE_TYPES.map((type) => [type, { allotment: e.days, computed: e.computed, used: paid(type), remaining, override: e.override, parts: e.parts, pooled: true }]));
+      out[id] = {
+        by_type,
+        pool: { allotment: e.days, computed: e.computed, used, remaining, override: e.override, parts: e.parts, used_by_type: Object.fromEntries(CREDIT_LEAVE_TYPES.map((t) => [t, paid(t)])) },
+        with_pay_allotment: e.days, with_pay_used: used, with_pay_remaining: remaining, sil_remaining: remaining, without_pay_used: withoutPay,
+      };
+      continue;
+    }
     const by_type = Object.fromEntries(CREDIT_LEAVE_TYPES.map((type) => {
       const used = paid(type);
       const e = entitlement[type];
@@ -120,7 +136,7 @@ export async function leaveBalances(supabase, employeeIds, year, { requests = nu
       with_pay_used: sum("used"),
       with_pay_remaining: sum("remaining"),
       sil_remaining: sum("remaining"),
-      without_pay_used: mine.filter((r) => String(r.pay_status).toLowerCase() === "without_pay").reduce((s, r) => s + requestDays(r), 0),
+      without_pay_used: withoutPay,
     };
   }
   return out;

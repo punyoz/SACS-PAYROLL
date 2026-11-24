@@ -13,6 +13,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { renderLetterDocument } from "@/lib/export/pdf-doc";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { fillNotice } from "@/lib/awol/cases";
+import { noticePdf } from "@/lib/awol/notice-pdf";
 
 const UUID = /^[0-9a-f-]{36}$/i;
 const longDate = (key) => (key ? new Date(`${String(key).slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—");
@@ -21,6 +22,32 @@ export async function GET(request) {
   try {
     const guard = await requirePermission(request, "awol_cases", "read");
     if (guard.denied) return guard.denied;
+    // 2026-11-24: a notice that was SENT (awol_notices): its stored PDF, or rendered from the text kept with it.
+    // A reply's attachment (2026-11-24): HR and the Super Admin, for the branches they cover.
+    const replyFile = new URL(request.url).searchParams.get("reply_file") || "";
+    if (replyFile) {
+      const supabase = getServiceClient();
+      const caseId = replyFile.split("/")[0];
+      if (!UUID.test(caseId)) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const { data: kase } = await supabase.from("employee_awol_cases").select("branch_id").eq("id", caseId).maybeSingle();
+      if (!kase) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const foreign = denyForeignBranch(guard, kase.branch_id);
+      if (foreign) return foreign;
+      const { data } = await supabase.storage.from("awol-replies").download(replyFile);
+      if (!data) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      return new NextResponse(Buffer.from(await data.arrayBuffer()), { status: 200, headers: { "Content-Type": data.type || "application/octet-stream", "Cache-Control": "no-store" } });
+    }
+    const noticeId = new URL(request.url).searchParams.get("notice") || "";
+    if (UUID.test(noticeId)) {
+      const supabase = getServiceClient();
+      const { data: notice } = await supabase.from("awol_notices").select("id,case_id,kind,title,body,sent_on,pdf_path").eq("id", noticeId).maybeSingle();
+      if (!notice) return NextResponse.json({ error: "Notice not found." }, { status: 404 });
+      const { data: kase } = await supabase.from("employee_awol_cases").select("branch_id").eq("id", notice.case_id).maybeSingle();
+      const foreign = denyForeignBranch(guard, kase?.branch_id);
+      if (foreign) return foreign;
+      const file = await noticePdf(supabase, notice);
+      return new NextResponse(file, { status: 200, headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="awol-${notice.kind}-notice-${notice.sent_on}.pdf"`, "Cache-Control": "no-store" } });
+    }
     const id = new URL(request.url).searchParams.get("id") || "";
     if (!UUID.test(id)) return NextResponse.json({ error: "Choose a case." }, { status: 400 });
     const supabase = getServiceClient();

@@ -1,5 +1,7 @@
 "use client";
 
+import { AwolNoticeBanner, MyNoticesPage } from "@/components/portal/my-notices";
+
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
@@ -33,13 +35,15 @@ const NAV = [
   { section: "Overview", items: [{ id: "emp-dash", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" }] },
   { section: "My Account", items: [MINE.attendance, MINE.requests, MINE.payslips] },
   // School-wide and branch announcements stay where they were.
-  { section: "Communication", items: [{ id: "emp-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" }, MINE.profile] },
+  // My Notices (AWOL, 2026-11-24) next to My Profile: "profile", which a separated account keeps.
+  { section: "Communication", items: [{ id: "emp-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" },
+    { ...MINE.profile, tabs: [{ id: "emp-profile", label: "Profile", module: "profile" }, { id: "emp-notices", label: "My Notices", module: "profile" }] }] },
 ];
 
 const PAGES = navPages(NAV);
 const PAGE_IDS = PAGES.map((item) => item.id);
 // Page titles stay as before (the tab labels are shorter).
-const OLD_TITLES = { "emp-attendance": "My Attendance", "emp-timesheet": "My Timesheet", "emp-leave": "My Requests", "emp-payslips": "My Payslips", "emp-requests": "Loans & Other Pay" };
+const OLD_TITLES = { "emp-notices": "My Notices", "emp-attendance": "My Attendance", "emp-timesheet": "My Timesheet", "emp-leave": "My Requests", "emp-payslips": "My Payslips", "emp-requests": "Loans & Other Pay" };
 
 const DESCRIPTIONS = {
   "emp-dash": null,
@@ -104,7 +108,7 @@ function EmployeeScreens() {
       profilePage="emp-profile"
       accountOptions={{ payrollReadOnly: true }}
     >
-      {current === "emp-dash" ? <><MySpecialDays /><DashboardPage stats={stats} payslips={payslips} leave={leave} onNavigate={setPage} /></> : null}
+      {current === "emp-dash" ? <><AwolNoticeBanner onOpen={() => setPage("emp-notices")} /><MySpecialDays /><DashboardPage stats={stats} payslips={payslips} leave={leave} onNavigate={setPage} /></> : null}
       {current === "emp-attendance" ? <><MySpecialDays /><AttendancePage stats={stats} refreshKey={refreshKey} /></> : null}
       {current === "emp-timesheet" ? <TimesheetPage /> : null}
       {current === "emp-payslips" ? <PayslipsPage payslips={payslips} /> : null}
@@ -112,6 +116,7 @@ function EmployeeScreens() {
       {current === "emp-requests" ? <MyRequestsPage refreshKey={refreshKey} initialTab={aliasTab || undefined} /> : null}
       {current === "emp-announcements" ? <AnnouncementsFeed /> : null}
       {current === "emp-profile" ? <ProfilePage /> : null}
+      {current === "emp-notices" ? <MyNoticesPage refreshKey={refreshKey} /> : null}
     </AppShell>
   );
 }

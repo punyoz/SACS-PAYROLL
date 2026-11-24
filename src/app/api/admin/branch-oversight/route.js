@@ -8,7 +8,8 @@
  *                                      pending leaves, headcount, recent activity
  *   GET ?view=attendance&from&to       attendance logs (read-only) + their flags
  *   GET ?view=leaves                   leave requests + this branch's recommendation
- *   GET ?view=transfers                transfers in / out of the branch + endorsement
+ *   GET ?view=transfers                transfers in / out of the branch, with HR's decision
+ *   GET ?view=overtime                 the branch's overtime requests, with HR's decision (2026-11-24)
  *   GET ?view=payroll                  approved runs: totals per period only
  *   GET ?view=reports&from&to[&format=pdf]
  *                                      attendance rate, lateness, leave usage
@@ -26,6 +27,7 @@ import { recommendationsFor } from "@/lib/automation/leave-recommendations";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { leaveBalancesFor } from "@/lib/leave-requests/store";
 import { NextResponse } from "next/server";
+import { branchCounts } from "@/lib/branch-counts";
 import { invalidateUsersCache } from "@/lib/auth/users-cache";
 import { trackBranchReport } from "@/lib/automation/incident-tracking";
 import { sanitizeError } from "@/lib/api-error";
@@ -62,6 +64,9 @@ import { REQUEST_SORTS, requestEmployee, requestSearchFields } from "@/lib/admin
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { note: [1000, "The remark for HR"] };
 const DETAIL_TEXT_CAPS = { requested: [500, "What should change"], device: [120, "The device"], description: [200, "The description"], covered_for: [120, "Covered for"] };
+
+/** What the branch Admin still files (2026-11-24): what the system cannot detect. */
+const ADMIN_FILES = new Set(["incident_report", "incentive_endorsement", "rfid_issue"]);
 
 const NOT_READY = "Branch oversight is not set up yet: apply 20261020020000_admin_branch_oversight.sql.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -171,7 +176,10 @@ async function dashboardView(supabase, branchId, staff) {
     ...(announcements.data || []).map((a) => ({ at: a.created_at, text: `Announcement posted: ${a.title}` })),
   ].filter((a) => a.at).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 12);
   const active = staff.filter((p) => !p.archived);
+  // The same numbers HR sees for this branch (src/lib/branch-counts.js, 2026-11-24).
+  const branchNumbers = await branchCounts(supabase, branchId, today);
   return {
+    branch_counts: branchNumbers,
     today,
     rest_day: weekend ? "Weekend" : holiday ? holiday.name : null,
     attendance: counts,
@@ -415,7 +423,7 @@ async function reportPdf(report, branchName) {
       ["Days attended / expected", `${report.summary.attended_days} / ${report.summary.expected_days}`],
       ["Late days", String(report.summary.late_days)],
       ["Leave days", String(report.summary.leave_days)],
-      ...report.leave_usage.map((t) => [`Leave: ${t.leave_type}`, `${t.days} day(s), ${t.requests} request(s)`]),
+      ...report.leave_usage.map((t) => [`Leave: ${t.leave_type}`, `${t.days} day${Number(t.days) === 1 ? "" : "s"}, ${t.requests} request${Number(t.requests) === 1 ? "" : "s"}`]),
     ],
     columns: [
       { header: "Employee", width: 150 }, { header: "Attended", width: 55, align: "right" }, { header: "Absent", width: 50, align: "right" },
@@ -494,6 +502,17 @@ export async function GET(request) {
     }
     if (view === "leaves") return NextResponse.json(await leavesView(supabase, branchId, staff));
     if (view === "transfers") return NextResponse.json(await transfersView(supabase, branchId, staff));
+    // 2026-11-24: the branch's overtime requests with HR's decision (view only).
+    if (view === "overtime") {
+      const ids = staff.map((p) => p.id);
+      const { data, error } = ids.length
+        ? await supabase.from("overtime_requests").select("id,employee_id,request_date,planned_start,planned_end,minutes,reason,status,late_filing,created_at,decided_by_name,decided_at,decision_note")
+          .eq("branch_id", branchId).order("request_date", { ascending: false }).limit(1000)
+        : { data: [], error: null };
+      if (error) throw new Error(error.message);
+      const nameOf = new Map(staff.map((p) => [p.id, p]));
+      return NextResponse.json({ overtime: (data || []).map((r) => ({ ...r, employee_name: nameOf.get(r.employee_id)?.full_name || "—", employee_code: nameOf.get(r.employee_id)?.employee_code || "" })) });
+    }
     if (view === "payroll") {
       const data = await payrollView(supabase, branchId);
       if (!fileFormat) return NextResponse.json(data);
@@ -577,17 +596,18 @@ export async function POST(request) {
     if (normalizeText(body.action) !== "file") return bad("Unknown action.");
     const kind = normalizeText(body.kind);
     if (!REQUEST_KINDS[kind]) return bad("Choose what you are sending.");
+    // 2026-11-24: the Admin views and monitors; the system checks everything else and sends it straight to HR.
+    // The Admin files only what the system cannot detect.
+    if (!ADMIN_FILES.has(kind)) {
+      return bad("The system checks this and sends it straight to HR; follow it on Branch Review. You file incident reports, incentive proposals and RFID issues only.", 409);
+    }
     const supabase = getAdminClient();
-    // Part H: an endorsement (Endorse / Not endorse = "endorse" / "object") picks a preset remark;
-    // other filings keep their own words. The remark is audited with the request's own write.
-    const endorsing = Boolean(REQUEST_KINDS[kind].endorsement) || kind === "overtime_confirmation";
-    const remarkDecision = body.decision === "not_endorse" ? "object" : "endorse";
-    const remarkType = { leave_endorsement: "leave_request", transfer_endorsement: "transfer_request", overtime_confirmation: "overtime_request" }[kind] || "branch_request";
-    const remark = endorsing ? await resolveRemark(supabase, body.remark, { decision: remarkDecision, entityType: remarkType, required: true, fallbackText: body.note }) : null;
-    if (remark?.error) return bad(remark.error);
-    const note = normalizeText(remark ? remark.text : body.note).slice(0, 1000);
-    if (note.length < 3) return bad("Write a remark for HR.");
-    const writer = remark ? remarkClient(remark, { decision: remarkDecision, entityType: remarkType, module: "branch_oversight", table: "branch_admin_requests", actor: guard }) : supabase;
+    // A preset remark ("Other" with your own words, or a preset plus optional text), audited with the request's own write.
+    const remark = await resolveRemark(supabase, body.remark, { decision: "file", entityType: kind, required: true, fallbackText: body.note });
+    if (remark.error) return bad(remark.error);
+    const note = normalizeText(remark.text).slice(0, 1000);
+    if (note.length < 3) return bad("Choose a remark for HR.");
+    const writer = remarkClient(remark, { decision: "file", entityType: kind, module: "branch_oversight", table: "branch_admin_requests", actor: guard });
     const staff = await loadBranchStaff(supabase, branchId);
     const person = body.employee_id ? staff.find((p) => p.id === normalizeText(body.employee_id)) : null;
     if (body.employee_id && !person) return bad("That employee is not in your branch.", 404);

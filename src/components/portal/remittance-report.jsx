@@ -117,7 +117,7 @@ export function RemittanceCard({ refreshKey = 0 }) {
             ))}
           </div>
         ) : null}
-        <DataTable columns={columns} rows={data?.rows || []} rowKey={(r) => r.employee_id} loading={state.loading && !data} pageSize={15}
+        <DataTable columns={columns} rows={data?.rows || []} rowKey={(r) => r.employee_id} loading={state.loading && !data}
           searchPlaceholder="Search employee…" caption="Government remittance" minWidth={1400}
           empty={{ title: "No payslips this month", description: "Process the month's payroll first." }} />
       </CardContent>

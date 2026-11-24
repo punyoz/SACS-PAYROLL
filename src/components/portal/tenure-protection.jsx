@@ -442,7 +442,7 @@ export function TenureProtectionPanel({ refreshKey }) {
                 ) : null}
               </>
             )}
-            columns={columns} rows={employees} loading={state.loading && !data} error={state.error} onRetry={load} pageSize={15}
+            columns={columns} rows={employees} loading={state.loading && !data} error={state.error} onRetry={load}
             searchPlaceholder="Search employee or ID…" caption="Employees and Tenure Pay Protection" minWidth={canEdit ? 900 : 800}
             empty={{ title: tab === "granted" ? "Nobody has the benefit granted" : tab === "meets" ? "Nobody eligible without the benefit" : tab === "revoked" ? "Nobody revoked" : tab === "upcoming" ? "Nobody reaches the tenure in the next 60 days" : "No employees" }}
             selection={canEdit ? bulk.selection : null} />

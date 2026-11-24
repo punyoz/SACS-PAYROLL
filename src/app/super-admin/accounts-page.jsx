@@ -14,6 +14,7 @@ import { fetchJson } from "@/lib/portal/api";
 import { STAFF_ROLE_LABELS, STAFF_ROLES } from "@/lib/portal/staff-rules";
 import { cn } from "@/lib/utils";
 import { AddStaffDialog, EditStaffDialog } from "./staff-account-dialogs";
+import { branchOptions } from "@/lib/branches/archived";
 
 /*
  * Admin & HR Accounts (loadSAUsers / renderSAUsersTable,
@@ -46,7 +47,7 @@ export function AccountsPage({ refreshKey }) {
 
   const load = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }));
-    const [users, branches] = await Promise.allSettled([fetchJson("/api/admin/users"), fetchJson("/api/admin/branches")]);
+    const [users, branches] = await Promise.allSettled([fetchJson("/api/admin/users"), fetchJson("/api/admin/branches?include_archived=1")]);
     setState((current) => ({
       loading: false,
       error: users.status === "rejected" ? users.reason?.message || "Failed to load accounts." : null,
@@ -135,7 +136,7 @@ export function AccountsPage({ refreshKey }) {
             loading={first}
             error={state.error && !state.users.length ? state.error : null}
             onRetry={load}
-            pageSize={15}
+           
             searchPlaceholder="Search by name, ID, email, role or branch…"
             empty={{ title: "No accounts found", icon: UsersRoundIcon }}
             caption="Admin and HR accounts"
@@ -146,12 +147,12 @@ export function AccountsPage({ refreshKey }) {
 
       <EditStaffDialog
         user={editing.user}
-        branches={state.branches}
+        branches={branchOptions(state.branches, { selected: editing.user?.branch_id })}
         open={editing.open}
         onOpenChange={(open) => setEditing((current) => ({ ...current, open }))}
         onSaved={load}
       />
-      <AddStaffDialog branches={state.branches} open={adding} onOpenChange={setAdding} onSaved={load} />
+      <AddStaffDialog branches={branchOptions(state.branches)} open={adding} onOpenChange={setAdding} onSaved={load} />
     </>
   );
 }

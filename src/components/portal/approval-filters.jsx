@@ -7,6 +7,7 @@ import { DatePicker } from "@/components/portal/date-picker";
 import { useUrlParam } from "@/components/portal/use-url-param";
 import { fetchJson } from "@/lib/portal/api";
 import { EMPLOYMENT_STATUS_OPTIONS } from "@/lib/employees/classification";
+import { branchOptions, isArchivedBranch } from "@/lib/branches/archived";
 
 /*
  * Filters for every approval list (Part F, 2026-11-22): search by name or ID;
@@ -20,16 +21,26 @@ import { EMPLOYMENT_STATUS_OPTIONS } from "@/lib/employees/classification";
  */
 
 const ALL = "all";
-const SORTS = { filed_desc: "Filed: newest first", filed_asc: "Filed: oldest first", req_asc: "Date requested: soonest first", req_desc: "Date requested: latest first" };
+const SORTS = { filed_desc: "Newest filed", filed_asc: "Oldest filed", req_asc: "Soonest date", req_desc: "Latest date" };
+/*
+ * The one filter-bar layout (2026-11-24): ONE search box (the table's own is hidden, data-owns-search), then
+ * type · branch · category · status · From–To · sort. Every control 40 px high with the same corners; on a
+ * narrow screen an even 2-column grid (the search spans the row; an odd last control widens, never alone);
+ * from xl one row on one baseline.
+ */
+const BAR = "grid w-full grid-cols-2 items-center gap-2 xl:flex xl:flex-wrap [&_[data-slot=select-trigger]]:h-10 [&_[data-slot=select-trigger]]:w-full [&_input]:h-10 [&_[data-slot=button]]:h-10 [&_[data-slot=button]]:w-full [&>*:last-child:nth-child(even)]:col-span-2 xl:[&>*:last-child:nth-child(even)]:col-span-1";
+const CELL = "min-w-0 xl:w-40";
 let employeeIndex = null;
 let branchList = null;
+/** The branch-dropdown choice that lists archived branches too (2026-11-24); it filters nothing by itself. */
+const SHOW_ARCHIVED = "__archived";
 
 function useBranchList(enabled) {
   const [list, setList] = React.useState(branchList || []);
   React.useEffect(() => {
     if (!enabled || branchList) return undefined;
     let live = true;
-    fetchJson("/api/admin/branches").then((d) => { branchList = d.branches || []; if (live) setList(branchList); }).catch(() => {});
+    fetchJson("/api/admin/branches?include_archived=1").then((d) => { branchList = d.branches || []; if (live) setList(branchList); }).catch(() => {});
     return () => { live = false; };
   }, [enabled]);
   return list;
@@ -74,10 +85,10 @@ export function useApprovalFilters(rows, { prefix, get, typeLabel = "Type", stat
   const filtered = React.useMemo(() => {
     const needle = q.trim().toLowerCase();
     const out = list.filter((r) => {
-      if (needle && !`${get.name?.(r) || ""} ${get.code?.(r) || ""}`.toLowerCase().includes(needle)) return false;
+      if (needle && !`${get.name?.(r) || ""} ${get.code?.(r) || ""} ${get.details?.(r) || ""} ${get.type?.(r) || ""}`.toLowerCase().includes(needle)) return false;
       if (type !== ALL && get.type && (get.type(r) || "Other") !== type) return false;
       if (status !== ALL && get.status && String(get.status(r)) !== status) return false;
-      if (branch !== ALL && get.branch && String(get.branch(r) || "") !== branch) return false;
+      if (branch !== ALL && branch !== SHOW_ARCHIVED && get.branch && String(get.branch(r) || "") !== branch) return false;
       const p = person(r);
       if (cat !== ALL && String(p?.employee_type || "Teaching").toLowerCase() !== cat) return false;
       if (emp !== ALL && String(p?.employment_status || "") !== emp) return false;
@@ -92,49 +103,55 @@ export function useApprovalFilters(rows, { prefix, get, typeLabel = "Type", stat
   }, [list, q, type, status, branch, cat, emp, from, to, sort, get, person]);
 
   const toolbar = (
-    <div className="flex flex-wrap items-end gap-2" data-testid={`${prefix}-filters`}>
-      <Input aria-label="Search name or ID" className="w-full sm:w-56" placeholder="Search name or ID…" value={q} onChange={(e) => setQ(e.target.value)} />
+    <div className={BAR} data-testid={`${prefix}-filters`} data-owns-search="true">
+      <Input type="search" aria-label="Search name, ID or details" className="col-span-2 rounded-md xl:min-w-64 xl:flex-[2]" placeholder="Search name, ID or details…" value={q} onChange={(e) => setQ(e.target.value)} />
       {get.type ? (
         <Select value={type} onValueChange={setType}>
-          <SelectTrigger aria-label={typeLabel} className="w-52"><SelectValue /></SelectTrigger>
+          <SelectTrigger aria-label={typeLabel} className={CELL}><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>Every {typeLabel.toLowerCase()} ({list.length})</SelectItem>
+            <SelectItem value={ALL}>All types ({list.length})</SelectItem>
             {Object.entries(counts).map(([t, n]) => <SelectItem key={t} value={t}>{t} ({n})</SelectItem>)}
           </SelectContent>
         </Select>
       ) : null}
       {get.status && statuses ? (
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger aria-label="Status" className="w-40"><SelectValue /></SelectTrigger>
+          <SelectTrigger aria-label="Status" className={CELL}><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value={ALL}>Any status</SelectItem>{Object.entries(statuses).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
         </Select>
       ) : null}
       {get.branch && branches.length > 1 ? (
         <Select value={branch} onValueChange={setBranch}>
-          <SelectTrigger aria-label="Branch" className="w-44"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value={ALL}>All branches</SelectItem>{branches.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}</SelectContent>
+          <SelectTrigger aria-label="Branch" className={CELL}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All branches</SelectItem>
+            {branchOptions(branches, { showArchived: branch === SHOW_ARCHIVED || branches.some((b) => isArchivedBranch(b) && String(b.id) === branch) }).map((b) => (
+              <SelectItem key={b.id} value={String(b.id)}>{b.name}{isArchivedBranch(b) ? " (archived)" : ""}</SelectItem>
+            ))}
+            {branches.some(isArchivedBranch) ? <SelectItem value={SHOW_ARCHIVED}>All branches + archived</SelectItem> : null}
+          </SelectContent>
         </Select>
       ) : null}
       {get.employeeId && people ? (
         <>
           <Select value={cat} onValueChange={setCat}>
-            <SelectTrigger aria-label="Category" className="w-40"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="Category" className={CELL}><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value={ALL}>Any category</SelectItem><SelectItem value="teaching">Teaching</SelectItem><SelectItem value="non-teaching">Non-Teaching</SelectItem></SelectContent>
           </Select>
           <Select value={emp} onValueChange={setEmp}>
-            <SelectTrigger aria-label="Employment status" className="w-44"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value={ALL}>Any employment status</SelectItem>{EMPLOYMENT_STATUS_OPTIONS.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
+            <SelectTrigger aria-label="Employment status" className={CELL}><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value={ALL}>Any status</SelectItem>{EMPLOYMENT_STATUS_OPTIONS.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
           </Select>
         </>
       ) : null}
       {get.requested || get.filed ? (
         <>
-          <div className="w-40"><DatePicker aria-label="From" value={from} max={to || undefined} onChange={setFrom} placeholder="From" /></div>
-          <div className="w-40"><DatePicker aria-label="To" value={to} min={from || undefined} onChange={setTo} placeholder="To" /></div>
+          <div className={CELL}><DatePicker aria-label="From" value={from} max={to || undefined} onChange={setFrom} placeholder="From" /></div>
+          <div className={CELL}><DatePicker aria-label="To" value={to} min={from || undefined} onChange={setTo} placeholder="To" /></div>
         </>
       ) : null}
       <Select value={sort} onValueChange={setSort}>
-        <SelectTrigger aria-label="Sort" className="w-56"><SelectValue /></SelectTrigger>
+        <SelectTrigger aria-label="Sort" className={CELL}><SelectValue /></SelectTrigger>
         <SelectContent>{Object.entries(SORTS).filter(([k]) => (k.startsWith("req") ? Boolean(get.requested) : Boolean(get.filed))).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
       </Select>
     </div>

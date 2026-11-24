@@ -157,6 +157,8 @@ export async function PATCH(request) {
         );
       }
       const sync = await syncLeaveAttendance(id);
+      // Its open substitution proposals go too (2026-11-24).
+      await afterLeaveDecision(getAdminClient(), current, "cancel");
 
       await appendAuditLog({
         actor: guard,
@@ -242,7 +244,7 @@ export async function PATCH(request) {
 
     // Over the yearly paid balance: the extra days become without pay (re-checked here, at approval).
     const split = action === "approve" ? await applyBalanceSplit(id) : null;
-    const splitText = split ? ` · ${split.text} (over the paid leave balance)` : "";
+    const splitText = split ? ` · ${split.text} (over the leave credits)` : "";
 
     // The branch Admin who recommended it learns HR's decision (2026-10-20).
     await notifyEndorsers(getAdminClient(), "leave_endorsement", id, {

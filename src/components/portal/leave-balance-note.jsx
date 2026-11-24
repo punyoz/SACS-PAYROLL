@@ -14,10 +14,11 @@ export function LeaveBalanceNote({ balance, request = null, className }) {
   if (request && balance.by_type && !balance.by_type[request.leave_type]) {
     return <p className={cn("text-xs text-muted-foreground", className)} data-testid="leave-balance">{request.leave_type}: statutory leave, filed per event (no yearly credits used).</p>;
   }
-  // The credits of the request's own leave type (leave_credit_rules, 20261121010000).
+  // The credits of the request's own leave type (leave_credit_rules, 20261121010000); one shared pool since 2026-11-24.
   const own = request ? balance.by_type?.[request.leave_type] : null;
-  const label = own ? request.leave_type : "Leave with pay";
-  const used = own ? own.used : balance.with_pay_used;
+  const pooled = Boolean(balance.pool);
+  const label = pooled ? "Leave credits" : own ? request.leave_type : "Leave with pay";
+  const used = pooled ? balance.pool.used : own ? own.used : balance.with_pay_used;
   const allotment = own ? own.allotment : balance.with_pay_allotment;
   const remaining = own ? own.remaining : balance.with_pay_remaining;
   const pending = request && ["pending_admin", "pending_accountant"].includes(request.status);
@@ -25,7 +26,7 @@ export function LeaveBalanceNote({ balance, request = null, className }) {
   return (
     <p className={cn("text-xs text-muted-foreground", className)} data-testid="leave-balance">
       {label}: {used} of {allotment} days used, {remaining} remaining
-      {split?.without_pay_days ? <span className="block font-medium text-warning">Over the balance: {describeSplit(split)} on approval.</span> : null}
+      {split?.without_pay_days ? <span className="block font-medium text-warning">Over the leave credits: {describeSplit(split)} on approval.</span> : null}
     </p>
   );
 }

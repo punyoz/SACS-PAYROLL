@@ -1,5 +1,7 @@
 "use client";
 
+import { dateLabel } from "@/lib/portal/payroll-preview";
+
 import * as React from "react";
 import { ClockIcon, Loader2Icon, SendIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -126,7 +128,7 @@ export function MyOvertimeList({ list, apiBase = "/api/me/overtime-requests" }) 
 
   const columns = [
     { key: "request_date", header: "Date", sortable: true, className: "font-medium", cell: (r) => (
-      <div><p>{r.request_date}</p>{r.late_filing ? <p className="text-xs font-normal text-warning">Late filing</p> : null}</div>
+      <div><p>{dateLabel(r.request_date)}</p>{r.late_filing ? <p className="text-xs font-normal text-warning">Late filing</p> : null}</div>
     ) },
     { key: "planned_start", header: "Planned", cell: (r) => (
       <div><p>{r.planned_start}-{r.planned_end} ({hoursText(r.minutes)})</p><p className="text-xs text-muted-foreground line-clamp-2">{r.reason}</p></div>
@@ -179,7 +181,7 @@ export function HrOvertimeRequests() {
       <div><p>{r.employee_name}</p><p className="text-xs font-normal text-muted-foreground">{r.employee_code}</p></div>
     ), searchValue: (r) => `${r.employee_name} ${r.employee_code}` },
     { key: "request_date", header: "Date", sortable: true, cell: (r) => (
-      <div><p>{r.request_date}</p>{r.late_filing ? <StatusBadge tone="warning">Late filing</StatusBadge> : null}</div>
+      <div><p>{dateLabel(r.request_date)}</p>{r.late_filing ? <StatusBadge tone="warning">Late filing</StatusBadge> : null}</div>
     ) },
     { key: "planned_start", header: "Requested", cell: (r) => (
       <div><p>{r.planned_start}-{r.planned_end} ({r.hours_text})</p><p className="text-xs text-muted-foreground line-clamp-2">{r.reason}</p></div>
@@ -234,7 +236,7 @@ export function HrOvertimeRequests() {
         open={Boolean(bulk)}
         title={bulk?.decision === "reject" ? "Reject the selected overtime" : "Approve the selected overtime"}
         rows={bulk?.rows || []}
-        label={(r) => `${r.employee_name} · ${r.request_date} · ${r.planned_start}-${r.planned_end} (${r.hours_text})`}
+        label={(r) => `${r.employee_name} · ${dateLabel(r.request_date)} · ${r.planned_start}-${r.planned_end} (${r.hours_text})`}
         decision={bulk?.decision}
         entityType="overtime_request"
         destructive={bulk?.decision === "reject"}

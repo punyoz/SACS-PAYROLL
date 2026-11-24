@@ -17,13 +17,14 @@
 
 export const REQUEST_KINDS = Object.freeze({
   attendance_flag: { label: "Attendance flag", decisions: ["resolve"] },
-  leave_endorsement: { label: "Leave recommendation", decisions: [], endorsement: true },
+  // 2026-11-24: the Admin no longer recommends or endorses; earlier ones stay readable under these names.
+  leave_endorsement: { label: "Earlier leave note (Admin)", decisions: [], endorsement: true },
   incident_report: { label: "Incident / AWOL report", decisions: ["resolve"] },
   schedule_request: { label: "Work schedule request", decisions: ["approve", "reject"] },
-  transfer_endorsement: { label: "Transfer endorsement", decisions: [], endorsement: true },
+  transfer_endorsement: { label: "Earlier transfer note (Admin)", decisions: [], endorsement: true },
   rfid_issue: { label: "RFID issue", decisions: ["resolve"] },
-  overtime_confirmation: { label: "Overtime / substitute confirmation", decisions: [], endorsement: true },
-  incentive_endorsement: { label: "Incentive recommendation", decisions: ["approve", "reject"] },
+  overtime_confirmation: { label: "Earlier overtime confirmation (Admin)", decisions: [], endorsement: true },
+  incentive_endorsement: { label: "Incentive proposal", decisions: ["approve", "reject"] },
 });
 
 /** The six status labels, the same on every screen. */
