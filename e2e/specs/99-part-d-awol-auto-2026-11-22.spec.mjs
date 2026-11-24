@@ -9,7 +9,7 @@ import { api } from "../support/flow.mjs";
 import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
-test("AWOL: a system-opened case — review the prepared notice, send it with one click; the template editor opens", async ({ page, monitor }) => {
+test("AWOL: a system-opened case — automatic, review the prepared notice; by hand, Proceed sends it; the template editor opens", async ({ page, monitor }) => {
   monitor.at("HR > AWOL Cases (system-opened)");
   monitor.allow(/^4\d\d PATCH \/api\/hr\/awol-cases/, /status of 4\d\d/);
   const bea = await profileByEmail(ACCOUNTS.employee2.email);
@@ -29,10 +29,17 @@ test("AWOL: a system-opened case — review the prepared notice, send it with on
     const row = main(page).locator("tr", { hasText: bea.full_name }).filter({ hasNot: page.getByRole("checkbox") });
     await expect(row).toHaveCount(1);
 
-    await step(page, "HR > AWOL Cases > the case shows 'Opened by System', the notice prepared, no deadline yet", async () => {
-      await expect(row).toContainText("Opened by System");
+    await step(page, "HR > AWOL Cases > the system-opened case: Automatic, the system confirms it tonight, no deadline yet; the drawer says 'Opened by System'", async () => {
+      await expect(row.getByTestId("awol-automation")).toContainText("Automatic");
+      await expect(row.getByTestId("awol-next-step")).toContainText("The system confirms it tonight");
       await expect(row).not.toContainText("Reply by");
-      await expect(row.getByRole("button", { name: "Review notice (PDF)" })).toBeVisible();
+      await row.getByRole("button", { name: bea.full_name, exact: true }).click();
+      const drawer = page.getByTestId("awol-drawer");
+      await expect(drawer).toContainText("Opened by System");
+      await page.keyboard.press("Escape");
+      await row.getByRole("button", { name: `More for ${bea.full_name}` }).click();
+      await expect(page.getByRole("menuitem", { name: "Review notice (PDF)" })).toBeVisible();
+      await page.keyboard.press("Escape");
     });
 
     await step(page, "Review notice (PDF): a real PDF before sending", async () => {
@@ -42,16 +49,21 @@ test("AWOL: a system-opened case — review the prepared notice, send it with on
       expect((await res.body()).toString("latin1").startsWith("%PDF-")).toBe(true);
     });
 
-    await step(page, "Send 1st notice: one click; the deadline starts today; Bea is told", async () => {
-      await row.getByTestId("awol-send-prepared").click();
-      await expect(row).toContainText("Reply by", { timeout: 20000 });
+    await step(page, "HR runs it by hand: Proceed sends the 1st notice; the deadline starts today; Bea is told", async () => {
+      psql(`update employee_awol_cases set automation = 'stopped', automation_reason = 'E2E: HR handles it by hand' where id = '${opened.id}';`);
+      await page.reload();
+      await settle(page);
+      const hand = main(page).locator("tr", { hasText: bea.full_name }).filter({ hasNot: page.getByRole("checkbox") });
+      await hand.getByTestId("awol-proceed").click();
+      await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
+      await expect(hand).toContainText("Reply by", { timeout: 20000 });
       const saved = await rows(db().from("employee_awol_cases").select("stage,first_notice_sent_on,first_notice_reply_by").eq("id", opened.id).single());
       expect(saved.stage).toBe("first_notice");
       expect(saved.first_notice_sent_on).toBeTruthy();
       expect(saved.first_notice_reply_by > saved.first_notice_sent_on).toBe(true);
       const told = await rows(db().from("notifications").select("kind").eq("recipient_id", bea.id).eq("kind", "awol_first_notice").gte("created_at", since));
       expect(told.length).toBeGreaterThan(0);
-      await expect(row.getByTestId("awol-send-prepared")).toHaveCount(0);
+      await expect(hand.getByTestId("awol-proceed")).toHaveCount(0);
     });
 
     await step(page, "A case HR opened by hand cannot skip ahead: it still needs its confirm step", async () => {
@@ -61,7 +73,7 @@ test("AWOL: a system-opened case — review the prepared notice, send it with on
     });
 
     await step(page, "Notice template: the editor opens with the text and its fields", async () => {
-      await main(page).getByRole("button", { name: "Notice template" }).click();
+      await main(page).getByRole("button", { name: "AWOL settings" }).click();
       const text = page.getByRole("dialog").getByLabel("Notice template");
       await expect(text).toBeVisible();
       await expect(text).toHaveValue(/\{reply_by\}/);
