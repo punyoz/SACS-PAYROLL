@@ -6,6 +6,8 @@ For the redefense on Friday, November 27, 2026. Live at https://sacs-payroll.ver
 - **The data:** every account on payroll, from Oct 1 to today. It was generated through the app itself: real RFID terminal taps, the nightly close, requests and decisions, and payroll runs.
 - **Each day** a server job adds that day's taps until Nov 27: time in around 08:00, time out around 18:00. Ramon (AWOL) and Anjo (separated) are skipped.
 - **Payroll:** Oct 1–15, Oct 16–31 and Nov 1–15 are **Paid** at Main and Robinson. Anjo's final pay is approved. **Nov 16–30 is processed and ready for HR**: the Accountant submits it and HR approves it live.
+- **Recompute:** a server job recomputes Nov 16–30 early on Fri Nov 27, after the cutoff closes. **If Nov 16–30 still says Recompute, press Recompute, then Submit.**
+- **Testing mode:** the normal window for Nov 16–30 is Nov 27 – Dec 1, so Submit and HR Approve work with testing mode off on the day.
 
 ## Who is who
 
@@ -13,7 +15,7 @@ For the redefense on Friday, November 27, 2026. Live at https://sacs-payroll.ver
 |---|---|---|---|
 | Maricel Santos | HR | Main | Approves everything below; the Robinson HR's own payslip is approved by another HR |
 | Rowena Dizon | Accountant | Main | Processes and submits Main's payroll |
-| Marisol Santos Aquino (DEMO-101) | Employee, Teacher, Regular since 2022 | Main | Vacation leave Nov 12–13; approved overtime Nov 10; honorarium ₱1,500; salary loan ₱10,000 (deducted on 16–end payslips); substitute for Carlo on Nov 17; tenure; licensed teacher |
+| Marisol Santos Aquino (DEMO-101) | Employee, Teacher, Regular since 2022 | Main | Vacation leave Nov 12–13; approved overtime Nov 10; honorarium ₱1,500; salary loan ₱10,000 (deducted on 16–end payslips); substitute for Carlo on Nov 17, **paid as overtime** on Nov 16–30; tenure; licensed teacher |
 | Carlo Reyes Mendoza (DEMO-102) | Employee, Teacher, Probationary | Main | Sick leave Nov 17, which proposed the substitution; overtime request pending; honorarium ₱800; licensed teacher |
 | Liza Gomez Ferrer (DEMO-103) | Employee, Teacher, Provisional | Main | Half day (AM) Nov 11; Nov 6 missing time-out fixed by an approved correction; Nov 18 correction pending; honorarium ₱1,000 |
 | Ramon Cruz Salazar (DEMO-104) | Employee, Registrar Staff, Regular | Main | Vacation leave rejected (preset remark); Nov 13 "Overtime not filed"; Nov 4 short day; **AWOL from Nov 18**: 1st notice sent, pay on hold, reply by Nov 29 |
@@ -51,18 +53,22 @@ The other accounts on payroll are Andrea Villanueva, Ehd Astillero Refuerzo, Jan
 4. Maricel opens HR › Approvals › Payroll runs and approves the run.
 5. Marisol opens My Payslips: the Nov 16–30 payslip, then the PDF.
 
-**B. AWOL**
-1. Ramon sees the Dashboard banner and opens My Notices. He opens the 1st notice PDF and replies with a reason, an explanation and an attachment.
-2. Maricel opens HR › AWOL cases. The case shows "Reply received". The details drawer shows the timeline, guards, notices and the reply.
-3. Maricel either Separates (the notice of separation, effective after 3 days) or Closes with a preset remark.
-4. Ramon sees HR's decision in My Notices.
+**B. AWOL notice and reply** (Ramon's login; his notice was also e-mailed)
+1. Sign in as **Ramon**. The Dashboard shows the banner "You have an attendance notice."
+2. Press **Open My Notices** (also under My Account › My Notices). Show the notice, the reply-by date and the **PDF**.
+3. Press **Reply**: choose a reason (for example Illness / medical), write an explanation, attach a file (for example a medical certificate) and optionally a return date. Send.
+4. The page says "Your reply was received on …". **The automation stops**, and HR is notified.
+5. Sign in as **Maricel** › HR › Employees › AWOL cases. The case shows "Reply received: you decide (Separate or Close)". Open the drawer: the timeline, guards, notices, and the reply with its attachment.
+6. Show **Record reply** (⋯ menu) for a reply received by phone or letter.
+7. Decide: **Close** with a preset remark (for example "Excused: hospital confinement with certificate"), or **Separate** (a notice of separation, effective in 3 days).
+8. Back as Ramon: My Notices shows HR's decision.
 
 **C. Bulk approval**
 1. Maricel opens HR › Approvals and filters by type and branch.
 2. She ticks several items, then Approve selected or Reject selected, with one preset remark.
 3. Each row reports its result, and each decision is audited.
 
-**D. Substitution:** Maricel › Approvals › Substitutions. The proposal came from Carlo's approved sick leave, and Marisol covered 3 periods. Show the line on Marisol's payslip.
+**D. Substitution (paid as overtime):** Maricel › Approvals › Substitutions. The proposal came from Carlo's approved sick leave, and Marisol covered 3 periods. On Marisol's Nov 16–30 payslip: "Overtime (substitution): 3 h × hourly × 125%, covering Carlo Reyes Mendoza (Nov 17)". Without taps covering the class it is not paid, and HR sees it under Action needed.
 
 **E. Attendance correction:** Liza › My Attendance › Nov 18 → the pending correction. Maricel approves it and sees the pay difference.
 
