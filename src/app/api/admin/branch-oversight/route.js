@@ -110,7 +110,9 @@ async function branchRequests(supabase, branchId, kinds) {
   if (kinds?.length) query = query.in("kind", kinds);
   const result = await query.order("created_at", { ascending: false }).limit(1000);
   if (result.error) return { error: NOT_READY, rows: [] };
-  return { rows: result.data || [] };
+  // The branch's real name on every row (2026-11-26: never "Your branch").
+  const { data: branch } = await supabase.from("branches").select("name").eq("id", branchId).maybeSingle();
+  return { rows: (result.data || []).map((r) => ({ ...r, branch_name: r.branch_name || branch?.name || null })) };
 }
 
 async function attendanceLogs(supabase, ids, from, to) {
