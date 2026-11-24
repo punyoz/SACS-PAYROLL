@@ -7,6 +7,7 @@ import { DatePicker } from "@/components/portal/date-picker";
 import { useUrlParam } from "@/components/portal/use-url-param";
 import { fetchJson } from "@/lib/portal/api";
 import { EMPLOYMENT_STATUS_OPTIONS } from "@/lib/employees/classification";
+import { branchOptions, isArchivedBranch } from "@/lib/branches/archived";
 
 /*
  * Filters for every approval list (Part F, 2026-11-22): search by name or ID;
@@ -31,13 +32,15 @@ const BAR = "grid w-full grid-cols-2 items-center gap-2 xl:flex xl:flex-wrap [&_
 const CELL = "min-w-0 xl:w-40";
 let employeeIndex = null;
 let branchList = null;
+/** The branch-dropdown choice that lists archived branches too (2026-11-24); it filters nothing by itself. */
+const SHOW_ARCHIVED = "__archived";
 
 function useBranchList(enabled) {
   const [list, setList] = React.useState(branchList || []);
   React.useEffect(() => {
     if (!enabled || branchList) return undefined;
     let live = true;
-    fetchJson("/api/admin/branches").then((d) => { branchList = d.branches || []; if (live) setList(branchList); }).catch(() => {});
+    fetchJson("/api/admin/branches?include_archived=1").then((d) => { branchList = d.branches || []; if (live) setList(branchList); }).catch(() => {});
     return () => { live = false; };
   }, [enabled]);
   return list;
@@ -85,7 +88,7 @@ export function useApprovalFilters(rows, { prefix, get, typeLabel = "Type", stat
       if (needle && !`${get.name?.(r) || ""} ${get.code?.(r) || ""} ${get.details?.(r) || ""} ${get.type?.(r) || ""}`.toLowerCase().includes(needle)) return false;
       if (type !== ALL && get.type && (get.type(r) || "Other") !== type) return false;
       if (status !== ALL && get.status && String(get.status(r)) !== status) return false;
-      if (branch !== ALL && get.branch && String(get.branch(r) || "") !== branch) return false;
+      if (branch !== ALL && branch !== SHOW_ARCHIVED && get.branch && String(get.branch(r) || "") !== branch) return false;
       const p = person(r);
       if (cat !== ALL && String(p?.employee_type || "Teaching").toLowerCase() !== cat) return false;
       if (emp !== ALL && String(p?.employment_status || "") !== emp) return false;
@@ -120,7 +123,13 @@ export function useApprovalFilters(rows, { prefix, get, typeLabel = "Type", stat
       {get.branch && branches.length > 1 ? (
         <Select value={branch} onValueChange={setBranch}>
           <SelectTrigger aria-label="Branch" className={CELL}><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value={ALL}>All branches</SelectItem>{branches.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}</SelectContent>
+          <SelectContent>
+            <SelectItem value={ALL}>All branches</SelectItem>
+            {branchOptions(branches, { showArchived: branch === SHOW_ARCHIVED || branches.some((b) => isArchivedBranch(b) && String(b.id) === branch) }).map((b) => (
+              <SelectItem key={b.id} value={String(b.id)}>{b.name}{isArchivedBranch(b) ? " (archived)" : ""}</SelectItem>
+            ))}
+            {branches.some(isArchivedBranch) ? <SelectItem value={SHOW_ARCHIVED}>All branches + archived</SelectItem> : null}
+          </SelectContent>
         </Select>
       ) : null}
       {get.employeeId && people ? (
