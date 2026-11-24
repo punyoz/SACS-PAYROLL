@@ -24,5 +24,16 @@
       "path": "/api/cron/recompute-period",
       "schedule": "30 16 * * 4"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "release*/**": false,
+      "feat/**": false,
+      "fix/**": false,
+      "followup*/**": false,
+      "docs/**": false,
+      "e2e/**": false,
+      "test/**": false
+    }
+  }
 }
