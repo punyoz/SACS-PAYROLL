@@ -208,7 +208,7 @@ async function build() {
   await stage("substitution (proposed by the system from Carlo's approved leave; HR picks Marisol)", async () => {
     const [proposal] = await db.rows(`select id from substitutions where leave_request_id = ${lit(String(leave.sl))} and source = 'leave' and status = 'pending' and substitute_id is null`);
     if (!proposal) throw new Error("the system did not propose a substitution for Carlo's approved leave");
-    ok("approve with Marisol", await as(HR).patch("/api/substitutions", { id: proposal.id, action: "approve", substitute_id: by(1).id }));
+    ok("approve with Marisol", await as(HR).patch("/api/substitutions", { id: proposal.id, action: "approve", substitute_id: by(1).id, periods: 3 }));
     return "Marisol covers Carlo on Nov 17 (the day's periods from his schedule)";
   });
 
