@@ -12,7 +12,6 @@ import { dateLabel, dateTime } from "@/lib/portal/payroll-preview";
 import { useBranchView } from "./oversight-shared";
 import { AnnouncementsCard } from "@/components/portal/announcements";
 import { portalHref } from "@/lib/portal/navigate";
-import { AutomationCard } from "@/components/portal/automation-card";
 
 /*
  * Admin Dashboard (GET /api/admin/branch-oversight?view=dashboard): today's
@@ -57,7 +56,6 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
       </section>
 
       {/* Part E: what the system prepared for this branch (Note / Object). */}
-      <AutomationCard role="admin" refreshKey={refreshKey} />
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <Card id="admin-not-tapped" className="min-w-0 scroll-mt-20 shadow-xs">

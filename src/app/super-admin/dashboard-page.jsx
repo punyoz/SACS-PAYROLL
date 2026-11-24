@@ -24,7 +24,6 @@ import { StatusBadge } from "@/components/portal/status-badge";
 import { UpcomingHolidaysCard } from "@/components/portal/upcoming-holidays";
 import { fetchJson } from "@/lib/portal/api";
 import { portalHref } from "@/lib/portal/navigate";
-import { AutomationCard } from "@/components/portal/automation-card";
 
 /*
  * SA Dashboard (loadSADashboard / renderSARecentActivity,
@@ -168,7 +167,6 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
         <StatCard label="Pending actions" value={fallback === null ? "—" : fallback} hint={fallback ? "Waiting on you (no other HR active)" : "Nothing waits on the fallback"} icon={InboxIcon} tone={fallback ? "warning" : "primary"} loading={loading && fallback === null} href={portalHref("sa-fallback")} actionLabel="Open Items Waiting on Fallback" />
       </section>
       {/* Part E: Pause / Resume automation, and what it did. */}
-      <AutomationCard role="super_admin" refreshKey={refreshKey} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="min-w-0 shadow-xs">

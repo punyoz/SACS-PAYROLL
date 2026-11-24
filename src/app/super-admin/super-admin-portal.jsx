@@ -1,5 +1,7 @@
 "use client";
 
+import { AutomationSettings } from "@/components/portal/automation-settings";
+
 import { DecisionReasonsCard } from "@/components/portal/remark-presets-manager";
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
@@ -78,6 +80,8 @@ const NAV = [
       { id: "sa-config", label: "System", icon: SettingsIcon, tabs: [
         { id: "sa-config", label: "Configuration", module: "system_configuration" },
         { id: "sa-backup", label: "Backup & Recovery", module: "backup_recovery" },
+        // 2026-11-24: Settings > Automation (no dashboard card).
+        { id: "sa-automation", label: "Automation", module: "system_configuration" },
       ] },
       { id: "sa-audit", label: "Audit & Monitoring", icon: ScrollTextIcon, module: "audit_logs" },
     ],
@@ -91,7 +95,7 @@ const PAGE_IDS = NAV_ITEMS.map((item) => item.id);
 const TITLES = {
   "sa-dashboard": "Dashboard", "sa-fallback": "Items Waiting on Fallback", "sa-announcements": "Announcements", "sa-accounts": "Admin & HR Accounts",
   "sa-roles": "Roles & Permissions", "sa-branches": "Branch Management", "sa-attendance": "Attendance Records", "sa-maintenance": "RFID Cards",
-  "sa-rfid-terminal": "RFID Terminal", "sa-rfid-issues": "RFID Issues", "sa-config": "System Configuration", "sa-backup": "Backup & Recovery",
+  "sa-rfid-terminal": "RFID Terminal", "sa-rfid-issues": "RFID Issues", "sa-config": "System Configuration", "sa-backup": "Backup & Recovery", "sa-automation": "Automation",
   "sa-audit": "Audit & Monitoring", "sa-profile": "Profile",
 };
 
@@ -106,6 +110,7 @@ const DESCRIPTIONS = {
   "sa-rfid-issues": "Lost or broken cards and faulty readers reported by branch Admins.",
   "sa-attendance": "View-only attendance records of every branch, by date range, with export. Corrections are HR's.",
   "sa-config": "System-wide settings, payroll rules, attendance policies and holidays.",
+  "sa-automation": "The automatic checks: switch modules on or off, pause everything, set the daily digests, and see what the system did.",
   "sa-audit": "System-wide audit trails, login activity and transaction history across all branches.",
   "sa-announcements": "Post to the whole school or one branch, edit your own, and delete any announcement (moderation).",
   "sa-backup": "Database status, manual exports and recovery procedures.",
@@ -182,6 +187,7 @@ function SuperAdminScreens() {
           description="Lost or broken cards and faulty readers. Fix the card or reader, then mark the report resolved with a remark." />
       ) : null}
       {current === "sa-config" ? <ConfigPage refreshKey={refreshKey} /> : null}
+      {current === "sa-automation" ? <AutomationSettings refreshKey={refreshKey} /> : null}
       {current === "sa-audit" ? (
         <AuditLogsPage refreshKey={refreshKey} limit={200} csvName={() => `sacs-sa-audit-${manilaDateKey()}.csv`} auditActor={null} />
       ) : null}

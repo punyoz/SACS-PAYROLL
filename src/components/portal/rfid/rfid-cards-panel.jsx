@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CreditCardIcon, HistoryIcon, ListPlusIcon, Loader2Icon, PlusIcon, RefreshCwIcon, ScanLineIcon } from "lucide-react";
+import { CreditCardIcon, HistoryIcon, ListPlusIcon, Loader2Icon, PlusIcon, RadioTowerIcon, RefreshCwIcon, ScanLineIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,7 +17,7 @@ import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { useUrlParam } from "@/components/portal/use-url-param";
 import { currentPageHref } from "@/lib/portal/navigate";
-import { fetchJson, jsonBody } from "@/lib/portal/api";
+import { fetchJson, hardNavigate, jsonBody } from "@/lib/portal/api";
 import { dateTime } from "@/lib/portal/payroll-preview";
 import { CARD_STATUS_LABELS, CARD_STATUS_TONES } from "@/lib/rfid/cards";
 import { cn } from "@/lib/utils";
@@ -39,7 +39,11 @@ import { manilaDateKey } from "@/lib/payroll/periods";
 const STATUS_TABS = ["all", "active", "inactive", "lost", "replaced"];
 const ALL = "all";
 
-export function RfidCardsPanel({ refreshKey }) {
+/**
+ * `terminal` (2026-11-24, HR's one RFID tab): an "Open RFID Terminal" button next to Register card; `children`
+ * (RFID issues) after the card history.
+ */
+export function RfidCardsPanel({ refreshKey, terminal = false, children = null }) {
   const { notify } = usePortalSession();
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [statusParam, setStatus] = useUrlParam("rf_status", ALL);
@@ -155,7 +159,7 @@ export function RfidCardsPanel({ refreshKey }) {
     { key: "created_at", header: "When", sortable: true, className: "whitespace-nowrap text-xs", cell: (e) => dateTime(e.created_at) },
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (e) => e.employee_name },
     { key: "uid_masked", header: "Card", className: "font-mono text-xs" },
-    { key: "action_label", header: "Action", cell: (e) => <StatusBadge tone={e.action === "registered" || e.action === "reactivated" ? "success" : e.action === "marked_lost" ? "danger" : e.action === "replaced" ? "gold" : "muted"} dot={false}>{e.action_label}</StatusBadge>, searchValue: (e) => e.action_label },
+    { key: "action_label", header: "Action", cell: (e) => <StatusBadge tone={e.action === "registered" || e.action === "reactivated" ? "success" : e.action === "marked_lost" ? "danger" : e.action === "replaced" ? "gold" : e.action === "lost_report_removed" ? "info" : "muted"} dot={false}>{e.action_label}</StatusBadge>, searchValue: (e) => e.action_label },
     { key: "change", header: "Status", className: "text-xs whitespace-nowrap", cell: (e) => (e.from_status ? `${e.from_status} → ${e.to_status}` : e.to_status) },
     { key: "actor", header: "By", className: "text-xs whitespace-nowrap", cell: (e) => `${e.actor_name} · ${e.actor_role}`, searchValue: (e) => e.actor_name },
     { key: "effective_on", header: "Effective", className: "text-xs whitespace-nowrap tabular-nums", cell: (e) => e.effective_on || <span className="text-muted-foreground">{String(e.created_at || "").slice(0, 10)}</span> },
@@ -191,6 +195,7 @@ export function RfidCardsPanel({ refreshKey }) {
             <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
             <Button variant="outline" size="sm" onClick={() => setBulk("register")} disabled={!employees.length}><ListPlusIcon aria-hidden="true" />Register many</Button>
             <Button size="sm" onClick={() => open("register")} disabled={!employees.length}><PlusIcon aria-hidden="true" />Register card</Button>
+            {terminal ? <Button size="sm" variant="outline" onClick={() => hardNavigate("/rfid-terminal")} data-testid="open-rfid-terminal"><RadioTowerIcon aria-hidden="true" />Open RFID Terminal</Button> : null}
           </CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -209,7 +214,7 @@ export function RfidCardsPanel({ refreshKey }) {
                 ) : null}
               </>
             )}
-            columns={columns} rows={cards} loading={first} error={state.error} onRetry={load} pageSize={15}
+            columns={columns} rows={cards} loading={first} error={state.error} onRetry={load}
             searchPlaceholder="Search employee, ID or last 4 digits…" caption="RFID cards" minWidth={1040}
             selection={{
               selected: cardSelected, onChange: setCardSelected, rowId: (c) => c.id, isSelectable: (c) => c.status === "active",
@@ -235,6 +240,9 @@ export function RfidCardsPanel({ refreshKey }) {
             caption="RFID card history" minWidth={900} empty={{ title: "No card actions yet", icon: HistoryIcon }} />
         </CardContent>
       </Card>
+
+      {/* HR's one RFID tab (2026-11-24): RFID issues after the card history. */}
+      {children}
 
       <Dialog open={Boolean(dialog)} onOpenChange={(o) => { if (!o && !busy) setDialog(null); }}>
         <DialogContent className={cn(dialog?.kind === "history" ? "sm:max-w-3xl" : "sm:max-w-md")}>

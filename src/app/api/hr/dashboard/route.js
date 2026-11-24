@@ -228,6 +228,15 @@ export async function GET(request) {
       }
     } catch { /* ignore */ }
 
+    // 2026-11-24 (no Automation card): what the system could not decide, and what waits too long, with the reason.
+    actionNeeded.automation = [];
+    try {
+      const { data: stuck } = await supabase.from("automation_actions").select("id,summary,reason,status,escalated_at,created_at,module")
+        .or("status.eq.couldnt_decide,and(status.in.(with_hr,open),escalated_at.not.is.null)").order("created_at", { ascending: false }).limit(50);
+      actionNeeded.automation = (stuck || []).map((a) => ({ id: a.id, full_name: a.summary,
+        detail: a.status === "couldnt_decide" ? `Couldn't decide: ${a.reason || "no reason given"}` : "Waiting too long" }));
+    } catch { /* ignore */ }
+
     return NextResponse.json({
       action_needed: actionNeeded,
       total_employees: totalEmployees,
