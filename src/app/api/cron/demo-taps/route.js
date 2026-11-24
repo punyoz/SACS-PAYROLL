@@ -43,7 +43,9 @@ export async function GET(request) {
 
   const { data: people } = await supabase.from("profiles").select("id,branch_id,full_name,employee_status,role")
     .eq("archived", false).eq("on_payroll", true).eq("employee_status", "Active").in("role", ["employee", "accountant", "hr"]);
-  const origin = new URL(request.url).origin;
+  // The production domain: a cron call arrives on the deployment's own URL, which Vercel's protection guards.
+  const origin = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : new URL(request.url).origin;
+  let firstFailure = null;
   const done = [];
   for (const p of people || []) {
     const { data: card } = await supabase.from("rfid_cards").select("uid").eq("employee_id", p.id).eq("status", "active").maybeSingle();
@@ -63,10 +65,11 @@ export async function GET(request) {
       const res = await fetch(`${origin}/api/admin/attendance`, { method: "POST", headers: { cookie, [KIOSK_HEADER]: "1", "Content-Type": "application/json" },
         body: JSON.stringify({ device: "RFID Terminal", rfid_code: card.uid, offline_tapped_at: `${today}T${hhmm(t)}:00+08:00` }) });
       results.push(res.status);
+      if (res.status !== 200 && !firstFailure) firstFailure = `${res.status} ${(await res.text().catch(() => "")).slice(0, 160)}`;
     }
     done.push({ id: p.id, statuses: results });
   }
   await appendAuditLog({ actor: null, module: "attendance", action: "daily_taps", entity_type: "attendance", entity_id: today, status: "success", source: "system",
-    description: `Daily taps (defense setting, until ${setting.until}): ${done.length} people, ${done.filter((d) => d.statuses.every((x) => x === 200)).length} recorded in full (by System).` }).catch(() => {});
+    description: `Daily taps (defense setting, until ${setting.until}): ${done.length} people, ${done.filter((d) => d.statuses.every((x) => x === 200)).length} recorded in full (by System).${firstFailure ? ` First refusal: ${firstFailure}` : ""}` }).catch(() => {});
   return NextResponse.json({ day: today, people: done.length, ok: done.filter((d) => d.statuses.every((x) => x === 200)).length });
 }
