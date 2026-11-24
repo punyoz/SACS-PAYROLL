@@ -6,6 +6,7 @@ import { rangeLabel } from "@/lib/date-label";
 import { ItemThread } from "@/components/portal/item-thread";
 
 import { SystemRecommendation } from "@/components/portal/system-recommendation";
+import { BEREAVEMENT_RELATIONSHIPS } from "@/lib/employees/classification";
 import { HrCorrectionRequests } from "@/components/portal/hr-correction-requests";
 import { HrOvertimeRequests } from "@/components/portal/overtime-requests";
 import * as React from "react";
@@ -267,6 +268,7 @@ export function LeavesPage({ refreshKey }) {
                       </p>
                       <p className="flex items-center gap-1.5 text-sm text-muted-foreground tabular-nums"><CalendarDaysIcon className="size-3.5" aria-hidden="true" />{x.range}</p>
                       <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{req.reason || "—"}</p>
+                      {req.event_relationship ? <p className="text-sm" data-testid="bereavement-details">Bereavement: {BEREAVEMENT_RELATIONSHIPS[req.event_relationship] || req.event_relationship}{req.event_date ? `, died ${dateLabel(req.event_date)}` : ""}</p> : null}
                       <LeaveBalanceNote balance={state.balances[req.employee_id]} request={req} />
                       <SystemRecommendation rec={req.system_recommendation} compact />
                       <AdminRecommendation rec={recs.get(req.id)} />

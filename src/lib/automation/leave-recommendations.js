@@ -20,6 +20,7 @@ import { LEAVE_ADVANCE_DAYS } from "@/lib/leave-requests/advance-rule";
 import { splitForBalance } from "@/lib/leave-requests/split";
 import { leaveBalancesFor } from "@/lib/leave-requests/store";
 import { rangeLabel } from "@/lib/date-label";
+import { BEREAVEMENT_LEAVE, CREDIT_LEAVE_TYPES } from "@/lib/employees/classification";
 
 const dayKey = (v) => String(v || "").slice(0, 10);
 const addDays = (key, n) => new Date(Date.parse(`${key}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
@@ -40,11 +41,15 @@ export function rangeDays(start, end) {
 export function recommendFrom({ leave, remaining, filedKey, holidays = [], staffing = [] }) {
   const reasons = [];
   const warnings = [];
-  const split = leave.pay_status === "with_pay" ? splitForBalance(leave, remaining) : null;
-  if (split && split.without_pay_days > 0) warnings.push(`Credits: ${remaining} paid day${remaining === 1 ? "" : "s"} left; ${split.without_pay_days} day${split.without_pay_days === 1 ? "" : "s"} would be without pay`);
+  // Statutory and school-policy leave (maternity, paternity, bereavement, …) is per event: never the credits pool (2026-11-26).
+  const perEvent = Boolean(leave.leave_type) && !CREDIT_LEAVE_TYPES.includes(leave.leave_type);
+  const split = !perEvent && leave.pay_status === "with_pay" ? splitForBalance(leave, remaining) : null;
+  if (perEvent) reasons.push(`${leave.leave_type}: per event, not from the leave credits`);
+  else if (split && split.without_pay_days > 0) warnings.push(`Credits: ${remaining} paid day${remaining === 1 ? "" : "s"} left; ${split.without_pay_days} day${split.without_pay_days === 1 ? "" : "s"} would be without pay`);
   else reasons.push(leave.pay_status === "with_pay" ? `Credits: enough (${remaining} paid day${remaining === 1 ? "" : "s"} left)` : "Without pay: no credits used");
   const ahead = Math.round((Date.parse(`${dayKey(leave.start_date)}T00:00:00Z`) - Date.parse(`${filedKey}T00:00:00Z`)) / 864e5);
   if (leave.half_day) reasons.push("Half day: its own filing window");
+  else if (leave.leave_type === BEREAVEMENT_LEAVE) reasons.push("Bereavement: not filed ahead (from the date of death)");
   else if (ahead >= LEAVE_ADVANCE_DAYS) reasons.push(`Filed ${ahead} days ahead (rule: ${LEAVE_ADVANCE_DAYS})`);
   else warnings.push(ahead < 0 ? `Filed ${-ahead} day${-ahead === 1 ? "" : "s"} after it started` : `Filed ${ahead} day${ahead === 1 ? "" : "s"} ahead (rule: ${LEAVE_ADVANCE_DAYS})`);
   if (holidays.length) reasons.push(`Calendar: ${holidays.length} holiday${holidays.length === 1 ? "" : "s"} in the range (${holidays.map(short).join(", ")}), not counted`);

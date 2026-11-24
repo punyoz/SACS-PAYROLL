@@ -18,7 +18,7 @@ import { getServiceClient } from "@/lib/supabase/admin";
 import { REASON_MAX } from "@/lib/input-limits";
 import { otherActiveHrIds, recordFallback } from "@/lib/rbac/routing";
 import { leaveBalances, loadStatutoryLeaves } from "@/lib/employees/classification-server";
-import { statutoryRefusal } from "@/lib/employees/classification";
+import { BEREAVEMENT_LEAVE, bereavementRefusal, leavePoolText, statutoryRefusal } from "@/lib/employees/classification";
 import { readRequestSettings } from "@/lib/overtime-requests/rules";
 import { countLeaveDays } from "@/lib/leave-requests/split";
 import { conversionPreviewFor } from "@/lib/payroll/leave-conversion-server";
@@ -80,8 +80,11 @@ export async function GET(request) {
       balance.statutory = (await loadStatutoryLeaves(getServiceClient())).filter((t) => t.enabled).map((t) => {
         const used = eventsOf(requests, t.leave_type);
         return { leave_type: t.leave_type, days: Number(t.days), basis: t.basis, note: t.note, max_events: t.max_events, used,
+          source: t.source || "statutory", pool_text: leavePoolText(t),
           refusal: statutoryRefusal(t, person, { days: 0, priorEvents: used }) };
       });
+      // Maternity / paternity depend on sex and civil status: say so when HR has not filled them in (2026-11-26).
+      balance.statutory_needs_profile = !person.sex || !person.civil_status;
     }
 
     // Leave conversion preview (2026-11-26): the same calculation the Dec 16–31 payslip uses.
@@ -123,6 +126,9 @@ export async function POST(request) {
     const startDate = String(body.start_date || "").trim();
     // A half day (Part B, 2026-11-22): AM or PM of one day; the end is the start.
     const halfDay = body.half_day === "AM" || body.half_day === "PM" ? body.half_day : null;
+    // Bereavement only: whose death and when (2026-11-26).
+    const eventRelationship = leaveType === BEREAVEMENT_LEAVE ? String(body.event_relationship || "") : null;
+    const eventDate = leaveType === BEREAVEMENT_LEAVE ? String(body.event_date || "").slice(0, 10) : null;
     if (body.half_day && !halfDay) return NextResponse.json({ error: "Choose the morning (AM) or the afternoon (PM)." }, { status: 400 });
     const endDate = halfDay ? startDate : String(body.end_date || "").trim();
     const reason = String(body.reason || "").trim();
@@ -180,6 +186,10 @@ export async function POST(request) {
         }
         lateFiling = true;
       }
+    } else if (leaveType === BEREAVEMENT_LEAVE) {
+      // Bereavement (school policy, 2026-11-26): not filed 7 days ahead; the date of death decides.
+      const refused = bereavementRefusal({ relationship: eventRelationship, eventDate, startDate, today: manilaDateKey(submittedAt) });
+      if (refused) return NextResponse.json({ error: refused, code: "bereavement_details" }, { status: 400 });
     } else if (!meetsAdvanceRule(startDate, submittedAt)) {
       return NextResponse.json(
         { error: LEAVE_ADVANCE_MESSAGE, code: "leave_advance_notice", earliest_start: earliestLeaveStart(manilaDateKey(submittedAt)) },
@@ -270,6 +280,7 @@ export async function POST(request) {
       start_date: startDate,
       end_date: endDate,
       half_day: halfDay,
+      ...(leaveType === BEREAVEMENT_LEAVE ? { event_relationship: eventRelationship, event_date: eventDate } : {}),
       reason: lateFiling ? `${reason} (Late filing)` : reason,
       proof_url: "",
       proof_path: proofPath,

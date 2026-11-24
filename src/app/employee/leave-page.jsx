@@ -30,6 +30,8 @@ import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, fetchJson, jsonBody } from "@/lib/portal/api";
 import { LEAVE_ADVANCE_DAYS, LEAVE_ADVANCE_MESSAGE, earliestLeaveStart } from "@/lib/leave-requests/advance-rule";
 import { REASON_MAX } from "@/lib/input-limits";
+import { BEREAVEMENT_LEAVE, BEREAVEMENT_RELATIONSHIPS, leavePoolText } from "@/lib/employees/classification";
+import { manilaDateKey } from "@/lib/payroll/periods";
 
 /*
  * Leave request (submitLeaveRequest, public/legacy/js/employee.js): the same
@@ -50,13 +52,25 @@ const schema = z.object({
   end_date: z.string(),
   reason: z.string().trim().min(1, "Reason is required."),
   proof: z.any().optional(),
+  // Bereavement (2026-11-26): whose death and when.
+  event_relationship: z.string().optional(),
+  event_date: z.string().optional(),
+}).refine((v) => v.leave_type !== BEREAVEMENT_LEAVE || BEREAVEMENT_RELATIONSHIPS[v.event_relationship], {
+  path: ["event_relationship"],
+  message: "Choose the relationship.",
+}).refine((v) => v.leave_type !== BEREAVEMENT_LEAVE || v.event_date, {
+  path: ["event_date"],
+  message: "Date of death is required.",
+}).refine((v) => v.leave_type !== BEREAVEMENT_LEAVE || !v.event_date || !v.start_date || v.start_date >= v.event_date, {
+  path: ["start_date"],
+  message: "The leave starts on or after the date of death.",
 }).refine((v) => v.day_length !== "full" || v.end_date, {
   path: ["end_date"],
   message: "End date is required.",
 }).refine((v) => v.day_length !== "full" || !v.start_date || !v.end_date || v.start_date <= v.end_date, {
   path: ["end_date"],
   message: "End date must be on or after the start date.",
-}).refine((v) => v.day_length !== "full" || !v.start_date || v.start_date >= earliestLeaveStart(), {
+}).refine((v) => v.day_length !== "full" || v.leave_type === BEREAVEMENT_LEAVE || !v.start_date || v.start_date >= earliestLeaveStart(), {
   // Checked again by the server against its own clock (a half day: the requests' window, on the server).
   path: ["start_date"],
   message: LEAVE_ADVANCE_MESSAGE,
@@ -65,7 +79,7 @@ const schema = z.object({
   message: "Proof file must be less than 2MB.",
 });
 
-const DEFAULTS = { leave_type: "", pay_status: "with_pay", day_length: "full", start_date: "", end_date: "", reason: "", proof: undefined };
+const DEFAULTS = { leave_type: "", pay_status: "with_pay", day_length: "full", start_date: "", end_date: "", reason: "", proof: undefined, event_relationship: "", event_date: "" };
 const HALF_LABEL = { AM: "Half day: morning (AM)", PM: "Half day: afternoon (PM)" };
 
 function readAsDataUrl(file) {
@@ -92,10 +106,15 @@ function LeaveRequestForm({ onSubmitted, balance = null, filing = null, mode = "
   const leaveType = form.watch("leave_type");
   const dayLength = form.watch("day_length");
   const half = dayLength !== "full";
+  // Statutory / school-policy types: per event, never from the leave credits (2026-11-26).
+  const statutoryTypes = (balance?.statutory || []).filter((t) => !t.refusal);
+  const perEvent = statutoryTypes.find((t) => t.leave_type === leaveType) || null;
+  const bereavement = leaveType === BEREAVEMENT_LEAVE;
+  const todayKey = manilaDateKey();
   // The credits of the chosen leave type (20261121010000).
   const remaining = balance?.by_type?.[leaveType]?.remaining ?? balance?.with_pay_remaining ?? 0;
   // Over the paid balance (2026-11-12): not blocked; the extra days are without pay.
-  const split = !half && balance && leaveType && payStatus === "with_pay" && startDate && endDate
+  const split = !half && !perEvent && balance && leaveType && payStatus === "with_pay" && startDate && endDate
     ? splitForBalance({ start_date: startDate, end_date: endDate, pay_status: payStatus }, remaining) : null;
 
   async function onSubmit(values) {
@@ -116,6 +135,7 @@ function LeaveRequestForm({ onSubmitted, balance = null, filing = null, mode = "
         start_date: values.start_date,
         end_date: values.day_length === "full" ? values.end_date : values.start_date,
         ...(values.day_length === "full" ? {} : { half_day: values.day_length }),
+        ...(values.leave_type === BEREAVEMENT_LEAVE ? { event_relationship: values.event_relationship, event_date: values.event_date } : {}),
         reason: values.reason.trim(),
         proof_url: proofUrl,
       }));
@@ -143,8 +163,14 @@ function LeaveRequestForm({ onSubmitted, balance = null, filing = null, mode = "
               <FormLabel>Leave type</FormLabel>
               <Select value={field.value} onValueChange={field.onChange}>
                 <FormControl><SelectTrigger className="w-full"><SelectValue placeholder="Select leave type" /></SelectTrigger></FormControl>
-                <SelectContent>{[...LEAVE_TYPES, ...(balance?.statutory || []).filter((t) => !t.refusal).map((t) => t.leave_type)].map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
+                <SelectContent>{[...LEAVE_TYPES, ...statutoryTypes.map((t) => t.leave_type)].map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
               </Select>
+              {/* Which pool the type uses (2026-11-26); a statutory / school type shows its days and note. */}
+              {leaveType ? (
+                <FormDescription data-testid="leave-pool">{perEvent ? perEvent.pool_text || leavePoolText(perEvent) : leavePoolText(null)}{perEvent?.note ? ` ${perEvent.note}` : ""}</FormDescription>
+              ) : balance?.statutory_needs_profile ? (
+                <FormDescription data-testid="leave-statutory-note">Maternity and paternity leave show here once HR has your sex and civil status on file.</FormDescription>
+              ) : null}
               <FormMessage />
             </FormItem>
           )}
@@ -166,6 +192,35 @@ function LeaveRequestForm({ onSubmitted, balance = null, filing = null, mode = "
             </FormItem>
           )}
         />
+        {bereavement ? (
+          <>
+            <FormField
+              control={form.control}
+              name="event_relationship"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Relationship</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl><SelectTrigger className="w-full" aria-label="Relationship"><SelectValue placeholder="Whose death" /></SelectTrigger></FormControl>
+                    <SelectContent>{Object.entries(BEREAVEMENT_RELATIONSHIPS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="event_date"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Date of death</FormLabel>
+                  <FormControl><DatePicker id="leave-event-date" value={field.value} onChange={field.onChange} max={todayKey} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </>
+        ) : null}
         {mode === "half" ? (
         <FormField
           control={form.control}
@@ -196,9 +251,11 @@ function LeaveRequestForm({ onSubmitted, balance = null, filing = null, mode = "
           render={({ field }) => (
             <FormItem>
               <FormLabel>{half ? "Date" : "Start date"}</FormLabel>
-              <FormControl><DatePicker value={field.value} onChange={field.onChange} min={half ? undefined : earliest} /></FormControl>
+              <FormControl><DatePicker value={field.value} onChange={field.onChange} min={half || bereavement ? undefined : earliest} /></FormControl>
               <FormDescription>
-                {half
+                {bereavement
+                  ? "Not filed 7 days ahead: it starts on or after the date of death."
+                  : half
                   ? `At least ${filing?.file_days_before ?? 1} day${(filing?.file_days_before ?? 1) === 1 ? "" : "s"} before, or up to ${filing?.late_filing_days_after ?? 2} days after as a late filing.`
                   : `At least ${LEAVE_ADVANCE_DAYS} days from today: ${new Date(`${earliest}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} or later.`}
               </FormDescription>

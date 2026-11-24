@@ -203,6 +203,31 @@ export function eligibilityError(rule, what, c) {
 }
 
 /**
+ * 2026-11-26: Bereavement leave (school policy, not statutory): per event, days from its
+ * statutory_leave_types row (default 3), any employee, never from the leave-credits pool. The request
+ * names whose death (relationship) and when (event_date); it is not filed 7 days ahead.
+ */
+export const BEREAVEMENT_LEAVE = "Bereavement Leave";
+export const BEREAVEMENT_RELATIONSHIPS = Object.freeze({ spouse: "Spouse", parent: "Parent", child: "Child", sibling: "Sibling" });
+
+/** Why a bereavement request's details are refused, or null. `today` is Manila's date key. */
+export function bereavementRefusal({ relationship, eventDate, startDate, today }) {
+  if (!BEREAVEMENT_RELATIONSHIPS[relationship]) return "Choose the relationship: spouse, parent, child or sibling.";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(eventDate || ""))) return "Enter the date of death.";
+  if (eventDate > today) return "The date of death cannot be in the future.";
+  if (startDate && startDate < eventDate) return "The leave starts on or after the date of death.";
+  return null;
+}
+
+/** Which pool a leave type uses, in words for the form (2026-11-26). `type`: a statutory_leave_types row or null. */
+export function leavePoolText(type) {
+  if (!type) return "Uses your leave credits (one yearly total for vacation, sick and emergency leave).";
+  const days = `${Number(type.days)} day${Number(type.days) === 1 ? "" : "s"}`;
+  const per = type.basis === "year" ? "a year" : "each time";
+  return `${type.source === "school" ? "School policy" : "Statutory"}: up to ${days} ${per}. Not from your leave credits.`;
+}
+
+/**
  * Why `person` cannot file a statutory leave, or null. `type` is a
  * statutory_leave_types row; `days` the calendar days asked; `priorEvents` how
  * many of this leave the person already has (approved or pending).
