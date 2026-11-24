@@ -27,13 +27,14 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { describeBranchRuns, listOpenExclusions, submitRun } from "@/lib/payroll/run-service";
+import { isArchivedBranch } from "@/lib/branches/archived";
 
 async function visibleBranches(supabase, guard) {
   let query = supabase.from("branches").select("id,name,status").order("name", { ascending: true });
   if (!guard.branchExempt) query = query.eq("id", guard.branchId);
   const result = await query;
   if (result.error) throw new Error(result.error.message);
-  return (result.data || []).filter((b) => String(b.status || "active").toLowerCase() !== "closed");
+  return (result.data || []).filter((b) => !isArchivedBranch(b));
 }
 
 export async function GET(request) {

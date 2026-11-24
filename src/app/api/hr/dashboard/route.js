@@ -13,6 +13,8 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { isOnPayroll } from "@/lib/payroll/on-payroll";
+import { isArchivedBranch } from "@/lib/branches/archived";
+
 
 // Statuses attendance_missing_days leaves out (20261110020000 private.is_active_staff).
 const GONE = ["Inactive", "Archived", "Separated"];
@@ -252,7 +254,7 @@ export async function GET(request) {
       let bq = supabase.from("branches").select("id,name,status").order("name", { ascending: true });
       if (!guard.branchExempt && guard.branchId) bq = bq.eq("id", guard.branchId);
       const { data: brs } = await bq;
-      const open = (brs || []).filter((b) => String(b.status || "active").toLowerCase() !== "closed");
+      const open = (brs || []).filter((b) => !isArchivedBranch(b));
       byBranch = await Promise.all(open.map(async (b) => ({ branch_id: b.id, branch_name: b.name, ...(await branchCounts(supabase, b.id, today)) })));
     } catch { /* ignore */ }
 

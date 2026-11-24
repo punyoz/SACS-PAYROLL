@@ -17,6 +17,8 @@ import { BRANCH_NAME_MAX } from "@/lib/input-limits";
 import { SearchableSelect } from "@/components/portal/searchable-select";
 import { DataTable } from "@/components/portal/data-table";
 import { parseBranchLocation, regionSlug } from "@/lib/portal/branch-location";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BRANCH_ARCHIVED, isArchivedBranch } from "@/lib/branches/archived";
 
 /*
  * Branch Management (loadSABranches / openSABranchModal / submitSABranch,
@@ -239,6 +241,7 @@ function BranchDialog({ open, branch, nextCode, onOpenChange, onSaved }) {
               <SelectContent>
                 <SelectItem value="Active">Active</SelectItem>
                 <SelectItem value="Inactive">Inactive</SelectItem>
+                {branch ? <SelectItem value={BRANCH_ARCHIVED}>Archived (kept for history, never deleted)</SelectItem> : null}
               </SelectContent>
             </Select>
           </div>
@@ -256,10 +259,11 @@ function BranchDialog({ open, branch, nextCode, onOpenChange, onSaved }) {
 export function BranchesPage({ refreshKey }) {
   const [state, setState] = React.useState({ loading: true, error: null, branches: [], staff: null });
   const [dialog, setDialog] = React.useState({ open: false, branch: null, code: "" });
+  const [showArchived, setShowArchived] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: !current.branches.length, error: null }));
-    const [branches, dashboard] = await Promise.allSettled([fetchJson("/api/admin/branches?with_counts=1"), fetchJson("/api/admin/dashboard")]);
+    const [branches, dashboard] = await Promise.allSettled([fetchJson("/api/admin/branches?with_counts=1&include_archived=1"), fetchJson("/api/admin/dashboard")]);
     setState((current) => ({
       loading: false,
       error: branches.status === "rejected" && !current.branches.length ? branches.reason?.message || "Failed to load branches." : null,
@@ -277,7 +281,7 @@ export function BranchesPage({ refreshKey }) {
       key: "location", header: "Location", className: "min-w-56 whitespace-normal", searchValue: (b) => b.location,
       cell: (b) => <span className="flex items-start gap-1.5 text-muted-foreground"><MapPinIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /><span className="min-w-0 [overflow-wrap:anywhere]">{b.location || "No location set"}</span></span>,
     },
-    { key: "status", header: "Status", sortable: true, searchValue: (b) => b.status, cell: (b) => <StatusBadge tone={b.status === "Active" ? "success" : "danger"}>{b.status}</StatusBadge> },
+    { key: "status", header: "Status", sortable: true, searchValue: (b) => b.status, cell: (b) => <StatusBadge tone={b.status === "Active" ? "success" : isArchivedBranch(b) ? "muted" : "danger"}>{b.status}</StatusBadge> },
     { key: "employee_count", header: "Employees", align: "right", sortable: true, className: "tabular-nums", cell: (b) => (b.employee_count ?? "—") },
     {
       key: "actions", header: <span className="sr-only">Actions</span>, align: "right",
@@ -285,6 +289,8 @@ export function BranchesPage({ refreshKey }) {
     },
   ], []);
   const active = state.branches.filter((b) => b.status === "Active").length;
+  const archivedCount = state.branches.filter(isArchivedBranch).length;
+  const rows = showArchived ? state.branches : state.branches.filter((b) => !isArchivedBranch(b));
   // Fixed when the dialog opens, so the reload after a save does not reset the form.
   const nextCode = () => `BR-${String(state.branches.length + 1).padStart(3, "0")}`;
   const loading = state.loading;
@@ -292,7 +298,7 @@ export function BranchesPage({ refreshKey }) {
   return (
     <>
       <section aria-label="Branches" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="Total branches" value={state.branches.length} hint="Registered branches" icon={BuildingIcon} tone="info" loading={loading} />
+        <StatCard label="Total branches" value={state.branches.length - archivedCount} hint={archivedCount ? `Registered branches (${archivedCount} archived not counted)` : "Registered branches"} icon={BuildingIcon} tone="info" loading={loading} />
         <StatCard label="Active branches" value={active} hint="Currently operating" icon={CheckCircle2Icon} tone="success" loading={loading} />
         <StatCard label="Total staff" value={state.staff ?? "—"} hint="Across all branches" icon={UsersIcon} loading={loading} />
       </section>
@@ -302,14 +308,23 @@ export function BranchesPage({ refreshKey }) {
         <CardContent>
           <DataTable
             columns={branchColumns}
-            rows={state.branches}
+            rows={rows}
             rowKey={(b) => b.id}
             loading={loading}
             error={state.error}
             onRetry={load}
             searchPlaceholder="Search name, location or code…"
             initialSort={{ key: "name", dir: "asc" }}
-            toolbar={<Button onClick={() => setDialog({ open: true, branch: null, code: nextCode() })}><PlusIcon aria-hidden="true" />Add branch</Button>}
+            toolbar={(
+              <div className="flex flex-wrap items-center gap-3">
+                {archivedCount ? (
+                  <Label className="flex items-center gap-2 text-sm font-normal">
+                    <Checkbox checked={showArchived} onCheckedChange={(v) => setShowArchived(Boolean(v))} data-testid="branches-show-archived" />Show archived ({archivedCount})
+                  </Label>
+                ) : null}
+                <Button onClick={() => setDialog({ open: true, branch: null, code: nextCode() })}><PlusIcon aria-hidden="true" />Add branch</Button>
+              </div>
+            )}
             empty={{ icon: BuildingIcon, title: "No branches configured yet", description: "Add the first branch to start assigning staff." }}
             caption="Branches"
             minWidth={820}
