@@ -75,6 +75,7 @@ const PUBLIC_PATHS = [
   // The daily AWOL notice delivery (2026-11-24): called by Vercel Cron with the
   // CRON_SECRET bearer; refused inside the route without it (or when it is unset).
   "/api/cron/awol-notices",
+  "/api/cron/demo-taps",           // the defense's daily taps (checks CRON_SECRET itself; off by a setting)
 ];
 
 /**

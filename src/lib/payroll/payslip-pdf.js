@@ -270,8 +270,9 @@ function ytdBox(ytd) {
   return {
     title: `Year to date (${ytd.year})`,
     rows: [["Gross pay", pesoPdf(ytd.gross)], ["Taxable income", pesoPdf(ytd.taxable)], ["Tax withheld", pesoPdf(ytd.tax)],
-      ["SSS", pesoPdf(ytd.sss)], ["PhilHealth", pesoPdf(ytd.philhealth)], ["Pag-IBIG", pesoPdf(ytd.pagibig)]],
-    note: `${ytd.payslips} released payslip${ytd.payslips === 1 ? "" : "s"} of ${ytd.year}, this one included.`,
+      ["SSS", pesoPdf(ytd.sss)], ["PhilHealth", pesoPdf(ytd.philhealth)], ["Pag-IBIG", pesoPdf(ytd.pagibig)],
+      ...(ytd.thirteenth_accrued !== undefined ? [["Basic pay earned", pesoPdf(ytd.basic)], ["13th month accrued (basic ÷ 12)", pesoPdf(ytd.thirteenth_accrued)]] : [])],
+    note: `${ytd.payslips} released payslip${ytd.payslips === 1 ? "" : "s"} of ${ytd.year}, this one included. The 13th month is paid in December.`,
   };
 }
 

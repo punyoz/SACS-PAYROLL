@@ -57,7 +57,7 @@ async function fetchEmployees(supabase) {
 
   const employeeUsers = (usersResult.data.users || []).filter((user) => {
     const role = String(user.user_metadata?.role || "employee").toLowerCase();
-    return (role === "employee" || role === "accountant") && isOnPayroll(user);
+    return (role === "employee" || role === "accountant" || role === "hr") && isOnPayroll(user); // on payroll, HR included (2026-11-24)
   });
 
   const userIds = employeeUsers.map((user) => user.id);

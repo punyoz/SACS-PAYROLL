@@ -72,8 +72,8 @@ export async function GET(request) {
     const employees = (usersResult.data.users || [])
       .filter((u) => {
         const role = String(u.user_metadata?.role || "employee").toLowerCase();
-        // HR serves every branch and is never assigned to one.
-        return (role === "employee" || role === "accountant") && isOnPayroll(u);
+        // Everyone on payroll in the branch, HR included (2026-11-24).
+        return (role === "employee" || role === "accountant" || role === "hr") && isOnPayroll(u);
       })
       .filter((u) => !u.user_metadata?.archived)
       .map((u) => ({

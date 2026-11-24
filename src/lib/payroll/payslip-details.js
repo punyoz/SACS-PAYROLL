@@ -271,8 +271,12 @@ export async function loadPayslipYtd(supabase, entry, details) {
     const runs = runIds.length ? await fetchAllIn(() => supabase.from("payroll_runs").select("id").eq("status", "approved"), "id", runIds) : { data: [] };
     if (runs.error) return null;
     const approved = new Set((runs.data || []).map((r) => String(r.id)));
-    const prior = earlier.filter((row) => approved.has(String(row.run_id))).map((row) => buildPayslipDetails(asEntry(row)));
-    return { year, ...payslipYtd([...prior, details]), payslips: prior.length + 1 };
+    const priorRows = earlier.filter((row) => approved.has(String(row.run_id)));
+    const prior = priorRows.map((row) => buildPayslipDetails(asEntry(row)));
+    // 13th month accrued to date (2026-11-24): basic pay earned this year ÷ 12; paid in December, not before.
+    const basicOf = (row) => Math.round((Number(asEntry(row).payroll.basic_earned) || 0) * 100);
+    const basic = ([...priorRows, entry].reduce((sum, row) => sum + basicOf(row), 0)) / 100;
+    return { year, ...payslipYtd([...prior, details]), basic, thirteenth_accrued: Math.round((basic / 12) * 100) / 100, payslips: prior.length + 1 };
   } catch {
     return null;
   }

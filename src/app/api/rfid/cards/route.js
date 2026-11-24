@@ -191,6 +191,8 @@ export async function POST(request) {
     if (!UUID.test(employeeId)) return NextResponse.json({ error: "Choose the employee." }, { status: 400 });
     // The terminal keeps only the digits a reader types: anything else could never be matched.
     if (!isCardUid(uid)) return NextResponse.json({ error: "The RFID UID must be the card's number: exactly 10 digits." }, { status: 400 });
+    // No self-handling (2026-11-24): another HR or the Super Admin registers your card.
+    if (employeeId === String(guard.userId)) return NextResponse.json({ error: "Your own card is registered by another HR or the Super Admin.", code: "own_card" }, { status: 403 });
 
     const supabase = getAdminClient();
     const result = await supabase.rpc("rfid_card_register", {
@@ -232,6 +234,11 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "A change dated in the past needs a reason.", code: "reason_required" }, { status: 400 });
     }
     const supabase = getAdminClient();
+    // No self-handling (2026-11-24): another HR or the Super Admin changes your card.
+    const { data: own } = await supabase.from("rfid_cards").select("employee_id").eq("id", cardId).maybeSingle();
+    if (own && String(own.employee_id) === String(guard.userId)) {
+      return NextResponse.json({ error: "Your own card is changed by another HR or the Super Admin.", code: "own_card" }, { status: 403 });
+    }
 
     let result;
     if (action === "replace") {

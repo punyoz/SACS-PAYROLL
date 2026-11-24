@@ -28,7 +28,7 @@ async function fetchSystemStats(supabase) {
     rfid_registered: rfidRegistered,
     rfid_unregistered: users.filter((u) => {
       const role = String(u.user_metadata?.role || "employee").toLowerCase();
-      return (role === "employee" || role === "accountant") && !normalizeText(u.user_metadata?.rfid_uid);
+      return (role === "employee" || role === "accountant" || role === "hr") && u.user_metadata?.on_payroll !== false && !normalizeText(u.user_metadata?.rfid_uid);
     }).length,
   };
 }
