@@ -15,6 +15,12 @@ export const CREDIT_LEAVE_TYPES = ["Vacation Leave", "Sick Leave", "Emergency Le
 // The paid leave that counts toward the 5-day service incentive leave (Labor Code Art. 95).
 export const SIL_LEAVE_TYPES = ["Vacation Leave", "Sick Leave", "Emergency Leave"];
 export const SIL_MIN_DAYS = 5;
+/**
+ * 2026-11-24: leave credits are ONE pool per employee per year, shared by
+ * Vacation, Sick and Emergency leave (they stay leave types for the reason and
+ * reports). The pool's rule: leave_credit_rules rows of this leave_type.
+ */
+export const POOL_LEAVE_TYPE = "Leave Credits";
 export const PAY_BASIS_LABELS = { monthly: "Monthly salary" };
 /** HR settings (system_config, section "hr"), pending the policy manual. */
 export const HR_SETTINGS = {
@@ -135,7 +141,9 @@ export function leaveEntitlement({ rules, overrides = [], current, changes = [],
       : [part]))
     .map((part) => ({ ...part, served: Boolean(anniversary && part.from >= anniversary) }));
   const out = {};
-  for (const leaveType of CREDIT_LEAVE_TYPES) {
+  // The pool's rule when the rules have one (2026-11-24), else the old per-type rules (each type its own).
+  const pooled = (rules || []).some((r) => r.leave_type === POOL_LEAVE_TYPE);
+  for (const leaveType of pooled ? [POOL_LEAVE_TYPE] : CREDIT_LEAVE_TYPES) {
     let total = 0;
     const lines = parts.map((part) => {
       // A record with no status / type on file earns the defaults the app shows
@@ -171,6 +179,13 @@ export function legalMinimumWarnings(rules, dateKey) {
     for (const employment_status of EMPLOYMENT_STATUS_OPTIONS) {
       for (const employment_type of EMPLOYMENT_TYPE_OPTIONS) {
         const c = { employee_type, employment_status, employment_type };
+        // The pool (2026-11-24): 5 days after 1 year of service, i.e. the Regular rule; new staff earn the Regular rule
+        // from their 1-year anniversary, so only a Regular pool under 5 is below the minimum.
+        const pool = leaveRuleFor(rules, POOL_LEAVE_TYPE, c, dateKey);
+        if (pool) {
+          if (employment_status === "Regular" && Number(pool.days_per_year) < SIL_MIN_DAYS) out.push({ ...c, total: Number(pool.days_per_year) });
+          continue;
+        }
         const total = SIL_LEAVE_TYPES.reduce((sum, t) => sum + (Number(leaveRuleFor(rules, t, c, dateKey)?.days_per_year) || 0), 0);
         if (total < SIL_MIN_DAYS) out.push({ ...c, total });
       }

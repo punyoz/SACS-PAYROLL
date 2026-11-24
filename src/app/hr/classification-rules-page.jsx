@@ -19,7 +19,7 @@ const today = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10)
 // Category × Status (no part-time employees, 2026-11-23).
 const comboLabel = (r) => `${r.employee_type} · ${r.employment_status}`;
 const pending = (note) => /pending policy manual/i.test(String(note || ""));
-const SHORT = { "Vacation Leave": "Vacation", "Sick Leave": "Sick", "Emergency Leave": "Emergency" };
+const SHORT = { "Vacation Leave": "Vacation", "Sick Leave": "Sick", "Emergency Leave": "Emergency", "Leave Credits": "Leave credits (days per year)" };
 const WHO = { female: "Female employees", married_male: "Married male employees", any: "Any employee" };
 const FLAGS = [["overtime_allowed", "Overtime"], ["subsidy_eligible", "Subsidies"], ["incentive_eligible", "Incentives"], ["loan_eligible", "Loans"]];
 
@@ -106,8 +106,9 @@ export function ClassificationRulesPage({ refreshKey }) {
         <CardHeader>
           <CardTitle>Leave credits</CardTitle>
           <CardDescription>
-            Days per year for each leave type. New hires get a share from their hire date.
-            Granted automatically every January 1.{anyPending ? " Defaults are pending the policy manual." : ""}
+            One total a year per category and status, shared by vacation, sick and emergency leave (half a day uses 0.5).
+            From the 1-year service anniversary the Regular total applies, pro-rated for the rest of the year. New hires get a share from their hire date.
+            Granted automatically every January 1. Statutory leaves (below) never use it.{anyPending ? " Defaults are pending the policy manual." : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
