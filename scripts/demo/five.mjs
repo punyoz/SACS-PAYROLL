@@ -254,25 +254,17 @@ async function build() {
     return "08:00-12:00, make-up";
   });
 
-  await stage(`payroll ${FIRST}: processed, submitted, approved (Paid)`, async () => {
-    // Live's own run for the period must be approved first (a supplemental run follows an approved one).
+  // 2026-11-24 (owner's choice): live's own Main Branch run for Nov 1-15 is still HR's to decide, and a second run
+  // for the period waits for it. So the five's payslips are processed (final) but not submitted: once the
+  // branch's run is decided, the Accountant submits them as a supplemental run and HR approves on screen.
+  await stage(`payroll ${FIRST}: processed (final) once the branch's own run is decided`, async () => {
     const [main] = await db.rows(`select id, status from payroll_runs where branch_id = ${lit(branch.id)} and period_start = '2026-11-01' order by run_no limit 1`);
-    if (main && main.status !== "approved") {
-      ok("approve the Main Branch's own run (LOCAL copy only: on live this is HR's decision)", await as(HR).patch("/api/hr/payroll-runs", { action: "approve", run_ids: [main.id] }));
-    }
+    // While the branch's own run waits for HR, the period is locked: no payslip, not even a draft (as on live).
+    if (main && main.status !== "approved" && main.status !== "rejected") return `skipped: the branch's own run is ${main.status} (HR decides it first; then the Accountant processes the five on screen)`;
     const res = ok("batch", await as(ACC).post("/api/accountant/payroll", { action: "batch_submit", pay_period: FIRST, entries: people.map((p) => ({ employee_id: p.id })) }));
     if ((res.skipped || []).filter((k) => !/already been processed/.test(k.reason || "")).length) throw new Error(`skipped: ${JSON.stringify(res.skipped).slice(0, 400)}`);
-    // The run is the five's only: anyone else the Accountant has not processed is left out on purpose (acknowledged, as the screen asks).
-    let submit = await as(ACC).patch("/api/accountant/payroll-runs", { action: "submit", branch_id: branch.id, period: FIRST });
-    if (submit.status === 409 && submit.data?.code === "exclusions_unacknowledged") {
-      const notes = Object.fromEntries((submit.data.missing || []).map((m) => [m.id, "Not part of the demo run: processed separately by the branch."]));
-      submit = await as(ACC).patch("/api/accountant/payroll-runs", { action: "submit", branch_id: branch.id, period: FIRST, acknowledge_exclusions: true, exclusion_notes: notes });
-    }
-    ok("submit", submit);
-    const [run] = await db.rows(`select id, status, run_no from payroll_runs where branch_id = ${lit(branch.id)} and period_start = '2026-11-01' order by run_no desc limit 1`);
-    const approved = ok("approve", await as(HR).patch("/api/hr/payroll-runs", { action: "approve", run_ids: [run.id] }));
-    if (!approved?.approved) throw new Error(`not approved: ${JSON.stringify(approved).slice(0, 300)}`);
-    return `run ${run.run_no}`;
+    const [n] = await db.rows(`select count(*)::int n, count(run_id)::int in_run from payroll_entries where pay_period = ${lit(FIRST)} and employee_id in (${people.map((p) => lit(p.id)).join(", ")})`);
+    return `${n.n} payslips processed, ${n.in_run} in a run (Main's own run: ${main ? main.status : "none"})`;
   });
 
   await stage(`payroll ${SECOND}: drafts`, async () => {
