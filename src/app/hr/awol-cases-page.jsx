@@ -214,7 +214,16 @@ export function AwolCasesPage({ refreshKey }) {
         {c.guards.checks.map((g) => <li key={g.key} className={g.ok ? "text-muted-foreground" : "text-destructive"}>{g.ok ? "✓" : "✗"} {g.label}{g.ok ? "" : `: ${g.detail}`}</li>)}
       </ul>
     ) : <span className="text-xs text-muted-foreground">—</span>) },
-    { key: "notes", header: "Notes", cell: (c) => <p className="max-w-64 text-xs whitespace-normal text-muted-foreground">{c.employee_reply ? `Reply: ${c.employee_reply}` : c.recommendation || c.notes || "—"}</p> },
+    { key: "notes", header: "Replies", cell: (c) => (c.replies?.length ? (
+      <ul className="max-w-72 space-y-1 text-xs whitespace-normal" data-testid="awol-replies">
+        {c.replies.map((r) => (
+          <li key={r.id}>
+            <span className="text-muted-foreground">{r.kind === "hr_record" ? `Recorded by ${r.author_name} (${String(r.received_how).replace("_", " ")})` : r.kind === "follow_up" ? "Follow-up" : "Reply"} · {dateLabel(r.received_on)}{r.return_on ? ` · return ${dateLabel(r.return_on)}` : ""}:</span> {r.explanation}
+            {(r.attachments || []).map((f) => <button key={f.path} type="button" className="ml-1 underline" onClick={() => downloadFile(`/api/hr/awol-cases/notice?reply_file=${encodeURIComponent(f.path)}`, {}, { fallbackName: f.name }).catch((e) => notify("Not downloaded", e.message, "error"))}>{f.name}</button>)}
+          </li>
+        ))}
+      </ul>
+    ) : <p className="max-w-64 text-xs whitespace-normal text-muted-foreground">{c.recommendation || "—"}</p>) },
     {
       key: "actions", header: <span className="sr-only">Actions</span>, align: "right",
       cell: (c) => (canEdit && c.open ? (

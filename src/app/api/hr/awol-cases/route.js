@@ -92,6 +92,10 @@ export async function GET(request) {
     const notices = caseIds.length
       ? (await supabase.from("awol_notices").select("id,case_id,kind,title,sent_on,reply_by,separation_on,sent_by_name,inapp_at,emailed_at,email_error,pdf_path").in("case_id", caseIds).order("created_at", { ascending: true })).data || []
       : [];
+    // The replies (employee or recorded by HR), with their attachments (2026-11-24).
+    const replies = caseIds.length
+      ? (await supabase.from("awol_replies").select("id,case_id,kind,reason_code,explanation,return_on,received_on,received_how,attachments,author_name,created_at").in("case_id", caseIds).order("created_at", { ascending: true })).data || []
+      : [];
     const cases = rows.map((row) => {
       const days = (absences.get(row.employee_id) || []).filter((day) => day >= row.first_absent_on).sort();
       return {
@@ -99,6 +103,7 @@ export async function GET(request) {
         automation: row.automation || "auto", automation_reason: row.automation_reason || null, automation_changed_at: row.automation_changed_at || null,
         separation_scheduled_on: row.separation_scheduled_on || null, guards: guardsOf.get(row.id) || row.guards || null,
         notices: notices.filter((n) => n.case_id === row.id).map(({ case_id: _c, ...n }) => n),
+        replies: replies.filter((r) => r.case_id === row.id).map(({ case_id: _c, ...r }) => r),
       };
     });
 

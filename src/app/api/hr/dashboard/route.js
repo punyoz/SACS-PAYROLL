@@ -229,6 +229,14 @@ export async function GET(request) {
       }
     } catch { /* ignore */ }
 
+    // 2026-11-24: on payroll with no ACTIVE RFID card: AWOL never runs for them (no taps prove nothing).
+    actionNeeded.no_card = [];
+    try {
+      const { data: staff } = await supabase.from("profiles").select("id,full_name,role").eq("archived", false).eq("on_payroll", true).in("role", ["employee", "accountant", "hr"]);
+      const { data: cards } = await supabase.from("rfid_cards").select("employee_id").eq("status", "active");
+      const has = new Set((cards || []).map((k) => String(k.employee_id)));
+      actionNeeded.no_card = (staff || []).filter((p) => !has.has(String(p.id))).map((p) => ({ id: p.id, full_name: p.full_name }));
+    } catch { /* ignore */ }
     // 2026-11-24 (no Automation card): what the system could not decide, and what waits too long, with the reason.
     actionNeeded.automation = [];
     try {
