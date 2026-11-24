@@ -40,7 +40,7 @@ export function AttendancePage({ refreshKey }) {
 
   return (
     <>
-      <Alert className="border-info/40 bg-info/8">
+      <Alert className="border-border bg-muted/30">
         <InfoIcon aria-hidden="true" />
         <AlertDescription>You can view attendance to assist with payroll. You cannot modify attendance records.</AlertDescription>
       </Alert>

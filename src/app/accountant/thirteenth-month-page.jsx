@@ -115,7 +115,7 @@ export function ThirteenthMonthPage({ refreshKey }) {
   return (
     <>
       {data ? (
-        <Alert className="border-info/40 bg-info/8" data-testid="thirteenth-period">
+        <Alert className="border-border bg-muted/30" data-testid="thirteenth-period">
           <InfoIcon aria-hidden="true" />
           <AlertDescription className="space-y-1">
             <p><strong className="text-foreground">Year {data.year}.</strong> Covers {data.covers?.label || `${data.year}`}.</p>
