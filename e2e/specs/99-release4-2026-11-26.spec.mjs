@@ -93,9 +93,11 @@ test("leave types: bereavement (relationship, date of death, its own pool) to HR
     await as(page, "admin", "adm-leaves");
     await settle(page);
     await main(page).getByRole("tab", { name: "All" }).click();
-    await main(page).getByRole("searchbox").first().fill(reason);
     await expect(main(page).getByRole("checkbox", { name: "Select all on this page" })).toBeVisible();
-    await main(page).getByRole("checkbox", { name: "Select all on this page" }).check();
+    // The row of this leave (the filter bar searches names and IDs, not the reason).
+    const leaveRow = main(page).locator("tr", { hasText: reason });
+    await leaveRow.getByRole("checkbox").check();
+    await expect(main(page).getByTestId("bulk-bar")).toContainText("1 selected");
     await main(page).getByTestId("message-selected").click();
     const dialog = page.getByTestId("message-selected-dialog");
     await expect(dialog).toContainText("Information only: it does not decide or endorse anything.");
