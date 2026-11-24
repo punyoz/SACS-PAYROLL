@@ -66,10 +66,11 @@ test("leave types: bereavement (relationship, date of death, its own pool) to HR
     expect(saved).toMatchObject({ leave_type: "Bereavement Leave", event_relationship: "parent", event_date: died, status: "pending_admin" });
     leaveId = saved.id;
     // The server checks the details too.
-    const noRel = await api(page, "POST", "/api/me/leave-requests", { leave_type: "Bereavement Leave", pay_status: "with_pay", start_date: start, end_date: start, reason: "E2E no relationship", event_date: died });
+    // Other days than the leave just filed (an overlapping request is refused first, 409).
+    const noRel = await api(page, "POST", "/api/me/leave-requests", { leave_type: "Bereavement Leave", pay_status: "with_pay", start_date: manilaDay(4), end_date: manilaDay(4), reason: "E2E no relationship", event_date: died });
     expect(noRel.status).toBe(400);
     expect(noRel.data.code).toBe("bereavement_details");
-    const tooLong = await api(page, "POST", "/api/me/leave-requests", { leave_type: "Bereavement Leave", pay_status: "with_pay", start_date: start, end_date: manilaDay(6), reason: "E2E too long", event_relationship: "sibling", event_date: died });
+    const tooLong = await api(page, "POST", "/api/me/leave-requests", { leave_type: "Bereavement Leave", pay_status: "with_pay", start_date: manilaDay(5), end_date: manilaDay(9), reason: "E2E too long", event_relationship: "sibling", event_date: died });
     expect(tooLong.status).toBe(400);
     expect(tooLong.data.error).toBe("Bereavement Leave is at most 3 days.");
   });
