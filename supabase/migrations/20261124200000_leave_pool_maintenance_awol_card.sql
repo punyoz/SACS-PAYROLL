@@ -1,31 +1,11 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Follow-up release 2026-11-24:
---  1. Leave credits: ONE shared pool per employee per year ("Leave Credits"),
---     drawn by Vacation, Sick and Emergency leave (they stay leave TYPES).
---     Defaults per Category x Status: Regular 5, Probationary / Provisional /
---     Contractual 3; from the 1-year service anniversary the Regular rule
---     (pro-rated, as before). Statutory leaves never use the pool. Days used
---     are counted from the approved requests, so nothing is converted: the
---     per-type rules stay as history and are no longer read.
+--  1. (The leave-credit pool is 20261124230000, applied after the owner's yes on the dry run.)
 --  2. Maintenance is a POSITION, not a group: "Maintenance" added to the
 --     positions; anyone in the Maintenance group with no position gets it
 --     (live: none). The group column stays (unused).
 --  3. AWOL guard: the employee has an active RFID card.
 -- ═══════════════════════════════════════════════════════════════════════════
-
-ALTER TABLE public.leave_credit_rules DROP CONSTRAINT IF EXISTS leave_credit_rules_leave_type_check;
-ALTER TABLE public.leave_credit_rules ADD CONSTRAINT leave_credit_rules_leave_type_check
-  CHECK (leave_type = ANY (ARRAY['Vacation Leave', 'Sick Leave', 'Emergency Leave', 'Leave Credits']));
-ALTER TABLE public.leave_credit_overrides DROP CONSTRAINT IF EXISTS leave_credit_overrides_leave_type_check;
-ALTER TABLE public.leave_credit_overrides ADD CONSTRAINT leave_credit_overrides_leave_type_check
-  CHECK (leave_type = ANY (ARRAY['Vacation Leave', 'Sick Leave', 'Emergency Leave', 'Leave Credits']));
-
-INSERT INTO public.leave_credit_rules (leave_type, employee_type, employment_status, employment_type, days_per_year, effective_from, note, created_by_name)
-SELECT 'Leave Credits', et.v, st.v, ty.v, CASE WHEN st.v = 'Regular' THEN 5 ELSE 3 END, DATE '2026-01-01', 'Default: one shared pool (2026-11-24)', 'System'
-FROM (VALUES ('Teaching'), ('Non-Teaching')) et(v)
-CROSS JOIN (VALUES ('Regular'), ('Probationary'), ('Provisional'), ('Contractual')) st(v)
-CROSS JOIN (VALUES ('Full-time'), ('Part-time')) ty(v)
-ON CONFLICT DO NOTHING;
 
 INSERT INTO public.employee_positions (name, created_by_name)
 SELECT 'Maintenance', 'System' WHERE NOT EXISTS (SELECT 1 FROM public.employee_positions WHERE lower(name) = 'maintenance');

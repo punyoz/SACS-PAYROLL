@@ -34,7 +34,7 @@ describe("one pool a year", () => {
     expect(server).toMatch(/\[type, \{ allotment: e\.days, computed: e\.computed, used: paid\(type\), remaining, /);
     // Half a day is 0.5 (requestDays) and statutory types are not CREDIT_LEAVE_TYPES.
     expect(readFileSync("src/lib/employees/classification.js", "utf8")).toMatch(/export const CREDIT_LEAVE_TYPES = \["Vacation Leave", "Sick Leave", "Emergency Leave"\];/);
-    const sql = readFileSync("supabase/migrations/20261124200000_leave_pool_maintenance_awol_card.sql", "utf8");
+    const sql = readFileSync("supabase/migrations/20261124230000_leave_credits_pool.sql", "utf8");
     expect(sql).toMatch(/CASE WHEN st\.v = 'Regular' THEN 5 ELSE 3 END/);
   });
 });
