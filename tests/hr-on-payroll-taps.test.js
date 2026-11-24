@@ -57,6 +57,7 @@ describe("the defense's daily taps", () => {
     const cron = read("src/app/api/cron/demo-taps/route.js");
     expect(cron).toMatch(/if \(!setting\?\.enabled \|\| \(setting\.until && today > setting\.until\)/);
     expect(cron).toMatch(/if \(!authorized\(request\)\) return NextResponse\.json\(\{ error: "Not allowed\." \}, \{ status: 401 \}\)/);
-    expect(read("vercel.json")).toMatch(/"\/api\/cron\/demo-taps"/);
+    expect(read("vercel.json")).toMatch(/"\/api\/cron\/demo-taps\?run=in"/);
+    expect(read("vercel.json")).toMatch(/"\/api\/cron\/demo-taps\?run=out"/);
   });
 });
