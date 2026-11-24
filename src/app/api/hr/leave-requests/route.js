@@ -157,6 +157,8 @@ export async function PATCH(request) {
         );
       }
       const sync = await syncLeaveAttendance(id);
+      // Its open substitution proposals go too (2026-11-24).
+      await afterLeaveDecision(getAdminClient(), current, "cancel");
 
       await appendAuditLog({
         actor: guard,

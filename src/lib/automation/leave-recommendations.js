@@ -1,3 +1,4 @@
+import { cancelSubstitutionProposals, proposeSubstitutions } from "@/lib/substitutions/proposals";
 /**
  * Part E step 4 (2026-11-23): leave recommendations. The system fills the
  * branch Admin's recommendation from four checks; the Admin checks it (Note /
@@ -111,6 +112,7 @@ export async function recommendationsFor(supabase, leaveIds) {
 /** HR decided: close the recommendation; after an approval, log what the system did and propose substitutes for a teacher. */
 export async function afterLeaveDecision(supabase, leave, decision) {
   try {
+    if (decision === "cancel") { await cancelSubstitutionProposals(supabase, leave.id); return; }
     const { data: rec } = await supabase.from("automation_actions").select("id").eq("module", "leave_recommendations").eq("entity_type", "leave_request").eq("entity_id", String(leave.id)).maybeSingle();
     if (rec?.id) await supabase.rpc("automation_close", { p_id: rec.id, p_note: `HR ${decision === "approve" ? "approved" : "rejected"} it` });
     if (decision !== "approve") return;
@@ -121,13 +123,7 @@ export async function afterLeaveDecision(supabase, leave, decision) {
       p_data: { leave_id: leave.id, days: facts.days, split: facts.split }, p_employee: leave.employee_id, p_branch: facts.branch_id,
       p_entity_type: "leave_request_applied", p_entity_id: String(leave.id),
     });
-    if (facts.teaching && facts.days.length && !leave.half_day) {
-      await supabase.rpc("automation_log", {
-        p_module: "leave_recommendations", p_rule: "a teacher on approved leave: arrange a substitute (Part C suggestions)",
-        p_kind: "proposal", p_summary: `Arrange a substitute for ${leave.employee_name} on ${facts.days.map(short).join(", ")}`,
-        p_data: { leave_id: leave.id, days: facts.days, absent_id: leave.employee_id }, p_employee: leave.employee_id, p_branch: facts.branch_id,
-        p_entity_type: "substitution_proposal", p_entity_id: String(leave.id), p_effective_on: facts.days[0],
-      });
-    }
+    // 2026-11-24: a teacher's approved leave (or half day) gets a substitution proposal per school day; HR picks the teacher.
+    if (facts.teaching && facts.days.length) await proposeSubstitutions(supabase, leave);
   } catch { /* never fails the decision */ }
 }

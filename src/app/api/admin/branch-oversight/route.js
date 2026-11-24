@@ -63,6 +63,9 @@ import { REQUEST_SORTS, requestEmployee, requestSearchFields } from "@/lib/admin
 const TEXT_CAPS = { note: [1000, "The remark for HR"] };
 const DETAIL_TEXT_CAPS = { requested: [500, "What should change"], device: [120, "The device"], description: [200, "The description"], covered_for: [120, "Covered for"] };
 
+/** What the branch Admin still files (2026-11-24): what the system cannot detect. */
+const ADMIN_FILES = new Set(["incident_report", "incentive_endorsement", "rfid_issue"]);
+
 const NOT_READY = "Branch oversight is not set up yet: apply 20261020020000_admin_branch_oversight.sql.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isDateKey = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
@@ -577,17 +580,18 @@ export async function POST(request) {
     if (normalizeText(body.action) !== "file") return bad("Unknown action.");
     const kind = normalizeText(body.kind);
     if (!REQUEST_KINDS[kind]) return bad("Choose what you are sending.");
+    // 2026-11-24: the Admin views and monitors; the system checks everything else and sends it straight to HR.
+    // The Admin files only what the system cannot detect.
+    if (!ADMIN_FILES.has(kind)) {
+      return bad("The system checks this and sends it straight to HR; follow it on Branch Review. You file incident reports, incentive proposals and RFID issues only.", 409);
+    }
     const supabase = getAdminClient();
-    // Part H: an endorsement (Endorse / Not endorse = "endorse" / "object") picks a preset remark;
-    // other filings keep their own words. The remark is audited with the request's own write.
-    const endorsing = Boolean(REQUEST_KINDS[kind].endorsement) || kind === "overtime_confirmation";
-    const remarkDecision = body.decision === "not_endorse" ? "object" : "endorse";
-    const remarkType = { leave_endorsement: "leave_request", transfer_endorsement: "transfer_request", overtime_confirmation: "overtime_request" }[kind] || "branch_request";
-    const remark = endorsing ? await resolveRemark(supabase, body.remark, { decision: remarkDecision, entityType: remarkType, required: true, fallbackText: body.note }) : null;
-    if (remark?.error) return bad(remark.error);
-    const note = normalizeText(remark ? remark.text : body.note).slice(0, 1000);
-    if (note.length < 3) return bad("Write a remark for HR.");
-    const writer = remark ? remarkClient(remark, { decision: remarkDecision, entityType: remarkType, module: "branch_oversight", table: "branch_admin_requests", actor: guard }) : supabase;
+    // A preset remark ("Other" with your own words, or a preset plus optional text), audited with the request's own write.
+    const remark = await resolveRemark(supabase, body.remark, { decision: "file", entityType: kind, required: true, fallbackText: body.note });
+    if (remark.error) return bad(remark.error);
+    const note = normalizeText(remark.text).slice(0, 1000);
+    if (note.length < 3) return bad("Choose a remark for HR.");
+    const writer = remarkClient(remark, { decision: "file", entityType: kind, module: "branch_oversight", table: "branch_admin_requests", actor: guard });
     const staff = await loadBranchStaff(supabase, branchId);
     const person = body.employee_id ? staff.find((p) => p.id === normalizeText(body.employee_id)) : null;
     if (body.employee_id && !person) return bad("That employee is not in your branch.", 404);
