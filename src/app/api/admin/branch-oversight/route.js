@@ -8,7 +8,8 @@
  *                                      pending leaves, headcount, recent activity
  *   GET ?view=attendance&from&to       attendance logs (read-only) + their flags
  *   GET ?view=leaves                   leave requests + this branch's recommendation
- *   GET ?view=transfers                transfers in / out of the branch + endorsement
+ *   GET ?view=transfers                transfers in / out of the branch, with HR's decision
+ *   GET ?view=overtime                 the branch's overtime requests, with HR's decision (2026-11-24)
  *   GET ?view=payroll                  approved runs: totals per period only
  *   GET ?view=reports&from&to[&format=pdf]
  *                                      attendance rate, lateness, leave usage
@@ -497,6 +498,17 @@ export async function GET(request) {
     }
     if (view === "leaves") return NextResponse.json(await leavesView(supabase, branchId, staff));
     if (view === "transfers") return NextResponse.json(await transfersView(supabase, branchId, staff));
+    // 2026-11-24: the branch's overtime requests with HR's decision (view only).
+    if (view === "overtime") {
+      const ids = staff.map((p) => p.id);
+      const { data, error } = ids.length
+        ? await supabase.from("overtime_requests").select("id,employee_id,request_date,planned_start,planned_end,minutes,reason,status,late_filing,created_at,decided_by_name,decided_at,decision_note")
+          .eq("branch_id", branchId).order("request_date", { ascending: false }).limit(1000)
+        : { data: [], error: null };
+      if (error) throw new Error(error.message);
+      const nameOf = new Map(staff.map((p) => [p.id, p]));
+      return NextResponse.json({ overtime: (data || []).map((r) => ({ ...r, employee_name: nameOf.get(r.employee_id)?.full_name || "—", employee_code: nameOf.get(r.employee_id)?.employee_code || "" })) });
+    }
     if (view === "payroll") {
       const data = await payrollView(supabase, branchId);
       if (!fileFormat) return NextResponse.json(data);
