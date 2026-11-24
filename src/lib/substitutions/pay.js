@@ -64,7 +64,7 @@ export function tapsConfirm(sub, tapMinutes, graceMinutes = 15) {
  *   settings        readSubstitutionSettings()
  * → { lines: [...], unconfirmed: [{ id, sub_date }], overlaps: [{ id, sub_date, minutes }] }
  */
-export function computeSubstitutionPay({ subs, tapsOf, dayKindOf = () => "regular", overtimeOf = () => [], rates, settings }) {
+export function computeSubstitutionPay({ subs, tapsOf, dayKindOf = () => "regular", overtimeOf = () => [], restDayOvertimeMinutesOf = () => 0, rates, settings }) {
   const hourly = Number(rates.hourly) || 0;
   const regularPct = Number(rates.overtime_regular_pct) || 125;
   const pctOf = (kind) => (kind === "holiday" ? Math.round((100 + (Number(rates.regular_holiday_premium_pct) || 0)) * 1.3)
@@ -93,10 +93,11 @@ export function computeSubstitutionPay({ subs, tapsOf, dayKindOf = () => "regula
     if (!minutes) continue;
     const kind = dayKindOf(sub.sub_date);
     const pct = pctOf(kind);
-    // A rest day past 8 h (all substitutions that day counted): those minutes at the rest-day rate × 130 % (169 %).
+    // A rest day past 8 h (one daily total: that day's paid overtime first, then its substitutions): those minutes at the rest-day rate × 130 % (169 %).
     let pastMinutes = 0;
     if (kind === "rest_day") {
-      const before = restMinutes.get(sub.sub_date) || 0;
+      if (!restMinutes.has(sub.sub_date)) restMinutes.set(sub.sub_date, Math.max(0, Number(restDayOvertimeMinutesOf?.(sub.sub_date)) || 0));
+      const before = restMinutes.get(sub.sub_date);
       pastMinutes = Math.max(0, before + minutes - 480) - Math.max(0, before - 480);
       restMinutes.set(sub.sub_date, before + minutes);
     }

@@ -1820,7 +1820,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     const leave = leaveSummary.find((row) => row.employee_id === employee.id) || null;
     // Part C: this payslip's approved substitutions, paid only when the substitute's taps cover them.
     const mySubs = (substitutionContext.byEmployee.get(employee.id) || []).filter((r) => (r.sub_date >= own.start_key || r.late) && r.sub_date <= own.end_key);
-    // 2026-11-26: paid as overtime (regular day 125%; holiday rates from the table; rest day 125%).
+    // 2026-11-26: paid as overtime (regular day 125%; holiday rates from the table; rest day 130%, past 8 h 169%).
     const substitution = mySubs.length ? computeSubstitutionPay({
       subs: mySubs,
       tapsOf: (date) => substitutionContext.tapsOf(employee.id, date),
@@ -1831,6 +1831,9 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
         return substitutionContext.shiftOf(employee.id, date) ? "regular" : "rest_day";
       },
       overtimeOf: (date) => substitutionContext.overtimeOf(employee.id, date),
+      // One daily total on a rest day: the overtime already paid that day counts toward the 8 h first.
+      restDayOvertimeMinutesOf: (date) => (auto.earnings || []).filter((e) => e.type === "overtime" && e.rest_day && e.log_date === date)
+        .reduce((sum, e) => sum + (Number(e.quantity) || 0), 0),
       rates: { ...rateValues(resolved), overtime_regular_pct: requestSettings.overtime_regular_pct },
       settings: substitutionContext.settings,
     }) : null;
