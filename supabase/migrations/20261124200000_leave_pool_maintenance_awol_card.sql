@@ -76,9 +76,13 @@ BEGIN
   END IF;
   v_checks := v_checks || jsonb_build_object('key', 'no_request', 'label', 'No leave or other request', 'ok', v_req IS NULL, 'detail', COALESCE(v_req, 'None'));
   v_ok := v_ok AND v_req IS NULL;
-  -- 4b. An active RFID card (2026-11-24): without one the employee cannot tap at all, so no taps proves nothing.
-  v_bad := CASE WHEN EXISTS (SELECT 1 FROM public.rfid_cards k WHERE k.employee_id = p_employee AND k.status = 'active') THEN NULL ELSE 'No active RFID card' END;
-  v_checks := v_checks || jsonb_build_object('key', 'active_card', 'label', 'Has an active RFID card', 'ok', v_bad IS NULL, 'detail', COALESCE(v_bad, 'Yes'));
+  -- 4b. An active RFID card for the whole period (2026-11-24): without one the employee cannot tap at all, so no taps proves nothing.
+  v_bad := CASE WHEN EXISTS (SELECT 1 FROM public.rfid_cards k WHERE k.employee_id = p_employee AND k.status = 'active'
+                              AND (k.registered_at AT TIME ZONE 'Asia/Manila')::DATE <= p_from
+                              AND NOT EXISTS (SELECT 1 FROM public.rfid_card_events e WHERE e.card_id = k.id AND e.to_status <> 'active'
+                                               AND (e.created_at AT TIME ZONE 'Asia/Manila')::DATE BETWEEN p_from AND p_through))
+                 THEN NULL ELSE 'No active RFID card for the whole period' END;
+  v_checks := v_checks || jsonb_build_object('key', 'active_card', 'label', 'Active RFID card for the whole period', 'ok', v_bad IS NULL, 'detail', COALESCE(v_bad, 'Yes'));
   v_ok := v_ok AND v_bad IS NULL;
   -- 5. The branch had normal taps every one of those days (no device / data problem).
   v_bad := NULL;

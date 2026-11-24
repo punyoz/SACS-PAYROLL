@@ -18,7 +18,8 @@ INSERT INTO auth.users (id, email, aud, role, instance_id) VALUES
   ('00000000-0000-4000-8000-00000000a0c3', 'c3@awol.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
   ('00000000-0000-4000-8000-00000000a0c4', 'c4@awol.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
   ('00000000-0000-4000-8000-00000000a0c5', 'c5@awol.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
-  ('00000000-0000-4000-8000-00000000a0c6', 'c6@awol.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000');
+  ('00000000-0000-4000-8000-00000000a0c6', 'c6@awol.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-4000-8000-00000000a0e4', 'nick@awol.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000');
 INSERT INTO public.profiles (id, email, full_name, role, branch_id, employee_type, position, on_payroll, employee_status, is_demo, date_hired) VALUES
   ('00000000-0000-4000-8000-00000000a0e1', 'erin@awol.test', 'Erin Absent', 'employee', '00000000-0000-4000-8000-00000000a0b1', 'Teaching', 'Teacher', TRUE, 'Active', FALSE, '2024-06-03'),
   ('00000000-0000-4000-8000-00000000a0e2', 'fred@awol.test', 'Fred Returns', 'employee', '00000000-0000-4000-8000-00000000a0b1', 'Teaching', 'Teacher', TRUE, 'Active', FALSE, '2024-06-03'),
@@ -28,9 +29,13 @@ INSERT INTO public.profiles (id, email, full_name, role, branch_id, employee_typ
   ('00000000-0000-4000-8000-00000000a0c3', 'c3@awol.test', 'Colleague Three', 'employee', '00000000-0000-4000-8000-00000000a0b1', 'Teaching', 'Teacher', TRUE, 'Active', FALSE, '2024-06-03'),
   ('00000000-0000-4000-8000-00000000a0c4', 'c4@awol.test', 'Colleague Four', 'employee', '00000000-0000-4000-8000-00000000a0b1', 'Teaching', 'Teacher', TRUE, 'Active', FALSE, '2024-06-03'),
   ('00000000-0000-4000-8000-00000000a0c5', 'c5@awol.test', 'Colleague Five', 'employee', '00000000-0000-4000-8000-00000000a0b1', 'Teaching', 'Teacher', TRUE, 'Active', FALSE, '2024-06-03'),
-  ('00000000-0000-4000-8000-00000000a0c6', 'c6@awol.test', 'Colleague Six', 'employee', '00000000-0000-4000-8000-00000000a0b1', 'Teaching', 'Teacher', TRUE, 'Active', FALSE, '2024-06-03');
-INSERT INTO public.rfid_cards (employee_id, branch_id, uid, uid_last4, status, registered_by_name, registered_by_role)
-VALUES ('00000000-0000-4000-8000-00000000a0e1', '00000000-0000-4000-8000-00000000a0b1', '9990009001', '9001', 'active', 'Test', 'hr');
+  ('00000000-0000-4000-8000-00000000a0c6', 'c6@awol.test', 'Colleague Six', 'employee', '00000000-0000-4000-8000-00000000a0b1', 'Teaching', 'Teacher', TRUE, 'Active', FALSE, '2024-06-03'),
+  ('00000000-0000-4000-8000-00000000a0e4', 'nick@awol.test', 'Nick No Card', 'employee', '00000000-0000-4000-8000-00000000a0b1', 'Teaching', 'Teacher', TRUE, 'Active', FALSE, '2024-06-03');
+-- Active cards since October (the whole period); Nick has none.
+INSERT INTO public.rfid_cards (employee_id, branch_id, uid, uid_last4, status, registered_by_name, registered_by_role, registered_at) VALUES
+  ('00000000-0000-4000-8000-00000000a0e1', '00000000-0000-4000-8000-00000000a0b1', '9990009001', '9001', 'active', 'Test', 'hr', TIMESTAMPTZ '2026-10-01 08:00+08'),
+  ('00000000-0000-4000-8000-00000000a0e2', '00000000-0000-4000-8000-00000000a0b1', '9990009002', '9002', 'active', 'Test', 'hr', TIMESTAMPTZ '2026-10-01 08:00+08'),
+  ('00000000-0000-4000-8000-00000000a0e3', '00000000-0000-4000-8000-00000000a0b1', '9990009003', '9003', 'active', 'Test', 'hr', TIMESTAMPTZ '2026-10-01 08:00+08');
 UPDATE public.profiles SET rfid_uid = '9990009001' WHERE id = '00000000-0000-4000-8000-00000000a0e1';
 
 -- Mon Nov 9 to Fri Nov 13, 2026: the three are absent, no taps; six colleagues tap every day.
@@ -81,14 +86,16 @@ BEGIN
   SELECT * INTO c FROM public.employee_awol_cases WHERE employee_id = e2;
   IF c.automation <> 'response' OR c.automation_reason NOT LIKE 'Response received%' THEN RAISE EXCEPTION '3: a tap stops it (got % / %)', c.automation, c.automation_reason; END IF;
 
-  -- 4. Erin: no response by the deadline (Nov 19) -> the 2nd notice on Nov 20; separation on Nov 23.
+  -- 4. Erin: no response by the deadline (Nov 19) -> "Ready for HR decision" on Nov 20 (no automatic 2nd notice).
   PERFORM public.awol_daily_review(DATE '2026-11-19');
   IF (SELECT stage FROM public.employee_awol_cases WHERE employee_id = e1) <> 'first_notice' THEN RAISE EXCEPTION '4: not before the deadline has passed'; END IF;
   PERFORM public.awol_daily_review(DATE '2026-11-20');
   SELECT * INTO c FROM public.employee_awol_cases WHERE employee_id = e1;
-  IF c.stage <> 'second_notice' OR c.separation_scheduled_on <> DATE '2026-11-23' THEN RAISE EXCEPTION '4: 2nd notice, separation on Nov 23 (got % / %)', c.stage, c.separation_scheduled_on; END IF;
-  IF (SELECT COUNT(*) FROM public.awol_notices WHERE case_id = c.id AND kind = 'second' AND separation_on = DATE '2026-11-23') <> 1 THEN RAISE EXCEPTION '4: the 2nd notice kept'; END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.notifications WHERE kind = 'awol_separation_scheduled' AND body LIKE 'Erin Absent will be separated on Nov 23, 2026 unless you stop it.') THEN RAISE EXCEPTION '4: HR told "unless you stop it"'; END IF;
+  IF c.stage <> 'for_decision' OR EXISTS (SELECT 1 FROM public.awol_notices WHERE case_id = c.id AND kind = 'second') THEN RAISE EXCEPTION '4: ready for HR decision, no 2nd notice (got %)', c.stage; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.notifications WHERE kind = 'awol_ready_for_decision' AND body LIKE 'Erin Absent did not reply by Nov 19, 2026.%') THEN RAISE EXCEPTION '4: HR told'; END IF;
+  -- HR decides "Separate" (as /api/hr/awol-cases does): the notice of separation, effective in 3 days.
+  UPDATE public.employee_awol_cases SET stage = 'second_notice', second_notice_sent_on = DATE '2026-11-20', second_notice_reply_by = DATE '2026-11-23', separation_scheduled_on = DATE '2026-11-23' WHERE id = c.id;
+  PERFORM public.awol_send_notice(c.id, 'second', DATE '2026-11-20', DATE '2026-11-19', DATE '2026-11-23');
 
   -- 5. The effective date: separated, card deactivated, final pay started; pay stays on hold.
   PERFORM public.awol_daily_review(DATE '2026-11-22');
@@ -105,6 +112,9 @@ BEGIN
   -- 3b. Fred's case was stopped by the tap: never a 2nd notice or a separation afterwards.
   PERFORM public.awol_daily_review(DATE '2026-11-30');
   IF (SELECT stage FROM public.employee_awol_cases WHERE employee_id = e2) <> 'first_notice' THEN RAISE EXCEPTION '3b: a stopped case stays where it was'; END IF;
+
+  -- 5b. Nick has no active card: no case at all.
+  IF EXISTS (SELECT 1 FROM public.employee_awol_cases WHERE employee_id = '00000000-0000-4000-8000-00000000a0e4') THEN RAISE EXCEPTION '5b: no active card, no case'; END IF;
 
   -- 6. The cases that existed before were never touched.
   IF (SELECT COUNT(*) FROM public.employee_awol_cases WHERE stage <> 'closed' AND automation = 'needs_review' AND employee_id NOT IN (e1, e2, e3)) <> v_existing THEN RAISE EXCEPTION '6: the existing cases stay HR''s'; END IF;
