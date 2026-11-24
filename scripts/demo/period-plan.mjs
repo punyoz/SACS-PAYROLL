@@ -35,11 +35,11 @@ export const PEOPLE = [
     emergency: ["Ramil Benitez", "Parent", "09171239003"] },
   { key: "jarvis", match: { code: "SACS-042" }, cp: "09171230042", address: "34 Bagong Nayon, Antipolo City, Rizal",
     emergency: ["Josefina Pasion", "Parent", "09171239042"] },
-  { key: "marisol", match: { code: "DEMO-101" }, licensed: { no: "0991101", expires: "2028-06-30" } },
-  { key: "carlo", match: { code: "DEMO-102" }, licensed: { no: "0991102", expires: "2029-03-31" } },
-  { key: "liza", match: { code: "DEMO-103" } },
-  { key: "ramon", match: { code: "DEMO-104" }, active: true }, // his case opens again after Nov 1-15 is paid
-  { key: "nestor", match: { code: "DEMO-105" } },
+  { key: "marisol", match: { code: "DEMO-101" }, rename: { first: "Marisol", middle: "Santos", last: "Aquino" }, licensed: { no: "0991101", expires: "2028-06-30" } },
+  { key: "carlo", match: { code: "DEMO-102" }, rename: { first: "Carlo", middle: "Reyes", last: "Mendoza" }, licensed: { no: "0991102", expires: "2029-03-31" } },
+  { key: "liza", match: { code: "DEMO-103" }, rename: { first: "Liza", middle: "Gomez", last: "Ferrer" } },
+  { key: "ramon", match: { code: "DEMO-104" }, rename: { first: "Ramon", middle: "Cruz", last: "Salazar" }, active: true }, // his case opens again after Nov 1-15 is paid
+  { key: "nestor", match: { code: "DEMO-105" }, rename: { first: "Nestor", middle: "Lim", last: "Pascual" } },
   { key: "teresa", match: { code: "SACS-HR-001" }, rename: { first: "Teresa", middle: "Cruz", last: "Bautista" }, cp: "09171230301",
     address: "7 M.L. Quezon Ext, Antipolo City, Rizal", emergency: ["Ruben Bautista", "Spouse", "09171239301"] },
   { key: "janeacc", match: { code: "SACS-005" }, cp: "09171230005", address: "3 Ortigas Ave Ext, Cainta, Rizal",

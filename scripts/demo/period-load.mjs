@@ -16,6 +16,10 @@ import { DATA_DIR, PRODUCTION } from "./config.mjs";
 import { confirm, database, lit } from "./db.mjs";
 import * as PLAN from "./period-plan.mjs";
 import { SCOPE, scopeWhere } from "./period-scope.mjs";
+import { stableId } from "./roster.mjs";
+
+/** The kept approver accounts (renamed with the load). */
+const ACTOR_IDS = [stableId("hr1"), stableId("acc-b1-1")];
 
 const [command, ...rest] = process.argv.slice(2);
 const target = (rest.find((a) => a.startsWith("--target=")) || "--target=local").split("=")[1];
@@ -78,7 +82,8 @@ async function exportBundle() {
   const rates = await db.rows(`select * from payroll_rate_configs where note = ${lit(PLAN.DEMO_NOTE)}`);
   const config = await db.rows("select section, key, value from system_config where section = 'early_bird' and key = 'incentive_amount'");
   const audit = await db.rows(`select * from audit_logs where created_at >= (select min(created_at) from payroll_runs where period_start >= ${lit(PLAN.FROM)}) - interval '30 minutes'`);
-  const bundle = { made_at: new Date().toISOString(), kind: "build", scope_rule: "on payroll, Oct 1 to today", tables, records: { profiles, salary, rates, config, audit } };
+  const actors = await db.rows(`select id, first_name, middle_name, last_name, full_name from profiles where id in (${ACTOR_IDS.map(lit).join(", ")})`);
+  const bundle = { made_at: new Date().toISOString(), kind: "build", scope_rule: "on payroll, Oct 1 to today", tables, records: { profiles, salary, rates, config, audit, actors } };
   const out = join(DATA_DIR, "period-bundle.json");
   writeFileSync(out, JSON.stringify(bundle));
   log(`bundle written: ${out}`);
@@ -97,10 +102,11 @@ async function plan() {
   const profiles = await db.rows(`select id, ${PROFILE_COLS.join(", ")} from profiles where id in (${scope.ids.map(lit).join(", ")})`);
   const salary = await db.rows(`select id, effective_date from employee_salary_changes where employee_id in (${scope.ids.map(lit).join(", ")})`);
   const config = await db.rows("select section, key, value from system_config where section = 'early_bird' and key = 'incentive_amount'");
+  const actors = await db.rows(`select id, first_name, middle_name, last_name, full_name from profiles where id in (${ACTOR_IDS.map(lit).join(", ")})`);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const rb = join(DATA_DIR, `period-rollback-${stamp}.json`);
   writeFileSync(rb, JSON.stringify({ made_at: new Date().toISOString(), kind: "rollback", tables: live,
-    records: { profiles, salary, rates_remove: (bundle.records.rates || []).map((r) => r.id), config, audit_remove: (bundle.records.audit || []).map((a) => a.id) } }));
+    records: { profiles, salary, rates_remove: (bundle.records.rates || []).map((r) => r.id), config, actors, audit_remove: (bundle.records.audit || []).map((a) => a.id) } }));
   const names = Object.fromEntries((await db.rows(`select id, full_name, employee_id from profiles where id in (${scope.ids.map(lit).join(", ")})`)).map((r) => [r.id, r]));
   const newNames = Object.fromEntries(bundle.records.profiles.map((p) => [p.id, p.full_name]));
   log(`Target: ${target}. Scope: ${scope.ids.length} accounts on payroll, ${scope.branches.length} branches, from ${scope.from}.`);
@@ -123,7 +129,7 @@ async function plan() {
     log(`     ${nets.join("; ") || "no payslip"}`);
   }
   log(`\nRecord updates: ${bundle.records.profiles.length} profiles (names, branch, IDs, contacts, government numbers, emergency contacts), ${bundle.records.salary.length} salary-history dates, ` +
-    `${(bundle.records.rates || []).length} rate row(s) (${PLAN.DEMO_NOTE}), Early Bird ₱${PLAN.EARLY_BIRD}, ${(bundle.records.audit || []).length} audit entries.`);
+    `${(bundle.records.actors || []).map((a) => a.full_name).join(" and ")} (the two approver accounts, renamed), ${(bundle.records.rates || []).length} rate row(s) (${PLAN.DEMO_NOTE}), Early Bird ₱${PLAN.EARLY_BIRD}, ${(bundle.records.audit || []).length} audit entries.`);
   log(`Rollback bundle saved: ${rb}`);
   log("Nothing was changed (plan only).");
 }
@@ -153,6 +159,8 @@ async function apply() {
   const sql = ["begin;"];
   for (const [t] of ALL) sql.push(`alter table public.${t} disable trigger user;`);
   for (const [t, w] of ALL) sql.push(`delete from public.${t} where ${scopeWhere(w, scope)};`);
+  // Rate rows first: the payslip lines point at them.
+  for (const x of r.rates || []) sql.push(`insert into public.payroll_rate_configs (id, rate_type, scope, scope_ref, value, effective_date, note, created_by, created_by_name, created_at) values (${lit(x.id)}, ${lit(x.rate_type)}, ${lit(x.scope)}, ${x.scope_ref ? lit(x.scope_ref) : "null"}, ${x.value}, ${lit(x.effective_date)}, ${lit(x.note)}, ${x.created_by ? lit(x.created_by) : "null"}, ${lit(x.created_by_name)}, ${lit(x.created_at)}) on conflict (id) do nothing;`);
   const insertOf = (t, order = "") => {
     const c = colsOf(t).filter((x) => Object.prototype.hasOwnProperty.call(bundle.tables[t][0], x) || x === "prc_license_no");
     const list = c.map((x) => `"${x}"`).join(", ");
@@ -168,15 +176,21 @@ async function apply() {
   // License changes go in with their triggers ON: the trigger encrypts the plain number and updates the profile.
   if ((bundle.tables.employee_license_changes || []).length) sql.push(insertOf("employee_license_changes"));
   // Records.
+  // The card number on the profile follows the cards loaded above (only that guard is off; encryption stays on).
+  sql.push("alter table public.profiles disable trigger profiles_rfid_uid_guard;");
   for (const p of r.profiles || []) {
     const set = Object.entries(p).filter(([k]) => k !== "id").map(([k, v]) => `"${k}" = ${v === null ? "null" : lit(v)}`);
     sql.push(`update public.profiles set ${set.join(", ")}, updated_at = now() where id = ${lit(p.id)};`);
     sql.push(`update auth.users set raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('full_name', ${lit(p.full_name)}, 'branch_id', ${p.branch_id ? lit(p.branch_id) : "null"}, 'employee_id', ${p.employee_id ? lit(p.employee_id) : "null"}, 'employee_status', ${lit(p.employee_status)}) where id = ${lit(p.id)};`);
   }
+  sql.push("alter table public.profiles enable trigger profiles_rfid_uid_guard;");
+  for (const a of r.actors || []) {
+    sql.push(`update public.profiles set first_name = ${lit(a.first_name)}, middle_name = ${a.middle_name ? lit(a.middle_name) : "null"}, last_name = ${lit(a.last_name)}, full_name = ${lit(a.full_name)}, updated_at = now() where id = ${lit(a.id)};`);
+    sql.push(`update auth.users set raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('full_name', ${lit(a.full_name)}) where id = ${lit(a.id)};`);
+  }
   sql.push("alter table public.employee_salary_changes disable trigger user;");
   for (const s of r.salary || []) sql.push(`update public.employee_salary_changes set effective_date = ${lit(s.effective_date)} where id = ${lit(s.id)};`);
   sql.push("alter table public.employee_salary_changes enable trigger user;");
-  for (const x of r.rates || []) sql.push(`insert into public.payroll_rate_configs (id, rate_type, scope, scope_ref, value, effective_date, note, created_by, created_by_name, created_at) values (${lit(x.id)}, ${lit(x.rate_type)}, ${lit(x.scope)}, ${x.scope_ref ? lit(x.scope_ref) : "null"}, ${x.value}, ${lit(x.effective_date)}, ${lit(x.note)}, ${x.created_by ? lit(x.created_by) : "null"}, ${lit(x.created_by_name)}, ${lit(x.created_at)}) on conflict (id) do nothing;`);
   if ((r.rates_remove || []).length) sql.push(`alter table public.payroll_rate_configs disable trigger user; delete from public.payroll_rate_configs where id in (${r.rates_remove.map(lit).join(", ")}); alter table public.payroll_rate_configs enable trigger user;`);
   for (const x of r.config || []) sql.push(`update public.system_config set value = ${lit(x.value)} where section = ${lit(x.section)} and key = ${lit(x.key)};`);
   if ((r.audit || []).length) {

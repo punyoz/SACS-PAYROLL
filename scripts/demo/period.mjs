@@ -24,8 +24,10 @@ const target = (rest.find((a) => a.startsWith("--target=")) || "--target=local")
 const resumeAt = Number((rest.find((a) => a.startsWith("--resume-at=")) || "--resume-at=1").split("=")[1]);
 const log = (...m) => console.log(new Date().toISOString().slice(11, 19), ...m);
 
-const HR = { id: stableId("hr1"), role: "hr", full: "Demo HR One", email: "" };
-const ACC = { id: stableId("acc-b1-1"), role: "accountant", full: "Demo Accountant One Main", email: "" };
+// The kept approver accounts, with realistic names (owner's yes, 2026-11-24).
+export const ACTORS = [{ id: stableId("hr1"), first: "Maricel", middle: null, last: "Santos" }, { id: stableId("acc-b1-1"), first: "Rowena", middle: null, last: "Dizon" }];
+const HR = { id: stableId("hr1"), role: "hr", full: "Maricel Santos", email: "" };
+const ACC = { id: stableId("acc-b1-1"), role: "accountant", full: "Rowena Dizon", email: "" };
 const addDays = (key, n) => new Date(Date.parse(`${key}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
 const manilaNow = () => new Date(Date.now() + 8 * 3600e3);
 const manilaToday = () => manilaNow().toISOString().slice(0, 10);
@@ -86,6 +88,11 @@ async function build() {
 
   await stage("complete records (names, branch, ID, contact, government numbers, emergency contact)", async () => {
     const sql = ["begin;"];
+    for (const a of ACTORS) {
+      const full = [a.first, a.middle, a.last].filter(Boolean).join(" ");
+      sql.push(`update profiles set first_name = ${lit(a.first)}, middle_name = ${lit(a.middle)}, last_name = ${lit(a.last)}, full_name = ${lit(full)}, updated_at = now() where id = ${lit(a.id)};`);
+      sql.push(`update auth.users set raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('full_name', ${lit(full)}) where id = ${lit(a.id)};`);
+    }
     for (const p of all) {
       const set = [];
       if (p.rename) {
@@ -208,7 +215,7 @@ async function build() {
     await db.exec(`begin;
       insert into special_working_days (id, work_date, branch_ids, audience, employee_ids, start_time, end_time, reason, pay_type, premium_pct, created_by, created_by_name, created_at)
         values (${lit(id)}, ${lit(PLAN.MAKEUP_DAY.date)}, array[${lit(br["BR-001"].id)}]::uuid[], 'employees', array[${covered.map((p) => lit(p.id)).join(", ")}]::uuid[],
-          ${lit(PLAN.MAKEUP_DAY.start)}, ${lit(PLAN.MAKEUP_DAY.end)}, ${lit(PLAN.MAKEUP_DAY.reason)}, 'makeup', 130, ${lit(HR.id)}, 'Demo HR One', '2026-11-16 09:00+08');
+          ${lit(PLAN.MAKEUP_DAY.start)}, ${lit(PLAN.MAKEUP_DAY.end)}, ${lit(PLAN.MAKEUP_DAY.reason)}, 'makeup', 130, ${lit(HR.id)}, 'Maricel Santos', '2026-11-16 09:00+08');
       insert into notifications (recipient_id, kind, title, body, link_page, created_at)
         select x, 'special_working_day', 'Special working day: Sat, Nov 21, 2026', ${lit(`Make-up day, 8:00 AM to 12:00 PM. ${PLAN.MAKEUP_DAY.reason}`)}, 'emp-attendance', '2026-11-16 09:00+08'
         from unnest(array[${covered.map((p) => lit(p.id)).join(", ")}]::uuid[]) x;
@@ -262,7 +269,7 @@ async function build() {
     }
     await db.exec(`begin; update profiles set employee_status = 'Separated' where id = ${lit(anjo.id)};
       alter table rfid_cards disable trigger user;
-      update rfid_cards set status = 'inactive', status_reason = 'Separated (resigned): last day Oct 21', status_changed_at = '2026-10-22 08:00+08', status_changed_by_name = 'Demo HR One'
+      update rfid_cards set status = 'inactive', status_reason = 'Separated (resigned): last day Oct 21', status_changed_at = '2026-10-22 08:00+08', status_changed_by_name = 'Maricel Santos'
         where employee_id = ${lit(anjo.id)} and status = 'active';
       alter table rfid_cards enable trigger user; commit;`);
     if (refusals.length) { console.log(refusals.slice(0, 15).join("\n")); throw new Error(`${refusals.length} taps refused`); }
@@ -319,7 +326,7 @@ async function build() {
       await db.exec(`insert into payroll_loans (employee_id, branch_id, loan_type, description, date_granted, principal, interest_pct, number_of_payrolls, amortization, start_period,
           final_pay_authorized, created_by, created_by_name, approval_status, created_at)
         values (${lit(p.id)}, ${lit(p.branch_id)}, ${lit(l.type)}, ${lit(l.description)}, ${lit(l.granted)}, ${l.principal}, 0, ${l.payrolls}, ${amort}, ${lit(l.start)},
-          true, ${lit(ACC.id)}, 'Demo Accountant One Main', 'pending', ${lit(`${l.granted}T02:00:00Z`)});`);
+          true, ${lit(ACC.id)}, 'Rowena Dizon', 'pending', ${lit(`${l.granted}T02:00:00Z`)});`);
     }
     const list = ok("HR list", await as(HR).get("/api/hr/adjustment-approvals?status=pending")).items || [];
     const mine = list.filter((i) => i.kind === "loan" && all.some((p) => p.id === i.employee_id));
