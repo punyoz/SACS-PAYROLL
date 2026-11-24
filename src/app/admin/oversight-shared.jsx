@@ -238,7 +238,7 @@ export async function fileRequest(kind, { employee_id, ref_id, decision, note, r
  * A "sent to HR" page: the filing button and dialog, and every request of the
  * kind with its status, HR's decision and history (kept for good).
  */
-export function RequestsPage({ refreshKey, kind, title, description, icon: Icon, fields, columns = [], buttonLabel, dialogTitle, dialogDescription, decisions = false, banner = null, initial = {}, empty, exportable = false, readOnly = false }) {
+export function RequestsPage({ refreshKey, kind, title, description, icon: Icon, fields, columns = [], buttonLabel, dialogTitle, dialogDescription, decisions = false, banner = null, initial = {}, empty, exportable = false, readOnly = false, showTitle = true }) {
   const { notify } = usePortalSession();
   const view = useBranchView("requests", { kind }, refreshKey);
   const [open, setOpen] = React.useState(false);
@@ -261,7 +261,8 @@ export function RequestsPage({ refreshKey, kind, title, description, icon: Icon,
       {typeof banner === "function" ? banner(data) : banner}
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">{Icon ? <Icon className="size-4 text-gold-text" aria-hidden="true" /> : null}{title}</CardTitle>
+          {/* showTitle false: the page's tab already names it (one heading per section, 2026-11-26). */}
+          {showTitle ? <CardTitle className="flex items-center gap-2">{Icon ? <Icon className="size-4 text-gold-text" aria-hidden="true" /> : null}{title}</CardTitle> : null}
           {description ? <CardDescription>{description}</CardDescription> : null}
           <CardAction className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>

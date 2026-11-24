@@ -31,6 +31,7 @@ export function IncidentReportsPage({ refreshKey }) {
       kind="incident_report"
       icon={SirenIcon}
       title="Incident & AWOL reports"
+      showTitle={false}
       description="Report an incident about an employee of your branch. A no-show goes straight to HR's AWOL Cases queue. HR handles and closes every case; you see its status here."
       buttonLabel="File a report"
       dialogDescription="HR is notified at once. You cannot close or decide the case."

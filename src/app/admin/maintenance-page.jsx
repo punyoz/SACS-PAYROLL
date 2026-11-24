@@ -151,7 +151,7 @@ export function MaintenancePage({ refreshKey, description = "Register, replace a
   const { can } = usePortalSession();
   return (
     <>
-      <p className="text-sm text-muted-foreground">{description}</p>
+      {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
       <RfidCardsPanel refreshKey={refreshKey} terminal={can("rfid_devices", "update")}>{issues}</RfidCardsPanel>
     </>
   );
