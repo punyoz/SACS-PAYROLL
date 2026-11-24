@@ -555,7 +555,9 @@ function ModuleTabs({ nav, page, onNavigate, badges = {} }) {
   const tabs = item?.tabs ? allowedTabs(item, can) : [];
   if (tabs.length < 2) return null;
   return (
-    <nav aria-label={`${item.label} tabs`} data-module-tabs={item.label} className="-mt-1 flex gap-1 overflow-x-auto border-b">
+    // 2026-11-26: sideways only (no up / down arrows), hidden scrollbar, faded edges when it scrolls; never truncated.
+    <nav aria-label={`${item.label} tabs`} data-module-tabs={item.label}
+      className="-mt-1 flex min-w-0 gap-1 overflow-x-auto overflow-y-hidden border-b scrollbar-none [mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)] px-1">
       {tabs.map((tab) => {
         const active = tab.id === page;
         const n = Number(badges[tab.id]) || 0;
