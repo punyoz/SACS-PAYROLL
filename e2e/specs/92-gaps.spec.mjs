@@ -158,20 +158,25 @@ for (const role of ROLES) {
   });
 }
 
-test("Admin endorsement to HR: Admin files a schedule request, HR rejects with a reason / approves, Admin sees the result", async ({ page, monitor }) => {
-  monitor.allow(/^400 PATCH \/api\/hr\/branch-requests/, /status of 400/);
+test("Admin endorsement to HR: Admin files an incentive proposal, HR rejects with a reason / approves, Admin sees the result", async ({ page, monitor }) => {
+  monitor.allow(/^400 PATCH \/api\/hr\/branch-requests/, /status of 400/, /^409 POST \/api\/admin\/branch-oversight/, /status of 409/);
   const ana = await profileByEmail(ACCOUNTS.employee.email);
   const text = (n) => `E2E-BR-${Date.now().toString(36)}-${n}`;
   const asked = [text(1), text(2)];
   const ids = [];
-  await step(page, "Admin (Main) > Branch Oversight > files two schedule requests for Ana", async () => {
+  await step(page, "Admin (Main) > Branch Oversight > a schedule request is refused (HR changes schedules, 8f4d052)", async () => {
     monitor.at("Admin > Branch Oversight");
     await as(page, "admin");
-    // One pending request per employee and start date (Part E step 3): Jan 4 and Jan 5.
+    const res = await api(page, "POST", "/api/admin/branch-oversight", { action: "file", kind: "schedule_request", employee_id: ana.id, details: { request_type: "schedule", schedule_key: "none", effective_from: "2027-01-04", requested: "E2E: refused" }, note: "E2E" });
+    expect(res.status).toBe(409);
+    expect(res.data.error).toMatch(/You file incident reports, incentive proposals and RFID issues only/);
+    expect(await rows(db().from("branch_admin_requests").select("id").eq("kind", "schedule_request").eq("details->>requested", "E2E: refused"))).toHaveLength(0);
+  });
+  await step(page, "Admin (Main) > Branch Oversight > files two incentive proposals for Ana", async () => {
     for (const [n, requested] of asked.entries()) {
-      const res = await api(page, "POST", "/api/admin/branch-oversight", { action: "file", kind: "schedule_request", employee_id: ana.id, details: { request_type: "schedule", schedule_key: "none", effective_from: `2027-01-0${4 + n}`, requested }, note: "E2E: please review for January" });
+      const res = await api(page, "POST", "/api/admin/branch-oversight", { action: "file", kind: "incentive_endorsement", employee_id: ana.id, details: { kind: "incentive", item_date: `2027-01-0${4 + n}`, amount: 500, description: requested }, note: "E2E: please review for January" });
       expect([200, 201], JSON.stringify(res.data)).toContain(res.status);
-      const row = (await rows(db().from("branch_admin_requests").select("id,status,details").eq("kind", "schedule_request").eq("employee_id", ana.id))).find((r) => r.details?.requested === requested);
+      const row = (await rows(db().from("branch_admin_requests").select("id,status,details").eq("kind", "incentive_endorsement").eq("employee_id", ana.id))).find((r) => r.details?.description === requested);
       expect(row?.status).toBe("pending");
       ids.push(row.id);
     }
@@ -195,7 +200,7 @@ test("Admin endorsement to HR: Admin files a schedule request, HR rejects with a
   await step(page, "Admin (Main) > sees Rejected with HR's reason and Approved with HR's remark", async () => {
     monitor.at("Admin > Branch Oversight (results)");
     await as(page, "admin");
-    const res = await api(page, "GET", "/api/admin/branch-oversight?view=requests&kind=schedule_request");
+    const res = await api(page, "GET", "/api/admin/branch-oversight?view=requests&kind=incentive_endorsement");
     expect(res.status).toBe(200);
     const body = JSON.stringify(res.data);
     expect(body).toContain("class load is already full this term");

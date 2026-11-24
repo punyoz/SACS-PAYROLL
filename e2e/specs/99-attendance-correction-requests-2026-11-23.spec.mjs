@@ -77,11 +77,11 @@ test("file → HR approves (day recalculated) / rejects with a preset; limits an
     expect((await api(page, "PATCH", "/api/attendance/corrections", { correction_id: requestId, decision: "approve", remark: { code: "approve.as_requested" } })).status).toBe(403);
   });
 
-  await step(page, "Admin: no access to the request route (their check is on the Automation card)", async () => {
+  await step(page, "Admin: no access to the request route; the system's check goes straight to HR (no Admin step, 20261124150000)", async () => {
     await as(page, "admin", "adm-dashboard");
     expect((await api(page, "GET", `/api/attendance/corrections?evidence=${requestId}`)).status).toBe(403);
     const [check] = await rows(db().from("automation_actions").select("status,kind").eq("module", "attendance_corrections").eq("entity_id", requestId));
-    expect(check).toMatchObject({ kind: "proposal", status: "admin_check" });
+    expect(check).toMatchObject({ kind: "proposal", status: "with_hr" });
   });
 
   await step(page, "HR > Leave Approval > Attendance correction requests > Review (evidence, not paid yet) > Approve with a preset", async () => {
