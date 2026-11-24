@@ -49,6 +49,16 @@ describe("substitution pay as overtime (2026-11-26)", () => {
     expect(pay([sub()], { dayKindOf: () => "regular" }).lines[0]).toMatchObject({ rate_pct: 125, amount: 229.89 });
   });
 
+  it("a rest day past 8 h (all that day's substitutions): those hours at 169%", () => {
+    const subs = [sub({ id: "a", start_time: "07:00", end_time: "14:00", periods: 7 }), sub({ id: "b", start_time: "14:00", end_time: "17:00", periods: 3 })];
+    const { lines } = pay(subs, { dayKindOf: () => "rest_day", tapsOf: () => ({ in: 6 * 60 + 50, out: 17 * 60 + 10 }) });
+    expect(lines[0]).toMatchObject({ minutes: 420, rate_pct: 130, amount: 1673.58 });
+    expect(lines[0].past_8h_minutes).toBeUndefined();
+    // 7 h + 3 h = 10 h: 1 h at 130%, 2 h at 169%.
+    expect(lines[1]).toMatchObject({ minutes: 180, rate_pct: 130, past_8h_minutes: 120, past_8h_pct: 169, amount: 860.7 });
+    expect(lines[1].note).toMatch(/; 2 h past 8 h on the rest day at 169%$/);
+  });
+
   it("substitution hours do not count toward the overtime caps (setting, off)", () => {
     expect(settings.substitution_counts_toward_ot_cap).toBe("off");
     expect(SUBSTITUTION_SETTINGS.substitution_fixed_per_period).toBeUndefined();

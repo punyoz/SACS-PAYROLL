@@ -75,6 +75,7 @@ export function computeSubstitutionPay({ subs, tapsOf, dayKindOf = () => "regula
   const lines = [];
   const unconfirmed = [];
   const overlaps = [];
+  const restMinutes = new Map();
   const sorted = [...(subs || [])].sort((a, b) => `${a.sub_date} ${a.start_time}`.localeCompare(`${b.sub_date} ${b.start_time}`));
   for (const sub of sorted) {
     const start = minutesOf(sub.start_time);
@@ -90,11 +91,21 @@ export function computeSubstitutionPay({ subs, tapsOf, dayKindOf = () => "regula
       minutes = Math.max(0, minutes - paidAsOvertime);
     }
     if (!minutes) continue;
-    const pct = pctOf(dayKindOf(sub.sub_date));
-    const amount = peso(hourly * minutes / 60 * pct / 100);
+    const kind = dayKindOf(sub.sub_date);
+    const pct = pctOf(kind);
+    // A rest day past 8 h (all substitutions that day counted): those minutes at the rest-day rate × 130 % (169 %).
+    let pastMinutes = 0;
+    if (kind === "rest_day") {
+      const before = restMinutes.get(sub.sub_date) || 0;
+      pastMinutes = Math.max(0, before + minutes - 480) - Math.max(0, before - 480);
+      restMinutes.set(sub.sub_date, before + minutes);
+    }
+    const pastPct = Math.round(pct * 1.3 * 100) / 100;
+    const amount = peso(hourly * (minutes - pastMinutes) / 60 * pct / 100 + hourly * pastMinutes / 60 * pastPct / 100);
     const who = `covering ${sub.absent_name || "a teacher"}${sub.class_section ? `, ${sub.class_section}` : ""}${sub.subject ? ` (${sub.subject})` : ""} (${dayLabel(sub.sub_date)})`;
     lines.push({ type: "substitution", kind: "overtime_substitution", source_id: sub.id, log_date: sub.sub_date, minutes, rate_pct: pct, amount,
-      note: `Overtime (substitution): ${hoursText(minutes)} × ${pesoText(peso(hourly))} × ${pct}%, ${who}${paidAsOvertime > 0 ? " (overlapping overtime paid once)" : ""}` });
+      note: `Overtime (substitution): ${hoursText(minutes)} × ${pesoText(peso(hourly))} × ${pct}%, ${who}${paidAsOvertime > 0 ? " (overlapping overtime paid once)" : ""}${pastMinutes ? `; ${hoursText(pastMinutes)} past 8 h on the rest day at ${pastPct}%` : ""}`,
+      ...(pastMinutes ? { past_8h_minutes: pastMinutes, past_8h_pct: pastPct } : {}) });
   }
   return { lines, unconfirmed, overlaps };
 }

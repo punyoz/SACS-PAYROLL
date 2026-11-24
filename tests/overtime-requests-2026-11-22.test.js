@@ -88,6 +88,25 @@ describe("overtime pay rate (Part B, 2026-11-22)", () => {
     expect(pay({ holidays }).find((e) => e.source_log_id === "a")).toMatchObject({ rate: 100 });
   });
 
+  it("a rest day past 8 h: the hours past 8 at 169% (130% × 130%) on their own line", () => {
+    const lines = computeAttendancePay({
+      logs: [log("b", "2026-11-21")], rates: rates(), periodStart: "2026-11-16", periodEnd: "2026-11-30",
+      overtime: new Map([["b", 600]]), overtimeRegularPct: 125, restDays: new Set(["2026-11-21"]),
+    }).earnings.filter((e) => e.type === "overtime");
+    expect(lines).toEqual([
+      expect.objectContaining({ quantity: 480, rate: 130, rate_pct: 130, amount: 1040 }),
+      expect.objectContaining({ quantity: 120, rate: 169, rate_pct: 169, past_8h: true, amount: 338, note: "Rest day, past 8 h: 169% of the hourly rate" }),
+    ]);
+    // Exactly 8 h: one line, no 169% part.
+    const eight = computeAttendancePay({
+      logs: [log("b", "2026-11-21")], rates: rates(), periodStart: "2026-11-16", periodEnd: "2026-11-30",
+      overtime: new Map([["b", 480]]), overtimeRegularPct: 125, restDays: new Set(["2026-11-21"]),
+    }).earnings.filter((e) => e.type === "overtime");
+    expect(eight).toHaveLength(1);
+    // A regular day past 8 h is unchanged (125%).
+    expect(pay({ overtime: new Map([["a", 600]]) }).find((e) => e.source_log_id === "a")).toMatchObject({ quantity: 600, rate_pct: 125, amount: 1250 });
+  });
+
   it("without the setting (older callers) the rate table applies everywhere", () => {
     expect(pay({ overtimeRegularPct: undefined }).find((e) => e.source_log_id === "a")).toMatchObject({ rate: 100, amount: 200 });
   });
