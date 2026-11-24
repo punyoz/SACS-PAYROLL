@@ -1,29 +1,25 @@
 /**
- * Substitute teaching by school employees (Part C, 2026-11-22): the rules,
- * from the schedule and the taps only (no timetable). Pure functions; the
- * settings are pending the school's policy manual.
+ * Substitute teaching by school employees: the rules, from the schedule and the taps only (no timetable).
+ * Pure functions; the settings are pending the school's policy manual.
  *
- * A substitution: { id, sub_date, start_time "HH:MM", end_time, periods,
- *   absent_name, class_section?, subject? }
+ * A substitution: { id, sub_date, start_time "HH:MM", end_time, periods, absent_name, class_section?, subject? }
  *
- * Pay, per substitution confirmed by the substitute's taps:
- *   - the part inside the substitute's own shift: the substitution allowance
- *     (fixed ₱ per period, default ₱150; or own hourly × hours; or a % of it);
- *   - the part outside the shift: overtime rules (Part B: 125% of hourly);
- *     the approved substitution is the authorization;
- *   - hours above the weekly standard load (scheduled hours + approved
- *     substitutions that week, a setting) are paid at the overload rate
- *     instead. Never paid twice: each hour is in exactly one of the three.
+ * Pay (2026-11-26, school policy; replaces the ₱150-a-period allowance and the inside / outside / overload
+ * split, from Nov 16-30 on; earlier payslips keep their lines): OVERTIME,
+ *   periods covered × period length (setting, 1 h) × the substitute's hourly rate × the overtime rate
+ *   (regular day 125%; a holiday: the holiday rate × 130%; a rest day: 125%, no rest-day premium).
+ * The HR-approved substitution is the authorization (no overtime request). The substitute's taps must cover
+ * the class time; without them it is not paid and HR is told. Never paid twice: minutes an approved overtime
+ * request already covers are left out of the substitution line (and flagged). Substitution hours do not count
+ * toward the overtime caps unless the setting says so (off).
  */
 
 import { attendanceSpanOf } from "@/lib/payroll/final-payslips";
 
 export const SUBSTITUTION_SETTINGS = {
-  substitution_rate_mode: { label: "Allowance inside the shift", options: ["fixed", "hourly", "pct"], fallback: "fixed" },
-  substitution_fixed_per_period: { label: "Allowance per class period (₱)", min: 0, max: 5000, fallback: 150 },
-  substitution_pct: { label: "Allowance as % of own hourly rate", min: 0, max: 300, fallback: 100 },
+  substitution_period_hours: { label: "Length of a class period (hours)", min: 0.25, max: 4, fallback: 1 },
+  substitution_counts_toward_ot_cap: { label: "Substitution hours count toward the overtime caps", options: ["off", "on"], fallback: "off" },
   substitution_cap_periods_week: { label: "Substitution periods a week per teacher (cap)", min: 1, max: 40, fallback: 5 },
-  standard_load_hours_week: { label: "Standard weekly load (hours) before overload", min: 1, max: 80, fallback: 40 },
 };
 
 const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -59,68 +55,46 @@ export function tapsConfirm(sub, tapMinutes, graceMinutes = 15) {
 }
 
 /**
- * Earnings lines for one employee's substitutions in a period.
+ * Earnings lines for one employee's substitutions in a period (paid as overtime).
  *   subs            approved substitutions (any order)
- *   shiftOf(date)   → { start, end } minutes of the substitute's own shift that day, or null (rest day)
  *   tapsOf(date)    → { in, out } minutes, or null
- *   scheduledHoursOfWeek(weekKey) → the substitute's scheduled hours that week
- *   rates           { hourly, overload_premium_pct, overtime_regular_pct }
+ *   dayKindOf(date) → "regular" | "rest_day" | "holiday" | "special"
+ *   overtimeOf(date) → [[start, end], …] minutes of approved overtime requests that day
+ *   rates           { hourly, overtime_regular_pct (125), regular_holiday_premium_pct, special_holiday_premium_pct }
  *   settings        readSubstitutionSettings()
- * → { lines: [...], unconfirmed: [{ id, sub_date }] }
+ * → { lines: [...], unconfirmed: [{ id, sub_date }], overlaps: [{ id, sub_date, minutes }] }
  */
-export function computeSubstitutionPay({ subs, shiftOf, tapsOf, scheduledHoursOfWeek, rates, settings }) {
+export function computeSubstitutionPay({ subs, tapsOf, dayKindOf = () => "regular", overtimeOf = () => [], rates, settings }) {
   const hourly = Number(rates.hourly) || 0;
-  const overloadRate = hourly * (1 + (Number(rates.overload_premium_pct) || 0) / 100);
-  const overtimeRate = hourly * (Number(rates.overtime_regular_pct) || 125) / 100;
-  const standardMin = Number(settings.standard_load_hours_week) * 60;
-  const used = new Map(); // week → minutes counted so far (scheduled + substitutions)
+  const regularPct = Number(rates.overtime_regular_pct) || 125;
+  const pctOf = (kind) => (kind === "holiday" ? Math.round((100 + (Number(rates.regular_holiday_premium_pct) || 0)) * 1.3)
+    : kind === "special" ? Math.round((100 + (Number(rates.special_holiday_premium_pct) || 0)) * 1.3) : regularPct);
+  const periodHours = Number(settings?.substitution_period_hours) || 1;
   const lines = [];
   const unconfirmed = [];
+  const overlaps = [];
   const sorted = [...(subs || [])].sort((a, b) => `${a.sub_date} ${a.start_time}`.localeCompare(`${b.sub_date} ${b.start_time}`));
-
   for (const sub of sorted) {
     const start = minutesOf(sub.start_time);
     const end = minutesOf(sub.end_time);
     if (start === null || end === null || end <= start) continue;
     if (!tapsConfirm(sub, tapsOf(sub.sub_date))) { unconfirmed.push({ id: sub.id, sub_date: sub.sub_date }); continue; }
-    const total = end - start;
-    const week = weekOf(sub.sub_date);
-    if (!used.has(week)) used.set(week, Math.round((Number(scheduledHoursOfWeek(week)) || 0) * 60));
-    const before = used.get(week);
-    const overloadMin = Math.min(total, Math.max(0, before + total - standardMin));
-    used.set(week, before + total);
-    const regularMin = total - overloadMin;
-    // Of the regular part, what lies inside the substitute's own shift that day (a vacant period) — the
-    // earliest minutes of the class are counted first, the overload part is its last minutes.
-    const shift = shiftOf(sub.sub_date);
-    const insideMin = shift ? Math.min(regularMin, overlap(start, start + regularMin, shift.start, shift.end)) : 0;
-    const outsideMin = regularMin - insideMin;
     const periods = Math.max(1, Math.round(Number(sub.periods) || 1));
+    let minutes = Math.round(periods * periodHours * 60);
+    // Never paid twice: the class time an approved overtime request already pays is left out.
+    const paidAsOvertime = (overtimeOf(sub.sub_date) || []).reduce((sum, [s0, e0]) => sum + overlap(start, end, s0, e0), 0);
+    if (paidAsOvertime > 0) {
+      overlaps.push({ id: sub.id, sub_date: sub.sub_date, minutes: Math.min(paidAsOvertime, minutes) });
+      minutes = Math.max(0, minutes - paidAsOvertime);
+    }
+    if (!minutes) continue;
+    const pct = pctOf(dayKindOf(sub.sub_date));
+    const amount = peso(hourly * minutes / 60 * pct / 100);
     const who = `covering ${sub.absent_name || "a teacher"}${sub.class_section ? `, ${sub.class_section}` : ""}${sub.subject ? ` (${sub.subject})` : ""} (${dayLabel(sub.sub_date)})`;
-
-    if (insideMin > 0) {
-      const share = insideMin / total;
-      const mode = settings.substitution_rate_mode;
-      let amount; let how;
-      if (mode === "hourly") { amount = hourly * insideMin / 60; how = `${hoursText(insideMin)} × ${pesoText(hourly)}`; }
-      else if (mode === "pct") { amount = hourly * Number(settings.substitution_pct) / 100 * insideMin / 60; how = `${hoursText(insideMin)} × ${settings.substitution_pct}% of ${pesoText(hourly)}`; }
-      else {
-        const p = Math.round(periods * share * 100) / 100;
-        amount = Number(settings.substitution_fixed_per_period) * p;
-        how = `${p} period${p === 1 ? "" : "s"} × ${pesoText(settings.substitution_fixed_per_period)}`;
-      }
-      lines.push({ type: "substitution", kind: "allowance", source_id: sub.id, log_date: sub.sub_date, minutes: insideMin, amount: peso(amount), note: `Substitution: ${how}, ${who}` });
-    }
-    if (outsideMin > 0) {
-      lines.push({ type: "substitution", kind: "overtime", source_id: sub.id, log_date: sub.sub_date, minutes: outsideMin, amount: peso(overtimeRate * outsideMin / 60),
-        note: `Substitution outside the shift: ${hoursText(outsideMin)} × ${pesoText(peso(overtimeRate))} (${Number(rates.overtime_regular_pct) || 125}% of hourly), ${who}` });
-    }
-    if (overloadMin > 0) {
-      lines.push({ type: "substitution", kind: "overload", source_id: sub.id, log_date: sub.sub_date, minutes: overloadMin, amount: peso(overloadRate * overloadMin / 60),
-        note: `Substitution above the standard load: ${hoursText(overloadMin)} × ${pesoText(peso(overloadRate))} (overload rate), ${who}` });
-    }
+    lines.push({ type: "substitution", kind: "overtime_substitution", source_id: sub.id, log_date: sub.sub_date, minutes, rate_pct: pct, amount,
+      note: `Overtime (substitution): ${hoursText(minutes)} × ${pesoText(peso(hourly))} × ${pct}%, ${who}${paidAsOvertime > 0 ? " (overlapping overtime paid once)" : ""}` });
   }
-  return { lines, unconfirmed };
+  return { lines, unconfirmed, overlaps };
 }
 
 /** The settings in effect (system_config section "substitution"; a missing or bad value → its default). */

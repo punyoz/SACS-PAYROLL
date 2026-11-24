@@ -913,7 +913,7 @@ function normalizeAttendanceStatus(value) {
  */
 
 async function loadSubstitutionContext(supabase, employeeIds, from, to) {
-  const empty = { byEmployee: new Map(), shiftOf: () => null, tapsOf: () => null, weekHours: () => 0, settings: await readSubstitutionSettings(supabase) };
+  const empty = { byEmployee: new Map(), shiftOf: () => null, tapsOf: () => null, weekHours: () => 0, overtimeOf: () => [], settings: await readSubstitutionSettings(supabase) };
   if (!employeeIds?.length) return empty;
   // Back to 62 days before the period: an approval after its own cutoff was processed is paid on the
   // next payslip as an adjustment (Part C), listed in the Accountant's Action needed.
@@ -936,11 +936,22 @@ async function loadSubstitutionContext(supabase, employeeIds, from, to) {
   const firstDate = rows.reduce((min, r) => (String(r.sub_date).slice(0, 10) < min ? String(r.sub_date).slice(0, 10) : min), from);
   const weekStart = weekOf(firstDate);
   const weekEnd = new Date(Date.parse(`${weekOf(to)}T00:00:00Z`) + 6 * 864e5).toISOString().slice(0, 10);
-  const [names, logs] = await Promise.all([
+  const [names, logs, overtime] = await Promise.all([
     fetchAllIn(() => supabase.from("profiles").select("id,full_name"), "id", absentIds),
     fetchAllIn(() => supabase.from("attendance_logs").select("employee_id,log_date,time_in,time_out,status,shift_start_minutes,shift_end_minutes")
       .gte("log_date", weekStart).lte("log_date", weekEnd).eq("archived_duplicate", false), "employee_id", subIds),
+    // Approved overtime requests of the substitutes (never paid twice, 2026-11-26).
+    fetchAllIn(() => supabase.from("overtime_requests").select("employee_id,request_date,planned_start,planned_end")
+      .eq("status", "approved").gte("request_date", weekStart).lte("request_date", weekEnd), "employee_id", subIds),
   ]);
+  const otOf = new Map();
+  for (const o of overtime.data || []) {
+    const key = `${o.employee_id}|${String(o.request_date).slice(0, 10)}`;
+    const toMin = (t) => { const [h, m] = String(t || "").split(":").map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null; };
+    const s0 = toMin(o.planned_start), e0 = toMin(o.planned_end);
+    if (s0 === null || e0 === null) continue;
+    otOf.set(key, [...(otOf.get(key) || []), [s0, e0]]);
+  }
   const nameOf = new Map((names.data || []).map((p) => [p.id, p.full_name]));
   const byEmployee = new Map();
   for (const r of rows) {
@@ -963,6 +974,7 @@ async function loadSubstitutionContext(supabase, employeeIds, from, to) {
     shiftOf: (id, date) => { const l = logOf.get(`${id}|${date}`); return l && l.shift_start_minutes !== null && l.shift_end_minutes !== null && l.status !== "Holiday" ? { start: l.shift_start_minutes, end: l.shift_end_minutes } : null; },
     tapsOf: (id, date) => { const l = logOf.get(`${id}|${date}`); return l ? { in: minutes(l.time_in), out: minutes(l.time_out) } : null; },
     weekHours: (id, week) => weekHours.get(`${id}|${week}`) || 0,
+    overtimeOf: (id, date) => otOf.get(`${id}|${date}`) || [],
   };
 }
 
@@ -1808,11 +1820,17 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     const leave = leaveSummary.find((row) => row.employee_id === employee.id) || null;
     // Part C: this payslip's approved substitutions, paid only when the substitute's taps cover them.
     const mySubs = (substitutionContext.byEmployee.get(employee.id) || []).filter((r) => (r.sub_date >= own.start_key || r.late) && r.sub_date <= own.end_key);
+    // 2026-11-26: paid as overtime (regular day 125%; holiday rates from the table; rest day 125%).
     const substitution = mySubs.length ? computeSubstitutionPay({
       subs: mySubs,
-      shiftOf: (date) => substitutionContext.shiftOf(employee.id, date),
       tapsOf: (date) => substitutionContext.tapsOf(employee.id, date),
-      scheduledHoursOfWeek: (week) => substitutionContext.weekHours(employee.id, week),
+      dayKindOf: (date) => {
+        const type = holidays.forBranch(employee.branch_id).types?.get(date);
+        if (type === "holiday") return "holiday";
+        if (type === "special") return "special";
+        return substitutionContext.shiftOf(employee.id, date) ? "regular" : "rest_day";
+      },
+      overtimeOf: (date) => substitutionContext.overtimeOf(employee.id, date),
       rates: { ...rateValues(resolved), overtime_regular_pct: requestSettings.overtime_regular_pct },
       settings: substitutionContext.settings,
     }) : null;

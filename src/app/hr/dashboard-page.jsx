@@ -212,6 +212,7 @@ function ActionNeededCard({ data }) {
       rowHref: (r) => portalHref("hr-employees", { emp_open: r.id }) },
     // Part B (2026-11-22): a Final payslip never changes by itself; the Accountant files the correction.
     // 2026-11-24: the system's items it could not decide, or waiting too long (details and Undo in Settings > Automation).
+    { key: "sub-unconfirmed", title: "Substitution not confirmed by taps", text: "Paid as overtime only when the substitute's taps cover the class time: check the attendance or correct it.", href: portalHref("hr-attendance"), rows: a.substitution_unconfirmed || [] },
     { key: "no-card", title: "No active RFID card", text: "They cannot tap, so AWOL never runs for them: register a card in Attendance › RFID.", href: portalHref("hr-rfid-cards"), rows: a.no_card || [] },
     { key: "automation", title: "The system needs HR", text: "It could not decide these, or they have waited too long. Details in Settings > Automation.", href: portalHref("hr-automation"), rows: a.automation || [] },
     { key: "late-leave", title: "Leave approved after its payslip", text: "The payslip for that day was already paid: the branch Accountant files a correction on the next payslip.", href: portalHref("hr-payroll-records"), rows: a.leave_after_payslip || [] },

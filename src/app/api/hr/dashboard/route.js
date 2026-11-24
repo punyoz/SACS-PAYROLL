@@ -14,6 +14,7 @@ import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { isOnPayroll } from "@/lib/payroll/on-payroll";
 import { isArchivedBranch } from "@/lib/branches/archived";
+import { dayLabel } from "@/lib/date-label";
 
 
 // Statuses attendance_missing_days leaves out (20261110020000 private.is_active_staff).
@@ -238,6 +239,27 @@ export async function GET(request) {
       const { data: cards } = await supabase.from("rfid_cards").select("employee_id").eq("status", "active");
       const has = new Set((cards || []).map((k) => String(k.employee_id)));
       actionNeeded.no_card = (staff || []).filter((p) => !has.has(String(p.id))).map((p) => ({ id: p.id, full_name: p.full_name }));
+    } catch { /* ignore */ }
+    // 2026-11-26: approved substitutions the substitute's taps do not cover (paid only with taps): HR checks them.
+    actionNeeded.substitution_unconfirmed = [];
+    try {
+      const since = new Date(Date.now() + 8 * 3600e3 - 31 * 864e5).toISOString().slice(0, 10);
+      const until = new Date(Date.now() + 8 * 3600e3 - 864e5).toISOString().slice(0, 10);
+      const { data: subs } = await supabase.from("substitutions").select("id,sub_date,start_time,end_time,substitute_id").eq("status", "approved").gte("sub_date", since).lte("sub_date", until).not("substitute_id", "is", null);
+      const ids = [...new Set((subs || []).map((x) => x.substitute_id))];
+      if (ids.length) {
+        const [{ data: logs }, { data: people }] = await Promise.all([
+          supabase.from("attendance_logs").select("employee_id,log_date,time_in,time_out").in("employee_id", ids).gte("log_date", since).lte("log_date", until),
+          supabase.from("profiles").select("id,full_name").in("id", ids)]);
+        const nameOf = new Map((people || []).map((p) => [p.id, p.full_name]));
+        const mins = (iso) => { if (!iso) return null; const d = new Date(new Date(iso).getTime() + 8 * 3600e3); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
+        const hm = (t) => { const [h, m] = String(t || "").split(":").map(Number); return h * 60 + (m || 0); };
+        actionNeeded.substitution_unconfirmed = (subs || []).filter((x) => {
+          const l = (logs || []).find((g) => g.employee_id === x.substitute_id && String(g.log_date).slice(0, 10) === String(x.sub_date).slice(0, 10));
+          const tin = mins(l?.time_in), tout = mins(l?.time_out);
+          return tin === null || tout === null || tin > hm(x.start_time) + 15 || tout < hm(x.end_time);
+        }).map((x) => ({ id: x.id, full_name: nameOf.get(x.substitute_id) || "Substitute", detail: `Substitution on ${dayLabel(x.sub_date)}: no taps covering ${String(x.start_time).slice(0, 5)}–${String(x.end_time).slice(0, 5)}, so it is not paid` }));
+      }
     } catch { /* ignore */ }
     // 2026-11-24 (no Automation card): what the system could not decide, and what waits too long, with the reason.
     actionNeeded.automation = [];
