@@ -4,8 +4,24 @@
 import { test, expect } from "../support/test.mjs";
 import { as, ROLE_LABEL } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
-import { PAGES, expectHealthy, lostLines, main, navTo, settle, snapshot } from "../support/portal.mjs";
+import { MOVED_PAGES, PAGES, expectHealthy, lostLines, main, navTo, settle, snapshot } from "../support/portal.mjs";
 import { exerciseControls } from "../support/controls.mjs";
+
+// Old page links (bookmarks, notifications) land on the page that replaced them.
+for (const [role, moved] of Object.entries(MOVED_PAGES)) {
+  test(`${ROLE_LABEL[role]}: moved page links redirect`, async ({ page, monitor }) => {
+    await as(page, role);
+    const portal = role === "super_admin" ? "/super-admin" : `/${role}`;
+    for (const [from, to] of Object.entries(moved)) {
+      monitor.at(`${ROLE_LABEL[role]} > ${from}`);
+      await page.goto(`${portal}?page=${from}`);
+      await main(page).waitFor();
+      await expect(page).toHaveURL(new RegExp(`page=${to}(&|$)`));
+      expect(await settle(page), `${from}: still loading`).toBe(true);
+      await expectHealthy(page, `${ROLE_LABEL[role]} > ${from} → ${to}`);
+    }
+  });
+}
 
 for (const role of Object.keys(PAGES)) {
   test.describe(`${ROLE_LABEL[role]} pages`, () => {
