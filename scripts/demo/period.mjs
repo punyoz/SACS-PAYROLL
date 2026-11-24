@@ -360,31 +360,42 @@ async function build() {
         if (!staff.length) continue;
         const accountant = code === "BR-001" ? ACC : { ...by("janeacc"), role: "accountant" };
         if (!period.final) {
-          for (const p of staff) ok(`draft ${p.key}`, await as(accountant).post("/api/accountant/payroll", { action: "save_draft", employee_id: p.id, pay_period: period.label }));
-          notes.push(`${br[code].name} ${staff.length} drafts`);
+          let held = 0;
+          for (const p of staff) {
+            const r = await as(accountant).patch("/api/accountant/payroll", { action: "generate", employee_id: p.id, pay_period: period.label, confirm_incomplete: true });
+            if (r.status === 409 && r.data?.code === "payroll_hold") { held += 1; continue; } // Ramon: pay on hold (AWOL)
+            ok(`draft ${p.key}`, r);
+          }
+          notes.push(`${br[code].name} ${staff.length - held} drafts${held ? `, ${held} on hold` : ""}`);
           continue;
         }
-        const res = ok(`batch ${code}`, await as(accountant).post("/api/accountant/payroll", { action: "batch_submit", pay_period: period.label, entries: staff.map((p) => ({ employee_id: p.id })) }));
-        const skipped = (res.skipped || []).filter((k) => !/already been processed/.test(k.reason || ""));
-        if (skipped.length) throw new Error(`${code} skipped: ${JSON.stringify(skipped).slice(0, 500)}`);
-        let submit = await as(accountant).patch("/api/accountant/payroll-runs", { action: "submit", branch_id: br[code].id, period: period.label });
-        if (submit.status === 409 && submit.data?.code === "exclusions_unacknowledged") {
-          const notesBy = Object.fromEntries((submit.data.missing || []).map((m) => [m.id, "Separated: paid through final pay."]));
-          submit = await as(accountant).patch("/api/accountant/payroll-runs", { action: "submit", branch_id: br[code].id, period: period.label, acknowledge_exclusions: true, exclusion_notes: notesBy });
+        // Resumable: a branch whose run is already approved is done; a submitted one only needs HR.
+        const [have] = await db.rows(`select id, status from payroll_runs where branch_id = ${lit(br[code].id)} and period_label = ${lit(period.label)} order by run_no desc limit 1`);
+        if (have?.status === "approved") { notes.push(`${br[code].name} already paid`); continue; }
+        if (!have || have.status !== "pending") {
+          const res = ok(`batch ${code}`, await as(accountant).post("/api/accountant/payroll", { action: "batch_submit", pay_period: period.label, entries: staff.map((p) => ({ employee_id: p.id })) }));
+          const skipped = (res.skipped || []).filter((k) => !/already been processed/.test(k.reason || ""));
+          if (skipped.length) throw new Error(`${code} skipped: ${JSON.stringify(skipped).slice(0, 500)}`);
+          let submit = await as(accountant).patch("/api/accountant/payroll-runs", { action: "submit", branch_id: br[code].id, period: period.label });
+          if (submit.status === 409 && submit.data?.code === "exclusions_unacknowledged") {
+            const notesBy = Object.fromEntries((submit.data.missing || []).map((m) => [m.id, "Separated: paid through final pay."]));
+            submit = await as(accountant).patch("/api/accountant/payroll-runs", { action: "submit", branch_id: br[code].id, period: period.label, acknowledge_exclusions: true, exclusion_notes: notesBy });
+          }
+          ok(`submit ${code}`, submit);
         }
-        ok(`submit ${code}`, submit);
         const [run] = await db.rows(`select id from payroll_runs where branch_id = ${lit(br[code].id)} and period_label = ${lit(period.label)} order by run_no desc limit 1`);
-        const approver = code === "BR-001" ? HR : { ...by("janehr"), role: "hr" };
-        const approved = ok(`approve ${code}`, await as(approver).patch("/api/hr/payroll-runs", { action: "approve", run_ids: [run.id] }));
+        // Demo HR One decides both branches (the Robinson HR's own payslip is in Robinson's run: another HR decides).
+        const approved = ok(`approve ${code}`, await as(HR).patch("/api/hr/payroll-runs", { action: "approve", run_ids: [run.id] }));
         if (!approved?.approved) throw new Error(`${code} not approved: ${JSON.stringify(approved).slice(0, 300)}`);
         notes.push(`${br[code].name} ${staff.length} paid`);
       }
       // Anjo's final pay once his last half is paid (separated Oct 21).
       if (period.label === "October 16-31, 2026") {
         const anjo = by("anjo");
-        ok("final pay", await as(ACC).post("/api/accountant/final-pay", { employee_id: anjo.id, release_on: "2026-11-20" }));
+        const [pending] = await db.rows(`select id from payroll_final_pay_submissions where employee_id = ${lit(anjo.id)} and status::text like 'pending%' limit 1`);
+        if (!pending) ok("final pay", await as(ACC).post("/api/accountant/final-pay", { employee_id: anjo.id, release_on: "2026-11-20" }));
         const [fp] = await db.rows(`select id from payroll_final_pay_submissions where employee_id = ${lit(anjo.id)} order by created_at desc limit 1`);
-        ok("HR approves final pay", await as(HR).patch("/api/hr/final-pay-approvals", { id: fp.id, decision: "approve", remark: { code: "approve.as_requested" } }));
+        ok("HR approves final pay", await as(HR).patch("/api/hr/final-pay-approvals", { id: fp.id, action: "approve", remark: { code: "approve.as_requested" } }));
         notes.push("Anjo final pay approved");
       }
       return notes.join("; ");

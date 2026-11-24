@@ -38,7 +38,7 @@ export const PEOPLE = [
   { key: "marisol", match: { code: "DEMO-101" }, licensed: { no: "0991101", expires: "2028-06-30" } },
   { key: "carlo", match: { code: "DEMO-102" }, licensed: { no: "0991102", expires: "2029-03-31" } },
   { key: "liza", match: { code: "DEMO-103" } },
-  { key: "ramon", match: { code: "DEMO-104" } },
+  { key: "ramon", match: { code: "DEMO-104" }, active: true }, // his case opens again after Nov 1-15 is paid
   { key: "nestor", match: { code: "DEMO-105" } },
   { key: "teresa", match: { code: "SACS-HR-001" }, rename: { first: "Teresa", middle: "Cruz", last: "Bautista" }, cp: "09171230301",
     address: "7 M.L. Quezon Ext, Antipolo City, Rizal", emergency: ["Ruben Bautista", "Spouse", "09171239301"] },

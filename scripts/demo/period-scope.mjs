@@ -25,7 +25,7 @@ export const SCOPE = [
   ["payroll_approval_history", "run_id in (select id from payroll_runs where branch_id in B and period_start >= F)"],
   ["payroll_run_exclusions", "run_id in (select id from payroll_runs where branch_id in B and period_start >= F)"],
   ["payroll_run_items", "run_id in (select id from payroll_runs where branch_id in B and period_start >= F) or (employee_id in P and entry_id in (select id from payroll_entries where pay_period in " + LABELS + "))"],
-  ["payroll_entries", "employee_id in P and pay_period in " + LABELS],
+  ["payroll_entries", "(employee_id in P and pay_period in " + LABELS + ") or (employee_id in S and pay_period like 'Final pay%' and created_at >= F)"],
   ["payroll_records", "employee_id in P and period_start >= F"],
   ["payroll_runs", "branch_id in B and period_start >= F"],
   ["early_bird_winners", "period_start >= F"],
