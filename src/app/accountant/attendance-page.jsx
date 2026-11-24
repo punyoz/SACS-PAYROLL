@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { BranchRequestsReview } from "@/components/portal/branch-requests-review";
 import { CalendarCheckIcon, InfoIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/portal/data-table";
 import { AttendanceStatusBoard } from "@/components/portal/attendance/status-board";
 import { useAccountant } from "./accountant-data";
+import { fetchJson } from "@/lib/portal/api";
+import { portalHref } from "@/lib/portal/navigate";
 import { INCOMPLETE_TAB_KEY } from "./process-page";
 
 /*
@@ -39,7 +40,7 @@ export function AttendancePage({ refreshKey }) {
 
   return (
     <>
-      <Alert className="border-info/40 bg-info/8">
+      <Alert className="border-border bg-muted/30">
         <InfoIcon aria-hidden="true" />
         <AlertDescription>You can view attendance to assist with payroll. You cannot modify attendance records.</AlertDescription>
       </Alert>
@@ -67,11 +68,43 @@ export function AttendancePage({ refreshKey }) {
           />
         </CardContent>
       </Card>
-      {/* The branch Admin confirms overtime / substitute teaching before it is paid (2026-10-20). */}
-      <BranchRequestsReview refreshKey={refreshKey} kinds={["overtime_confirmation"]} readOnly
-        source="/api/admin/branch-oversight?view=requests&kind=overtime_confirmation"
-        title="Overtime & substitute-teaching confirmations"
-        description="The branch Admin's confirmation (Endorsed = it happened; Not endorsed = it did not). Check it before paying overtime or substitute teaching." />
+      {/* 2026-11-26: what HR approved and what the payslips paid (no Admin endorsement any more). */}
+      <ApprovedOvertimeCard refreshKey={refreshKey} />
     </>
+  );
+}
+
+const money = (n) => (n === null || n === undefined ? "—" : `₱${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+
+/** Read-only: HR-approved overtime requests and substitutions (paid as overtime), with what the payslip paid. */
+function ApprovedOvertimeCard({ refreshKey }) {
+  const [state, setState] = React.useState({ loading: true, error: null, rows: [] });
+  const load = React.useCallback(async () => {
+    setState((c) => ({ ...c, loading: true, error: null }));
+    try { const d = await fetchJson("/api/accountant/approved-overtime"); setState({ loading: false, error: null, rows: d.rows || [] }); }
+    catch (e) { setState((c) => ({ ...c, loading: false, error: e.message || "Not loaded." })); }
+  }, []);
+  React.useEffect(() => { load(); }, [load, refreshKey]);
+  const columns = [
+    { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (r) => `${r.employee_name} ${r.detail}` },
+    { key: "kind", header: "Type", cell: (r) => r.kind },
+    { key: "date", header: "Date", sortable: true, cell: (r) => r.date_label },
+    { key: "hours", header: "Hours", align: "right", className: "tabular-nums", cell: (r) => r.hours },
+    { key: "rate", header: "Rate", align: "right", className: "tabular-nums", cell: (r) => money(r.rate) },
+    { key: "amount", header: "Amount", align: "right", className: "tabular-nums font-medium", cell: (r) => (r.amount === null ? <span className="text-muted-foreground">Not paid yet</span> : money(r.amount)) },
+    { key: "pay_period", header: "Cutoff", cell: (r) => (r.pay_period ? <a className="underline-offset-2 hover:underline" href={portalHref("ac-records")}>{r.pay_period}</a> : "—") },
+    { key: "detail", header: "Details", className: "max-w-72 whitespace-normal text-xs text-muted-foreground", cell: (r) => r.detail },
+  ];
+  return (
+    <Card className="min-w-0 shadow-xs" data-testid="approved-overtime">
+      <CardHeader>
+        <CardTitle>Approved overtime &amp; substitutions</CardTitle>
+        <CardDescription>What HR approved and what the payslip paid. Substitute teaching is paid as overtime. View only.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <DataTable columns={columns} rows={state.rows} loading={state.loading} error={state.error} onRetry={load} rowKey={(r) => `${r.kind}-${r.employee_id}-${r.date}`}
+          searchPlaceholder="Search employee or details…" empty={{ title: "Nothing approved in the last two months", icon: CalendarCheckIcon }} caption="Approved overtime and substitutions" minWidth={900} />
+      </CardContent>
+    </Card>
   );
 }

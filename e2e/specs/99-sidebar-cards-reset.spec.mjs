@@ -25,7 +25,7 @@ const PHONE = { width: 390, height: 844 };
 const ADMIN_ITEMS = [
   ["adm-dashboard", "Dashboard"], ["adm-attendance", "Branch Attendance"], ["adm-overtime", "Overtime & Substitute"],
   ["adm-leaves", "Leave Recommendations"], ["adm-transfers", "Transfer Endorsements"], ["adm-incentives", "Incentive Recommendations"], ["adm-schedules", "Schedule Requests"],
-  ["adm-incidents", "Incident & AWOL Reports"], ["adm-rfid-issues", "RFID Issues"],
+  ["adm-incidents", "Incident & AWOL Reports"],
   ["adm-announcements", "Announcements"], ["adm-payroll", "Payroll Summary"], ["adm-branch-reports", "Branch Reports"], ["adm-pay-rates", "Pay Rates"],
   ["adm-maintenance", "RFID Terminal & Cards"], ["adm-profile", "Profile"],
 ];
@@ -293,6 +293,11 @@ for (const [role, portal, fromPages, cardPages] of [
         await page.locator("#portal-main").waitFor();
         await expectOpenAt(page, id);
       }
+      // 22be045: the old RFID Issues link opens the one RFID page.
+      await page.goto("/admin?page=adm-rfid-issues");
+      await page.locator("#portal-main").waitFor();
+      await expect(page).toHaveURL(/page=adm-maintenance/);
+      await expectOpenAt(page, "adm-maintenance");
       const order = await sidebar(page).locator('[data-sidebar="content"] [data-sidebar="menu-button"]').evaluateAll((els) => els.map((e) => e.textContent.trim().replace(/\d+$/, "")));
       expect(order).toEqual(ADMIN_MODULES);
       expect(await sidebar(page).locator("[data-nav-group]").evaluateAll((els) => els.map((e) => e.dataset.navGroup)))

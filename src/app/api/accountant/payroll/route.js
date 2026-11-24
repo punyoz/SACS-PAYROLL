@@ -93,6 +93,8 @@ import { holidayAppliesTo } from "@/lib/attendance/holidays";
 import { loadDutyForPeriod } from "@/lib/attendance/holiday-duty";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { EARLY_BIRD_LABEL, earlyBirdLine, resolveEarlyBirdWinner } from "@/lib/payroll/early-bird";
+import { isYearEndPeriod, leaveConversionFor, loadLeaveConversion } from "@/lib/payroll/leave-conversion";
+import { leaveBalances as loadLeaveBalances } from "@/lib/employees/classification-server";
 import { expectedInRun, firstHalfBasis, firstHalfChange, firstHalfLabelOf } from "@/lib/payroll/run-roster";
 import { loadPayrollStaff } from "@/lib/payroll/staff";
 import { governingRunFor, governingRunMessage, isLockedRun, loadRunsFor, lockedForNewPayslip, lockedRunMessage, requiresApproval, shapeRun } from "@/lib/payroll/runs";
@@ -560,6 +562,8 @@ function computeTotals(payroll) {
   const substitutionPay = Math.max(0, toAmount(payroll.extra?.substitution));
   // Extra working days (2026-11-23): daily rate × premium, only when tapped in.
   const specialDayPay = Math.max(0, toAmount(payroll.extra?.special_day));
+  // Leave conversion (Dec 16–31, 2026-11-26).
+  const leaveConversionPay = Math.max(0, toAmount(payroll.extra?.leave_conversion));
 
   // Gross Pay = Basic Salary + approved overtime + holiday pay.
   const overtimePay = Math.max(0, toAmount(payroll.earnings?.overtime));
@@ -570,7 +574,7 @@ function computeTotals(payroll) {
     + absenceDeduction + lateDeduction + undertimeDeduction + halfDayDeduction
     + leaveWithoutPayDeduction + cashAdvance + loanDeduction,
   );
-  const totalIncentives = toAmount(perfectAttendanceIncentive + otherIncentive + overloadPay + subsidyPay + earlyBirdWinnerPay + substitutionPay + specialDayPay);
+  const totalIncentives = toAmount(perfectAttendanceIncentive + otherIncentive + overloadPay + subsidyPay + earlyBirdWinnerPay + substitutionPay + specialDayPay + leaveConversionPay);
   // Net Pay = Gross - SSS - PhilHealth - Pag-IBIG - Withholding Tax - Absences
   // - Late - Undertime - Half Day - Leave w/o Pay + Incentives.
   // Floored at zero: deductions can exceed the basic salary (absences, Leave
@@ -610,6 +614,7 @@ function computeTotals(payroll) {
       cash_advance_deduction: cashAdvance,
       loan_deduction: loanDeduction,
       subsidy_pay: subsidyPay,
+      leave_conversion_pay: leaveConversionPay,
       absence_deduction: absenceDeduction,
       late_deduction: lateDeduction,
       undertime_deduction: undertimeDeduction,
@@ -908,7 +913,7 @@ function normalizeAttendanceStatus(value) {
  */
 
 async function loadSubstitutionContext(supabase, employeeIds, from, to) {
-  const empty = { byEmployee: new Map(), shiftOf: () => null, tapsOf: () => null, weekHours: () => 0, settings: await readSubstitutionSettings(supabase) };
+  const empty = { byEmployee: new Map(), shiftOf: () => null, tapsOf: () => null, weekHours: () => 0, overtimeOf: () => [], settings: await readSubstitutionSettings(supabase) };
   if (!employeeIds?.length) return empty;
   // Back to 62 days before the period: an approval after its own cutoff was processed is paid on the
   // next payslip as an adjustment (Part C), listed in the Accountant's Action needed.
@@ -931,11 +936,22 @@ async function loadSubstitutionContext(supabase, employeeIds, from, to) {
   const firstDate = rows.reduce((min, r) => (String(r.sub_date).slice(0, 10) < min ? String(r.sub_date).slice(0, 10) : min), from);
   const weekStart = weekOf(firstDate);
   const weekEnd = new Date(Date.parse(`${weekOf(to)}T00:00:00Z`) + 6 * 864e5).toISOString().slice(0, 10);
-  const [names, logs] = await Promise.all([
+  const [names, logs, overtime] = await Promise.all([
     fetchAllIn(() => supabase.from("profiles").select("id,full_name"), "id", absentIds),
     fetchAllIn(() => supabase.from("attendance_logs").select("employee_id,log_date,time_in,time_out,status,shift_start_minutes,shift_end_minutes")
       .gte("log_date", weekStart).lte("log_date", weekEnd).eq("archived_duplicate", false), "employee_id", subIds),
+    // Approved overtime requests of the substitutes (never paid twice, 2026-11-26).
+    fetchAllIn(() => supabase.from("overtime_requests").select("employee_id,request_date,planned_start,planned_end")
+      .eq("status", "approved").gte("request_date", weekStart).lte("request_date", weekEnd), "employee_id", subIds),
   ]);
+  const otOf = new Map();
+  for (const o of overtime.data || []) {
+    const key = `${o.employee_id}|${String(o.request_date).slice(0, 10)}`;
+    const toMin = (t) => { const [h, m] = String(t || "").split(":").map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null; };
+    const s0 = toMin(o.planned_start), e0 = toMin(o.planned_end);
+    if (s0 === null || e0 === null) continue;
+    otOf.set(key, [...(otOf.get(key) || []), [s0, e0]]);
+  }
   const nameOf = new Map((names.data || []).map((p) => [p.id, p.full_name]));
   const byEmployee = new Map();
   for (const r of rows) {
@@ -958,6 +974,7 @@ async function loadSubstitutionContext(supabase, employeeIds, from, to) {
     shiftOf: (id, date) => { const l = logOf.get(`${id}|${date}`); return l && l.shift_start_minutes !== null && l.shift_end_minutes !== null && l.status !== "Holiday" ? { start: l.shift_start_minutes, end: l.shift_end_minutes } : null; },
     tapsOf: (id, date) => { const l = logOf.get(`${id}|${date}`); return l ? { in: minutes(l.time_in), out: minutes(l.time_out) } : null; },
     weekHours: (id, week) => weekHours.get(`${id}|${week}`) || 0,
+    overtimeOf: (id, date) => otOf.get(`${id}|${date}`) || [],
   };
 }
 
@@ -1322,6 +1339,29 @@ const NO_FIRST_HALF = Object.freeze({ gross_pay: 0, total_deductions: 0, total_i
  * `ready` is false when the 2nd half cannot be computed (migration not
  * applied, or no tax table); payroll then refuses to process.
  */
+/**
+ * The year-end leave conversion per employee (src/lib/payroll/leave-conversion.js), only for the Dec 16–31 half
+ * and only when it is on: the pool's unused days as the payslip is processed (approved leave only) × the
+ * daily rate of the salary then. Never throws: nothing is converted when it cannot be read.
+ */
+async function loadYearEndLeaveConversion(supabase, employees, period) {
+  const out = new Map();
+  if (!isYearEndPeriod(period?.start_key) || !(employees || []).length) return out;
+  try {
+    const setting = await loadLeaveConversion(supabase);
+    if (!setting.enabled) return out;
+    const year = Number(String(period.start_key).slice(0, 4));
+    const balances = await loadLeaveBalances(supabase, employees.map((e) => e.id), year);
+    for (const e of employees) {
+      const b = balances[e.id];
+      if (!b) continue;
+      const remaining = b.pool ? b.pool.remaining : b.with_pay_remaining;
+      out.set(e.id, leaveConversionFor({ setting, remaining, monthlySalary: e.basic_salary, status: e.employment_status }));
+    }
+  } catch { /* nothing converted */ }
+  return out;
+}
+
 async function loadSemiMonthlyContext(supabase, employees, period, configs) {
   const half = halfOf(period.start_key);
   const month = monthInfo(monthKeyOf(period.start_key));
@@ -1404,6 +1444,8 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
   // Year-end tax annualizations the Accountant scheduled onto this 2nd cutoff
   // (src/lib/payroll/year-end-tax.js, 20261029010000).
   const yearEndTax = await loadYearEndTaxContext(supabase, employees.map((employee) => employee.id), period);
+  // Leave conversion on the Dec 16–31 payslip (2026-11-26): unused days of the pool × the daily rate.
+  const leaveConversion = await loadYearEndLeaveConversion(supabase, employees, period);
   const ceilingRate = resolveRate(configs, "benefits_exempt_ceiling", {}, period.start_key);
   const benefitsCeiling = ceilingRate.source === "config" ? Number(ceilingRate.value) : DEFAULT_BENEFITS_CEILING;
   const failed = taxResult.error || contributionResult.error || itemResult.error || !cash.ready || !loanContext.ready || !subsidyContext.ready
@@ -1486,6 +1528,7 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
       benefits_ytd: subsidyContext.benefitsYtd?.get(employee.id) || 0,
       working_days: workingDaysIn(period.start_key, period.end_key),
       year_end_tax: yearEndTax.byEmployee.get(employee.id) || null,
+      leave_conversion: leaveConversion.get(employee.id) || null,
     });
   });
 
@@ -1777,11 +1820,20 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     const leave = leaveSummary.find((row) => row.employee_id === employee.id) || null;
     // Part C: this payslip's approved substitutions, paid only when the substitute's taps cover them.
     const mySubs = (substitutionContext.byEmployee.get(employee.id) || []).filter((r) => (r.sub_date >= own.start_key || r.late) && r.sub_date <= own.end_key);
+    // 2026-11-26: paid as overtime (regular day 125%; holiday rates from the table; rest day 130%, past 8 h 169%).
     const substitution = mySubs.length ? computeSubstitutionPay({
       subs: mySubs,
-      shiftOf: (date) => substitutionContext.shiftOf(employee.id, date),
       tapsOf: (date) => substitutionContext.tapsOf(employee.id, date),
-      scheduledHoursOfWeek: (week) => substitutionContext.weekHours(employee.id, week),
+      dayKindOf: (date) => {
+        const type = holidays.forBranch(employee.branch_id).types?.get(date);
+        if (type === "holiday") return "holiday";
+        if (type === "special") return "special";
+        return substitutionContext.shiftOf(employee.id, date) ? "regular" : "rest_day";
+      },
+      overtimeOf: (date) => substitutionContext.overtimeOf(employee.id, date),
+      // One daily total on a rest day: the overtime already paid that day counts toward the 8 h first.
+      restDayOvertimeMinutesOf: (date) => (auto.earnings || []).filter((e) => e.type === "overtime" && e.rest_day && e.log_date === date)
+        .reduce((sum, e) => sum + (Number(e.quantity) || 0), 0),
       rates: { ...rateValues(resolved), overtime_regular_pct: requestSettings.overtime_regular_pct },
       settings: substitutionContext.settings,
     }) : null;
@@ -2136,6 +2188,7 @@ function applySecondHalfSettlement(payroll, { settlement, semi, rates, firstCuto
     // Licensed-teacher subsidy paid on this payslip, and the loan / cash
     // advance repayments it takes (both already inside the month's net).
     subsidy_pay: toAmount(month.subsidy_pay || 0),
+    leave_conversion_pay: toAmount(month.leave_conversion_pay || 0),
     loan_deduction: toAmount(month.loan_deduction || 0),
     month_totals: { gross_pay: month.gross_pay, total_deductions: month.total_deductions, total_incentives: month.total_incentives, net_pay: month.net_pay },
   };
@@ -2351,7 +2404,10 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
     const exempt = Math.min(amount, room);
     return { amount, exempt: toAmount(exempt), taxable: toAmount(amount - exempt), ceiling, benefits_ytd: ytd };
   })();
-  const nonTaxable = toAmount(subsidy.non_taxable + (bonuses?.exempt || 0) + adjustmentNonTaxable);
+  // Leave conversion (Dec 16–31): an earning; de minimis up to the tax-free days, any excess taxable.
+  const leaveConversion = settling && semi?.leave_conversion?.amount > 0 ? semi.leave_conversion : null;
+  const leaveConversionPay = leaveConversion ? toAmount(leaveConversion.amount) : 0;
+  const nonTaxable = toAmount(subsidy.non_taxable + (bonuses?.exempt || 0) + adjustmentNonTaxable + (leaveConversion ? toAmount(leaveConversion.exempt) : 0));
   // 2nd half: the month's gross (contributions do not change it). Nothing
   // earned -> no SSS / PhilHealth / Pag-IBIG by default.
   if (settling) {
@@ -2363,7 +2419,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       incentives: finalAmounts.perfect_attendance + otherIncentive + earlyBirdPay,
       overloadHours,
       overloadPay,
-      otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay + specialDayPay,
+      otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay + specialDayPay + leaveConversionPay,
       ...prior,
     }).monthly_gross <= 0;
   }
@@ -2397,7 +2453,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
     incentives: finalAmounts.perfect_attendance + otherIncentive + earlyBirdPay,
     overloadHours,
     overloadPay,
-    otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay + specialDayPay,
+    otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay + specialDayPay + leaveConversionPay,
     nonTaxableEarnings: nonTaxable,
     extraTaxable: subsidy.extra_taxable,
     cashAdvance: cashAdvanceTotal,
@@ -2540,6 +2596,11 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
         note: ITEM_KIND_LABELS[item.kind] ? `${ITEM_KIND_LABELS[item.kind]}: ${item.description}${item.kind === "adjustment" && item.reason ? `. ${item.reason}` : ""} (${shortDate(item.item_date)})` : item.description || null,
         log_date: String(item.item_date).slice(0, 10), item_kind: item.kind,
       })),
+    // Leave conversion (Dec 16–31): "Leave conversion: 3 unused days × ₱1,471.26 = ₱4,413.78".
+    leaveConversion ? {
+      type: "leave_conversion", quantity: leaveConversion.days, unit: "day", rate: leaveConversion.daily_rate, rate_config_id: null,
+      amount: leaveConversionPay, source_log_id: null, is_override: false, note: leaveConversion.note, log_date: null,
+    } : null,
     // Extra working days: one line each ("Special working day (Sat Nov 28): …").
     ...specialDayLines.map((l) => ({
       type: "special_working_day", quantity: 1, unit: "day", rate: l.amount, rate_config_id: null, amount: toAmount(l.amount),
@@ -2576,7 +2637,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
     },
     attendance_amounts: finalAmounts,
     earnings: { overtime: overtimePay, holiday_pay: holidayPay },
-    extra: { incentive: otherIncentive, overload: overloadPay, subsidy: subsidy.earnings_total, early_bird_winner: earlyBirdPay, substitution: substitutionPay, special_day: specialDayPay },
+    extra: { incentive: otherIncentive, overload: overloadPay, subsidy: subsidy.earnings_total, early_bird_winner: earlyBirdPay, substitution: substitutionPay, special_day: specialDayPay, leave_conversion: leaveConversionPay },
   });
   if (earlyBirdWinner) {
     payroll.early_bird = {
@@ -2904,6 +2965,9 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
         // Licensed-teacher subsidy this payslip pays, and the part of it that
         // is taxable income (the preview's net and tax estimate).
         subsidy_pay: subsidy.earnings_total,
+        // Leave conversion on the Dec 16–31 payslip, and its taxable part (above the tax-free days).
+        leave_conversion_pay: leaveConversionPay,
+        leave_conversion_taxable: leaveConversion ? toAmount(leaveConversion.taxable) : 0,
         subsidy_taxable: toAmount(subsidy.earnings_total - subsidy.non_taxable + subsidy.extra_taxable),
         // Year-end tax adjustment on this payslip (+ deducted, − refunded).
         year_end_tax: payroll.year_end_tax ? toAmount(payroll.year_end_tax.signed) : 0,
@@ -2969,6 +3033,7 @@ function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = fal
   earn("Incentives", t.other_incentive);
   earn(m.overload_hours ? `Overload pay (${m.overload_hours} h)` : "Overload pay", t.overload_pay);
   earn("Licensed teacher subsidy", t.subsidy_pay);
+  earn("Leave conversion", t.leave_conversion_pay);
 
   deduct(`Absences (${plural(d.absences_days || 0, "day")})`, t.absence_deduction);
   deduct(`Leave without pay (${plural(d.leave_without_pay_days || 0, "day")})`, t.leave_without_pay_deduction);

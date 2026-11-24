@@ -29,18 +29,45 @@ function classify(url) {
 export function useProofViewer() {
   const { notify } = usePortalSession();
   const [url, setUrl] = React.useState(null);
+  // 2026-11-24: a proof fetched from the server opens the viewer at once (loading); a file that arrives
+  // after the viewer was closed is dropped, so the dialog never pops up by itself later.
+  const [loading, setLoading] = React.useState(false);
+  const ticket = React.useRef(0);
 
-  const open = React.useCallback((proofUrl) => {
+  const show = React.useCallback((proofUrl) => {
     const value = String(proofUrl || "").trim();
-    if (!value) { notify("No proof document", "No proof document attached to this request.", "error"); return; }
-    if (!classify(value)) { notify("Cannot open proof", "This proof document cannot be opened.", "error"); return; }
+    if (!value) { notify("No proof document", "No proof document attached to this request.", "error"); return false; }
+    if (!classify(value)) { notify("Cannot open proof", "This proof document cannot be opened.", "error"); return false; }
     setUrl(value);
+    return true;
   }, [notify]);
 
+  /** open(url) or open(promise of a url): the promise form shows the viewer while it loads. */
+  const open = React.useCallback((proofUrl) => {
+    const mine = ++ticket.current;
+    if (proofUrl && typeof proofUrl.then === "function") {
+      setUrl(null);
+      setLoading(true);
+      Promise.resolve(proofUrl).then((value) => {
+        if (ticket.current !== mine) return; // closed (or another proof opened) meanwhile
+        setLoading(false);
+        show(value);
+      }, (error) => {
+        if (ticket.current !== mine) return;
+        setLoading(false);
+        notify("Cannot open proof", error?.message || "The proof document could not be loaded.", "error");
+      });
+      return;
+    }
+    setLoading(false);
+    show(proofUrl);
+  }, [show, notify]);
+
+  const close = React.useCallback(() => { ticket.current += 1; setUrl(null); setLoading(false); }, []);
   const kind = url ? classify(url) : null;
 
   const viewer = (
-    <Dialog open={Boolean(url)} onOpenChange={(isOpen) => { if (!isOpen) setUrl(null); }}>
+    <Dialog open={Boolean(url) || loading} onOpenChange={(isOpen) => { if (!isOpen) close(); }}>
       <DialogContent className="flex h-[90dvh] max-w-[min(1000px,calc(100%-2rem))] flex-col gap-3 sm:max-w-[min(1000px,calc(100%-2rem))]">
         <DialogHeader className="flex-row items-center justify-between gap-3 pr-8">
           <div>
@@ -65,6 +92,8 @@ export function useProofViewer() {
               <p>This file type cannot be previewed inline.</p>
               <Button asChild variant="outline"><a href={url} download>Download the file</a></Button>
             </div>
+          ) : loading ? (
+            <p className="p-8 text-sm text-muted-foreground" role="status">Loading the proof…</p>
           ) : null}
         </div>
       </DialogContent>

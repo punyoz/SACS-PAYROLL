@@ -76,6 +76,7 @@ const PUBLIC_PATHS = [
   // CRON_SECRET bearer; refused inside the route without it (or when it is unset).
   "/api/cron/awol-notices",
   "/api/cron/demo-taps",           // the defense's daily taps (checks CRON_SECRET itself; off by a setting)
+  "/api/cron/recompute-period",    // the defense's Nov 16-30 recompute (checks CRON_SECRET itself; off by a setting)
 ];
 
 /**
@@ -165,6 +166,7 @@ const API_MODULES = [
   // Payslip schedule, loans, AWOL, licensed-teacher subsidy (20261009010000).
   ["/api/accountant/loans", "loans"],
   ["/api/accountant/final-pay", "process_payroll"],
+  ["/api/accountant/approved-overtime", "process_payroll"],  // read-only: HR-approved overtime & substitutions (2026-11-26)
   ["/api/hr/awol-cases", "awol_cases"],
   ["/api/hr/teacher-license", "teacher_license"],
   ["/api/admin/approvals", "payroll_approvals"],

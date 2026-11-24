@@ -1,57 +1,79 @@
-# Demo guide: the five demo employees on live
+# Demo guide: the defense data
 
-For the redefense on Friday, November 27, 2026. Loaded on live on November 24, 2026.
+For the redefense on Friday, November 27, 2026. Live at https://sacs-payroll.vercel.app.
 
-- All five are **demo accounts**, in Main Branch (BR-001), and are marked as demo. They are removed after the defense with `node scripts/demo/five.mjs remove --target=production`.
-- The logins (e-mail and password) were given **in chat only**. They are not in this file or anywhere in the repository. Each sign-in asks for an e-mail code, which arrives in the demo inbox.
-- The HR and Accountant steps use the kept demo accounts, **Demo HR One** and **Demo Accountant One Main**, or your own HR / Accountant login.
-- A daily tap job adds ordinary taps for four of the five before the nightly jobs, every school day until the defense. Ramon is left out on purpose because of his AWOL case.
+- **Logins** (e-mail and password) are given **in chat only**; none are in this file. Each sign-in asks for an e-mail code, which arrives in the demo inbox.
+- **The data:** every account on payroll, from Oct 1 to today. It was generated through the app itself: real RFID terminal taps, the nightly close, requests and decisions, and payroll runs.
+- **Each day** a server job adds that day's taps until Nov 27: time in around 08:00, time out around 18:00. Ramon (AWOL) and Anjo (separated) are skipped.
+- **Fri Nov 27, about 07:00:** a server job records everyone's time in before their shift (never a time in the future), so attendance already shows time-ins when the defense starts. If it has not run, the command is: `vercel crons run "/api/cron/demo-taps?run=early"`.
+- **Payroll:** Oct 1–15, Oct 16–31 and Nov 1–15 are **Paid** at Main and Robinson. Anjo's final pay is approved. **Nov 16–30 is processed and ready for HR**: the Accountant submits it and HR approves it live.
+- **Recompute:** a server job recomputes Nov 16–30 early on Fri Nov 27, after the cutoff closes. **If Nov 16–30 still says Recompute, press Recompute, then Submit.**
+- **Testing mode:** the normal window for Nov 16–30 is Nov 27 – Dec 1, so Submit and HR Approve work with testing mode off on the day.
 
-## The five
+## Who is who
 
-| Person | Category · Status | Position | What their data shows |
+| Login | Role | Branch | What their data shows |
 |---|---|---|---|
-| Marisol Aquino (DEMO-101) | Teaching · Regular since 2022 | Teacher | 2-day vacation leave (Nov 12–13, approved); approved overtime worked on Nov 10; honorarium ₱1,500; salary loan ₱10,000 over 4 payrolls; substitutes for Carlo on Nov 17; leave credits **2 of 5 days used · 3 days left** |
-| Carlo Mendoza (DEMO-102) | Teaching · Probationary from Aug 2026 | Teacher | Sick leave Nov 17 (approved), which **proposed the substitution by itself**; overtime request pending; leave credits **1 of 1 used · 0 left** |
-| Liza Ferrer (DEMO-103) | Teaching · Provisional from Jun 2026 | Teacher | Half day (AM) on Nov 11; missing time-outs: Nov 6 correction approved, Nov 18 correction pending; leave credits **0.5 of 1.5 used** |
-| Ramon Salazar (DEMO-104) | Non-teaching · Regular since 2023 | Registrar Staff | Vacation leave rejected with a preset remark; adjustment ₱500; Nov 13 worked past the shift with no overtime request; **absent from Nov 18: AWOL case, 1st notice sent, pay on hold** |
-| Nestor Pascual (DEMO-105) | Non-teaching · Contractual to Dec 15 | **Maintenance** | Approved overtime worked on Nov 6; vacation leave pending (Dec 1); contract-end reminder |
+| Maricel Santos | HR | Main | Approves everything below; the Robinson HR's own payslip is approved by another HR |
+| Rowena Dizon | Accountant | Main | Processes and submits Main's payroll |
+| Marisol Santos Aquino (SACS-101) | Employee, Teacher, Regular since 2022 | Main | Vacation leave Nov 12–13; approved overtime Nov 10; honorarium ₱1,500; salary loan ₱10,000 (deducted on 16–end payslips); substitute for Carlo on Nov 17, **paid as overtime** on Nov 16–30; tenure; licensed teacher |
+| Carlo Reyes Mendoza (SACS-102) | Employee, Teacher, Probationary | Main | Sick leave Nov 17, which proposed the substitution; overtime request pending; honorarium ₱800; licensed teacher |
+| Liza Gomez Ferrer (SACS-103) | Employee, Teacher, Provisional | Main | Half day (AM) Nov 11; Nov 6 missing time-out fixed by an approved correction; Nov 18 correction pending; honorarium ₱1,000 |
+| Ramon Cruz Salazar (SACS-104) | Employee, Registrar Staff, Regular | Main | Vacation leave rejected (preset remark); Nov 13 "Overtime not filed"; Nov 4 short day; **AWOL from Nov 18**: 1st notice sent, pay on hold, reply by Nov 29 |
+| Nestor Lim Pascual (SACS-105) | Employee, **Maintenance**, Contractual | Main | Approved overtime Nov 6; vacation leave Dec 1 pending |
 
-**Payroll:** Main Branch's own Nov 1–15 run (run 1) on live is still waiting for HR, and the system locks the whole period at that branch until HR decides it. So the five have **no Nov 1–15 payslip yet**. Once run 1 is decided, the Accountant processes the five for Nov 1–15 on screen, submits them as a supplemental run and HR approves it. Their **Nov 16–30 drafts** show the full month for now ("1-15 payslip paid 0.00"). After Nov 1–15 is processed they show **Needs recompute** and drop back to the half.
+The other accounts on payroll are Andrea Villanueva, Ehd Astillero Refuerzo, Jane Dela Pena Benitez, Jarvis Pasion, Joanna Marquez, Reinjelyn Garaña, Teresa Bautista, Nona Guido, Jane Marinel (Robinson, Accountant and HR) and Karlos Dela Cruz (Robinson). Each has a complete record and the same kind of data, with lates, leave, loans (Andrea's cash advance, Jane's salary loan) and tenure (Andrea).
 
-## Panel items: where to show each one
+## Panel item → where to show it
 
-| # | Panel item | Login (role) | Page | What to show |
+| # | Item | Login | Page | What to show |
 |---|---|---|---|---|
-| 01 | Half-day and overtime requests | Liza (Employee); Carlo (Employee); HR | Employee › My Requests (Half day, Overtime); HR › Approvals | Liza's AM half day on Nov 11; Carlo's pending overtime; HR approves it |
-| 02 | No request → Late / Absent | HR | HR › Attendance › Monitoring | Marisol late on Nov 5; Ramon leaving early on Nov 4 ("Absent (short day)") |
-| 03 | Overtime only with a request | Ramon (Employee); HR | Employee › My Attendance; HR › Attendance | Nov 13 out at 18:40, flagged "Overtime not filed", paid nothing |
-| 04 | Category and status; Maintenance as a position | HR | HR › Employees › Management | Five statuses across the five; Nestor's **position is Maintenance** (the Group field is gone) |
-| 05 | Leave credits (one shared pool) | Marisol (Employee); HR | Employee › My Requests ("Leave credits: 2 of 5 days used · 3 days left"); HR › Settings › Status & leave rules | One pool per Category × Status; Vacation / Sick / Emergency draw from it; a half day uses 0.5; beyond the pool is without pay |
-| 06 | Maternity / paternity as statutory leave | HR | HR › Settings › Status & leave rules (Statutory leaves) | Separate from the pool |
-| 07 | AWOL | Ramon (Employee); HR | Employee › Dashboard (banner) and My Profile › **My Notices**; HR › Employees › AWOL cases | See **AWOL** below |
-| 08 | Sidebar categories | any | every sidebar | One item per module, with tabs inside |
-| 09 | Substitute teaching | HR; Marisol (Employee) | HR › Approvals (Substitutions); Marisol's Nov 16–30 draft | Proposed by the system from Carlo's approved sick leave; HR picked Marisol (3 periods); substitution line on her payslip |
-| 10 | Honorarium / adjustment | Accountant; HR | Accountant › Additional Pay; HR › Approvals › Incentives & loans | Marisol's honorarium ₱1,500 and Ramon's adjustment ₱500, filed by the Accountant and approved by HR |
-| 11 | Special working day (Saturday) | HR; a teacher | HR › Attendance › Holidays & Duty | Sat Nov 28 make-up, 08:00–12:00, for the three teachers (they were notified) |
-| 12–13 | Checkboxes, search and filters | HR | HR › Approvals | Select several and decide with one remark; filter by branch, category, status and dates |
-| 14 | Automation for Admin / HR | HR; Admin | Dashboards › Action needed; Settings › Automation | Proposed substitution, AWOL, reminders |
-| 16 | RFID in one place | HR | HR › Attendance (RFID tabs) | The five's cards (issued Oct 28) |
-| 19 | Preset remarks | HR | any decision dialog | Ramon's rejected leave: "Conflicts with school activity" |
-| 20 | Attendance corrections | Liza (Employee); HR | Employee › My Requests › Attendance correction; HR › Approvals | Nov 6 approved, Nov 18 pending: HR sees the evidence and the pay difference |
-| 21 | Payslip layout / PDF | an employee | Employee › My Payslips | After Nov 1–15 is approved (see Payroll) |
+| 01 | Half day / overtime | Liza; Carlo; Maricel | Employee › My Requests; HR › Approvals | Liza's AM half day; Carlo's pending overtime → HR approves |
+| 02 | Late / Absent without a request | Maricel | HR › Attendance | Lates (time in − shift start) and Ramon's Nov 4 short day |
+| 03 | Overtime only with a request | Ramon; Maricel | Employee › My Attendance; HR › Attendance | Nov 13, out 18:40: "Overtime not filed", unpaid |
+| 04 | Category, status, Maintenance | Maricel | HR › Employees | Nestor's position Maintenance; statuses; no employment type |
+| 05 | Leave credits pool | Marisol | Employee › My Requests | "Leave credits: 2 of 5 days used · 3 days left" |
+| 06 | Statutory leave | Maricel | HR › Settings › Status & leave rules | Separate from the pool |
+| 06 | Maternity | Marisol | My Requests › New request › Leave | Maternity Leave is in her leave types (female, married) |
+| 06 | Paternity | Carlo | My Requests › New request › Leave | Paternity Leave is in his leave types (male, married; first 4 deliveries) |
+| 07 | AWOL | Ramon; Maricel | My Notices; HR › AWOL cases | Script B below |
+| 09 | Substitution | Maricel; Marisol | HR › Approvals; My Payslips | Proposed from Carlo's sick leave; Marisol's substitution line |
+| 10 | Additional pay | Rowena; Maricel | Accountant › Additional Pay; HR › Incentives & loans | Honoraria and Ramon's adjustment |
+| 11 | Special working day | Maricel; a teacher | HR › Holidays & Duty | Sat Nov 21 make-up, 08:00–12:00, three teachers |
+| 12–13 | Bulk approval, filters | Maricel | HR › Approvals | Script C below |
+| 15 | Tenure | Maricel | HR › Employees › Tenure pay | Marisol, Ramon and Andrea (2+ years) |
+| 16 | RFID / HR taps | Maricel | HR › Attendance | HR officers have taps too; nobody handles their own card |
+| 20 | Corrections | Liza; Maricel | My Requests; HR › Approvals | Nov 6 approved (history keeps the original), Nov 18 pending |
+| 21 | Payslip PDF | Marisol | My Payslips | Two panels; YTD box with 13th month accrued |
+| 09b | Rest-day premium | Rowena | Super Admin › Pay Rates (rate "Rest day premium", 30) | Overtime or a substitution on a rest day: 130%; past 8 h: 169% |
+| 22 | Leave conversion | Marisol; Maricel | My Requests; HR › Reports | "If the year ended today: …"; the "Leave conversion (projected)" report |
 
-## AWOL (item 07)
+## Defense scripts
 
-- **What happened:** Ramon has not tapped since Nov 18. His card is active, he is on his schedule and he has no request. The case was opened the way the nightly job opens one, with the real guard results. Two guards failed, so it went to **Needs review**:
-  - "a demo / test account";
-  - Main Branch's Nov 23 data gap, because its real staff do not tap yet.
-- **What HR did:** HR pressed **Proceed**. That confirmed AWOL, put his pay on hold and sent the 1st notice. The reply is due Nov 29.
-- **What to show:**
-  1. Sign in as Ramon: the Dashboard banner says "You have an attendance notice".
-  2. Open **My Notices**: the notice and its PDF.
-  3. Reply with a reason, an explanation and an attachment, and optionally a return date. The automation stops.
-  4. A follow-up can be added; a reply can't be edited.
-  5. As HR, open AWOL cases. The case shows the reply and its attachment, the guards, **Record reply** for a reply received offline, and **Separate** or **Close** (with a preset remark).
-  6. Ramon sees HR's decision in My Notices.
-- **AWOL automation stays paused on live** (your decision). At Main Branch, the data-gap rule is the only thing keeping its real staff, who don't tap yet, from being flagged. A dry run on live on Nov 24, with AWOL switched on and then rolled back, would have acted on nobody.
+**A. Request to payslip**
+1. Carlo, in My Requests, files overtime.
+2. Maricel opens HR › Approvals and approves it with a preset remark.
+3. Rowena opens Accountant › Process Payroll › Nov 16–30. If a payslip shows "Needs recompute", press Recompute, then **Submit**.
+4. Maricel opens HR › Approvals › Payroll runs and approves the run.
+5. Marisol opens My Payslips: the Nov 16–30 payslip, then the PDF.
+
+**B. AWOL notice and reply** (Ramon's login; his notice was also e-mailed). Ramon's case is left untouched before the defense, so the reply is shown live.
+1. Sign in as **Ramon**. The Dashboard shows the banner "You have an attendance notice."
+2. Press **Open My Notices** (also under My Account › My Notices). Show the notice, the reply-by date and the **PDF**.
+3. Press **Reply**: choose a reason (for example Illness / medical), write an explanation, attach a file (for example a medical certificate) and optionally a return date. Send.
+4. The page says "Your reply was received on …". **The automation stops**, and HR is notified.
+5. Sign in as **Maricel** › HR › Employees › AWOL cases. The case shows "Reply received: you decide (Separate or Close)". Open the drawer: the timeline, guards, notices, and the reply with its attachment.
+6. Show **Record reply** (⋯ menu) for a reply received by phone or letter.
+7. Decide: **Close** with a preset remark (for example "Excused: hospital confinement with certificate"), or **Separate** (a notice of separation, effective in 3 days).
+8. Back as Ramon: My Notices shows HR's decision.
+
+**C. Bulk approval**
+1. Maricel opens HR › Approvals and filters by type and branch.
+2. She ticks several items, then Approve selected or Reject selected, with one preset remark.
+3. Each row reports its result, and each decision is audited.
+
+**D. Substitution (paid as overtime):** Maricel › Approvals › Substitutions. The proposal came from Carlo's approved sick leave, and Marisol covered 3 periods. On Marisol's Nov 16–30 payslip: "Overtime (substitution): 3 h × hourly × 125%, covering Carlo Reyes Mendoza (Nov 17)". Without taps covering the class it is not paid, and HR sees it under Action needed.
+
+**E. Attendance correction:** Liza › My Attendance › Nov 18 → the pending correction. Maricel approves it and sees the pay difference.
+
+**F. Special working day:** Maricel › Attendance › Holidays & Duty › Sat Nov 21 make-up. Marisol's attendance shows the day.

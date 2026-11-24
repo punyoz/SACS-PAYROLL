@@ -99,8 +99,13 @@ describe("profile: accounts not on payroll", () => {
 describe("one RFID page; one filter bar", () => {
   it("old RFID tabs open the one RFID page", () => {
     expect(src("src/app/hr/hr-portal.jsx")).toMatch(/"hr-rfid-terminals": \{ page: "hr-rfid-cards", params: \{\} \}/);
-    expect(src("src/app/admin/admin-portal.jsx")).toMatch(/redirectMovedPage\(\{ "adm-rfid-issues": "adm-maintenance" \}\)/);
-    expect(src("src/app/super-admin/super-admin-portal.jsx")).toMatch(/redirectMovedPage\(\{ "sa-rfid-terminal": "sa-maintenance", "sa-rfid-issues": "sa-maintenance" \}\)/);
+    // 2026-11-25: the map is applied by usePersistedPage (after the first render, never while rendering).
+    expect(src("src/app/admin/admin-portal.jsx")).toMatch(/const MOVED_PAGES = \{ "adm-rfid-issues": "adm-maintenance" \};/);
+    expect(src("src/app/admin/admin-portal.jsx")).toMatch(/usePersistedPage\("admin", PAGE_IDS, "adm-dashboard", MOVED_PAGES\)/);
+    expect(src("src/app/super-admin/super-admin-portal.jsx")).toMatch(/const MOVED_PAGES = \{ "sa-rfid-terminal": "sa-maintenance", "sa-rfid-issues": "sa-maintenance" \};/);
+    expect(src("src/app/super-admin/super-admin-portal.jsx")).toMatch(/usePersistedPage\("super_admin", PAGE_IDS, "sa-dashboard", MOVED_PAGES\)/);
+    expect(src("src/app/hr/hr-portal.jsx")).toMatch(/usePersistedPage\("hr", PAGE_IDS, "hr-dashboard", MOVED_PAGES\)/);
+    for (const p of ["src/app/admin/admin-portal.jsx", "src/app/super-admin/super-admin-portal.jsx", "src/app/hr/hr-portal.jsx"]) expect(src(p)).not.toContain("redirectMovedPage");
     // Cards, then the issues, then the card history.
     const panel = src("src/components/portal/rfid/rfid-cards-panel.jsx");
     expect(panel.indexOf("{children}")).toBeLessThan(panel.indexOf(">Card history</CardTitle>"));

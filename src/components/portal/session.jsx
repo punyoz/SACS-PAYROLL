@@ -282,7 +282,12 @@ export const RETIRED_PAGE_IDS = Object.freeze(["emp-bir", "hr-my-bir", "ac-my-bi
 /** The page value while a retired page's link is open (AppShell shows the 404 screen). */
 export const NOT_FOUND_PAGE = "page-not-found";
 
-export function usePersistedPage(role, pages, fallback) {
+/**
+ * moved: old page ids and where they open now ({ "old-id": "new-id" } or { "old-id": { page, params } }).
+ * Applied when the address is first read, after the first render: rewriting the address while rendering
+ * reached the router before it started ("Router action dispatched before initialization", 2026-11-25).
+ */
+export function usePersistedPage(role, pages, fallback, moved = null) {
   const key = `sacs-active-page-${role}`;
   const [page, setPageState] = React.useState(fallback);
   const pageRef = React.useRef(fallback);
@@ -295,7 +300,16 @@ export function usePersistedPage(role, pages, fallback) {
 
   React.useEffect(() => {
     try {
-      const fromUrl = new URLSearchParams(window.location.search).get("page");
+      let fromUrl = new URLSearchParams(window.location.search).get("page");
+      const to = fromUrl && moved ? moved[fromUrl] : null;
+      if (to) {
+        const target = typeof to === "string" ? { page: to, params: {} } : to;
+        const params = new URLSearchParams(window.location.search);
+        params.set("page", target.page);
+        Object.entries(target.params || {}).forEach(([k, v]) => params.set(k, v));
+        window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
+        fromUrl = target.page;
+      }
       if (fromUrl && RETIRED_PAGE_IDS.includes(fromUrl)) {
         setPageState(NOT_FOUND_PAGE);
         pageRef.current = NOT_FOUND_PAGE;

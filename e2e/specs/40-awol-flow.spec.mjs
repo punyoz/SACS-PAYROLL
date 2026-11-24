@@ -6,7 +6,7 @@ import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
 import { choose, refresh, writeRemark } from "../support/flow.mjs";
-import { db, profileByEmail, rows } from "../support/db.mjs";
+import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
 const NOTE = `E2E no-show, not reachable by phone ${Date.now()}`;
@@ -27,7 +27,8 @@ test("AWOL: admin files a no-show → HR AWOL case → HR confirms and closes �
   await step(page, "Admin > Incident & AWOL Reports > file a no-show for Bea", async () => {
     const dialog = page.getByRole("dialog");
     await choose(page, dialog.locator("#ov-employee_id"), /Bea/);
-    await dialog.locator("#ov-note").fill(NOTE);
+    // Part H: the remark for HR is a preset remark ("Other" + its text).
+    await writeRemark(page, "ov-remark", NOTE);
     await dialog.getByRole("button", { name: "Send to HR" }).click();
     await expect(dialog).toBeHidden({ timeout: 30000 });
     await refresh(page);
@@ -45,20 +46,34 @@ test("AWOL: admin files a no-show → HR AWOL case → HR confirms and closes �
     await expect(main(page).locator("tr", { hasText: "Bea" }).first()).toBeVisible();
   });
 
-  await step(page, "HR > AWOL Cases > Confirm AWOL", async () => {
-    const row = main(page).locator("tr", { hasText: "Bea" }).first();
-    await row.getByRole("button", { name: "Confirm AWOL" }).click();
+  await step(page, "HR > AWOL Cases > Proceed (confirms AWOL and sends the 1st notice; one primary button, 2026-11-26)", async () => {
+    // With AWOL automation on, the reported case runs by itself: "Automatic", the system confirms it tonight.
+    let row = main(page).locator("tr", { hasText: "Bea" }).first();
+    await expect(row.getByTestId("awol-automation")).toContainText("Automatic");
+    await expect(row.getByTestId("awol-next-step")).toContainText("The system confirms it tonight");
+    await expect(row.getByTestId("awol-proceed")).toHaveCount(0);
+    // HR takes it by hand (what Stop automation does on the case): Proceed is the one primary button.
+    const [open] = await rows(db().from("employee_awol_cases").select("id").eq("employee_id", bea.id).neq("stage", "closed").limit(1));
+    psql(`update employee_awol_cases set automation = 'stopped', automation_reason = 'E2E: HR handles it by hand' where id = '${open.id}';`);
+    await refresh(page);
+    row = main(page).locator("tr", { hasText: "Bea" }).first();
+    await row.getByTestId("awol-proceed").click();
     const dialog = page.getByRole("dialog");
-    await dialog.locator("#hr-awol-note").fill("E2E: called twice and the emergency contact; no answer");
+    await expect(dialog).toContainText("Confirms AWOL (pay on hold) and sends the 1st notice now");
     await dialog.getByRole("button", { name: "Save" }).click();
     await expect(dialog).toBeHidden({ timeout: 30000 });
     await refresh(page);
-    await expect(main(page).locator("tr", { hasText: "Bea" }).first().getByRole("button", { name: "Send 1st notice" })).toBeVisible();
+    const latest = await rows(db().from("employee_awol_cases").select("id,stage").eq("employee_id", bea.id).order("created_at", { ascending: false }).limit(1));
+    expect(latest[0].stage).toBe("first_notice");
+    expect(await rows(db().from("awol_notices").select("id").eq("case_id", latest[0].id).eq("kind", "first")), "the 1st notice is saved").toHaveLength(1);
+    // Next: wait for the reply; the row's one button records it.
+    await expect(main(page).locator("tr", { hasText: "Bea" }).first().getByRole("button", { name: "Record reply" })).toBeVisible();
   });
 
-  await step(page, "HR > AWOL Cases > Close the case (employee returned)", async () => {
+  await step(page, "HR > AWOL Cases > More > Close the case (employee returned)", async () => {
     const row = main(page).locator("tr", { hasText: "Bea" }).first();
-    await row.getByRole("button", { name: "Close" }).click();
+    await row.getByRole("button", { name: /^More for Bea/ }).click();
+    await page.getByRole("menuitem", { name: "Close" }).click();
     const dialog = page.getByRole("dialog");
     await writeRemark(page, "hr-awol-remark", "with a medical certificate", { preset: "Record corrected" });
     await dialog.getByRole("button", { name: "Save" }).click();

@@ -1,5 +1,5 @@
-// Leave: the Employee files, the branch Admin recommends, HR decides, the
-// Employee sees the result. Also the form's empty / invalid submissions.
+// Leave: the Employee files, the branch Admin sees it view-only with the
+// system's check, HR decides, the Employee sees the result. Also the form's empty / invalid submissions.
 import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
@@ -16,7 +16,7 @@ const REASON = `E2E family event ${Date.now()}`;
 const PNG_1X1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
 const PROOF = { name: "medical-certificate.png", mimeType: "image/png", buffer: Buffer.concat([PNG_1X1, Buffer.alloc(1_000_000)]) };
 
-test("leave: employee files → admin recommends → HR approves → employee sees Approved", async ({ page, monitor }) => {
+test("leave: employee files → admin sees it view-only → HR approves → employee sees Approved", async ({ page, monitor }) => {
   const start = manilaDay(10);
   const end = manilaDay(11);
 
@@ -62,17 +62,18 @@ test("leave: employee files → admin recommends → HR approves → employee se
     expect(JSON.stringify(res.data).length, "the response is small without the proof").toBeLessThan(100_000);
   });
 
-  await step(page, "Admin > Leave Recommendations > Recommend (endorse)", async () => {
+  await step(page, "Admin > Leave Recommendations > view only: the system's check, no Recommend button", async () => {
+    // 8f4d052: Admin leave is view-only; the system checks each request and
+    // sends it straight to HR, HR decides.
     monitor.at("Admin > Leave Recommendations");
     await as(page, "admin", "adm-leaves");
-    const row = main(page).locator("tr", { hasText: "Ana" }).filter({ hasText: "Vacation Leave" }).first();
-    await row.getByRole("button", { name: "Recommend" }).click();
-    const dialog = page.getByRole("dialog");
-    await writeRemark(page, "ov-remark", "E2E: coverage arranged, recommend approval", { preset: "Coverage arranged" });
-    await dialog.getByRole("button", { name: "Endorse", exact: true }).click();
-    await expect(dialog).toBeHidden({ timeout: 30000 });
-    await refresh(page);
-    await expect(main(page).getByText("E2E: coverage arranged, recommend approval")).toBeVisible();
+    const row = main(page).locator("tr", { hasText: "Ana" }).filter({ hasText: REASON }).first();
+    await expect(row).toBeVisible();
+    await expect(row.getByText(/^System: Recommend approval/)).toBeVisible();
+    await expect(row.getByText("Waiting for HR")).toBeVisible();
+    await expect(row.getByRole("button", { name: "Recommend" })).toHaveCount(0);
+    await expect(row.getByRole("button", { name: /Endorse/ })).toHaveCount(0);
+    await expect(main(page).getByText(/View only: message HR on a request/)).toBeVisible();
   });
 
   await step(page, "HR > Leave Approval > sees the recommendation, approves", async () => {
@@ -80,7 +81,7 @@ test("leave: employee files → admin recommends → HR approves → employee se
     await as(page, "hr", "hr-leaves");
     await settle(page);
     const card = main(page).locator("li", { hasText: REASON });
-    await expect(card.getByText(/coverage arranged/)).toBeVisible();
+    await expect(card.getByText(/^System: Recommend approval/)).toBeVisible();
 
     // HR's list is the one screen that shows the proof.
     await card.getByRole("button", { name: "View proof" }).click();

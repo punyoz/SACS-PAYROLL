@@ -7,7 +7,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, choose, confirm, manilaDay, pickDate, refresh, newRequest, requestTab } from "../support/flow.mjs";
+import { api, choose, confirm, manilaDay, pickDate, refresh, newRequest, requestTab, shownDay } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -47,7 +47,7 @@ test("half-day leave: the employee files the afternoon, HR approves half a day, 
     saved = await rows(db().from("leave_requests").select("id,status,start_date,end_date,half_day").eq("employee_id", emp.id).eq("reason", REASON).single());
     expect(saved).toMatchObject({ start_date: day, end_date: day, half_day: "PM" });
     await refresh(page);
-    await expect(main(page).locator("tr", { hasText: REASON }).getByText(`${day}, Half day: afternoon (PM)`)).toBeVisible();
+    await expect(main(page).locator("tr", { hasText: REASON }).getByText(`${shownDay(day)}, Half day: afternoon (PM)`)).toBeVisible();
   });
 
   await step(page, "Server > a half day across two days or a bad half is refused", async () => {
@@ -62,7 +62,7 @@ test("half-day leave: the employee files the afternoon, HR approves half a day, 
     await settle(page);
     const card = main(page).locator("li", { hasText: REASON });
     await expect(card).toContainText("0.5 days");
-    await expect(card).toContainText(`${day} (PM)`);
+    await expect(card).toContainText(`${shownDay(day)} (PM)`);
     await card.getByRole("button", { name: "Approve" }).click();
     await confirm(page, "Approve");
     const after = await rows(db().from("leave_requests").select("status").eq("id", saved.id).single());

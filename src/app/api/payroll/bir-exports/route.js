@@ -75,7 +75,11 @@ export async function GET(request) {
     const [list, branches] = await Promise.all([query, supabase.from("branches").select("id,name")]);
     if (list.error) {
       const failure = describeYearEndError(list.error);
-      return NextResponse.json({ available: false, error: failure.error, year, exports: [] }, { status: failure.status === 503 ? 200 : failure.status });
+      // 2026-11-24: one 500 here in a local full run, not reproducible: log the database's own code and message
+      // (no personal data in either) so the next one says why; the list says "load", never "Not saved".
+      if (failure.status >= 500 && failure.status !== 503) console.error("[bir-exports] list failed", { year, code: list.error.code || null, message: String(list.error.message || "").slice(0, 300) });
+      const error = failure.code === "error" ? "Could not load the BIR files. Please try again." : failure.error;
+      return NextResponse.json({ available: false, error, year, exports: [] }, { status: failure.status === 503 ? 200 : failure.status });
     }
     const branchName = new Map((branches.data || []).map((b) => [b.id, b.name]));
     return NextResponse.json({
@@ -88,6 +92,7 @@ export async function GET(request) {
       })),
     });
   } catch (error) {
+    console.error("[bir-exports] GET failed", { message: String(error?.message || error).slice(0, 300) });
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }

@@ -13,6 +13,8 @@ import { reportDate, reportResponse, wantsFile } from "@/lib/export/report-file"
 import { tableQuery } from "@/lib/export/table-query";
 import { hrReportSearchFields, sortByBranch } from "@/lib/hr/report-table";
 import { isOnPayroll } from "@/lib/payroll/on-payroll";
+import { leaveBalances } from "@/lib/employees/classification-server";
+import { leaveConversionFor, loadLeaveConversion } from "@/lib/payroll/leave-conversion";
 
 export async function GET(request) {
   try {
@@ -179,7 +181,44 @@ export async function GET(request) {
       });
     }
 
-    return NextResponse.json({ error: "type must be attendance or employees." }, { status: 400 });
+    // Leave conversion (projected, 2026-11-26): if the year ended today, per branch; the export is the screen.
+    if (type === "leave_conversion") {
+      let q = supabase.from("profiles").select("id,full_name,employee_id,branch_id,employment_status,basic_salary,role")
+        .eq("archived", false).eq("on_payroll", true).in("role", ["employee", "accountant", "hr"]);
+      if (!guard.branchExempt) q = q.eq("branch_id", guard.branchId || "");
+      const { data: people, error: peopleError } = await q;
+      if (peopleError) throw new Error(peopleError.message);
+      const year = Number(to.slice(0, 4));
+      const [setting, balances] = await Promise.all([loadLeaveConversion(supabase), leaveBalances(supabase, (people || []).map((p) => p.id), year)]);
+      const records = (people || []).map((p) => {
+        const b = balances[p.id] || {};
+        const pool = b.pool || { allotment: b.with_pay_allotment || 0, used: b.with_pay_used || 0, remaining: b.with_pay_remaining || 0 };
+        const c = leaveConversionFor({ setting, remaining: pool.remaining, monthlySalary: p.basic_salary, status: p.employment_status });
+        return { branch_id: p.branch_id, branch_name: branchName(p.branch_id), full_name: p.full_name, employee_id: p.employee_id, employment_status: p.employment_status,
+          pool: pool.allotment, used: pool.used, unused: c.days, daily_rate: c.daily_rate, amount: c.amount, taxable: c.taxable, converted: c.eligible };
+      });
+      if (wantsFile(url)) {
+        const branchFilter = url.searchParams.get("branch_id");
+        const inBranch = sortByBranch(records, "full_name").filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter);
+        const { rows: shown, q: search } = tableQuery(url, inBranch, { fields: hrReportSearchFields });
+        const money = (n) => Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return await reportResponse({
+          format: wantsFile(url), fileName: `leave-conversion-projected-${to}`, title: "Leave conversion (projected)",
+          branch: branchFilter && branchFilter !== "all" ? inBranch[0]?.branch_name || "Branch" : "All branches",
+          period: `If the year ended ${reportDate(to)}`,
+          filters: [["Search", search || "none"], ["Conversion", setting.enabled ? "on" : "off"], ["Tax-free days a year", String(setting.tax_free_days)]],
+          empty: `No employees match${search ? `: Search = "${search}"` : " this branch"}.`,
+          columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Employee ID" }, { header: "Status" }, { header: "Pool", align: "right" }, { header: "Used", align: "right" },
+            { header: "Unused", align: "right" }, { header: "Daily rate", align: "right" }, { header: "Projected", align: "right" }, { header: "Taxable part", align: "right" }],
+          rows: shown.map((r) => [r.branch_name || "Unassigned", r.full_name || "", r.employee_id || "", r.employment_status || "", String(r.pool), String(r.used), String(r.unused),
+            money(r.daily_rate), money(r.amount), money(r.taxable)]),
+        });
+      }
+      return NextResponse.json({ type: "leave_conversion", records, total: records.length, enabled: setting.enabled, tax_free_days: setting.tax_free_days,
+        projected: Math.round(records.reduce((sum, r) => sum + r.amount, 0) * 100) / 100, generated_at: new Date().toISOString() });
+    }
+
+    return NextResponse.json({ error: "type must be attendance, employees or leave_conversion." }, { status: 400 });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }

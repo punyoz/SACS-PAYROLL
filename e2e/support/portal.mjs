@@ -2,25 +2,27 @@
 import { expect } from "@playwright/test";
 
 // Every sidebar page per role (ids from src/app/*/*-portal.jsx).
+// 22be045: one RFID page per portal; these old ids redirect to it (checked in 90-page-sweep).
+export const MOVED_PAGES = { super_admin: { "sa-rfid-terminal": "sa-maintenance", "sa-rfid-issues": "sa-maintenance" }, admin: { "adm-rfid-issues": "adm-maintenance" }, hr: { "hr-rfid-terminals": "hr-rfid-cards" } };
 export const PAGES = {
   super_admin: [
     ["sa-dashboard", "Dashboard"], ["sa-fallback", "Items Waiting on Fallback"], ["sa-accounts", "Admin & HR Accounts"], ["sa-branches", "Branch Management"],
     ["sa-roles", "Roles & Permissions"], ["sa-attendance", "Attendance Records"],
     // The RFID Management group (alpha test B1, 2026-11-09).
-    ["sa-maintenance", "RFID Cards"], ["sa-rfid-terminal", "RFID Terminal"], ["sa-rfid-issues", "RFID Issues"], ["sa-config", "System Configuration"],
+    ["sa-maintenance", "RFID Cards"], ["sa-config", "System Configuration"],
     ["sa-audit", "Audit & Monitoring"], ["sa-announcements", "Announcements"], ["sa-backup", "Backup & Recovery"], ["sa-profile", "Profile"],
   ],
   admin: [
     ["adm-dashboard", "Dashboard"], ["adm-attendance", "Branch Attendance"], ["adm-overtime", "Overtime & Substitute"],
     ["adm-leaves", "Leave Recommendations"], ["adm-transfers", "Transfer Endorsements"], ["adm-incentives", "Incentive Recommendations"],
-    ["adm-schedules", "Schedule Requests"], ["adm-incidents", "Incident & AWOL Reports"], ["adm-rfid-issues", "RFID Issues"],
+    ["adm-schedules", "Schedule Requests"], ["adm-incidents", "Incident & AWOL Reports"],
     ["adm-announcements", "Announcements"], ["adm-payroll", "Payroll Summary"], ["adm-branch-reports", "Branch Reports"],
     ["adm-maintenance", "RFID Terminal & Cards"], ["adm-profile", "Profile"],
   ],
   hr: [
     ["hr-dashboard", "Dashboard"], ["hr-employees", "User Management"], ["hr-transfers", "Transfer Requests"],
     ["hr-tenure", "Tenure Pay Protection"], ["hr-attendance", "Attendance"], ["hr-schedules", "Work Schedules"], ["hr-holidays", "Holidays & Duty"],
-    ["hr-rfid-cards", "RFID Cards"], ["hr-rfid-terminals", "RFID Terminal"], ["hr-leaves", "Leave Approval"],
+    ["hr-rfid-cards", "RFID Cards"], ["hr-leaves", "Leave Approval"],
     ["hr-awol", "AWOL Cases"], ["hr-branch-requests", "Branch Requests"], ["hr-announcements", "Announcements"], ["hr-payroll-approval", "Payroll Approval"],
     ["hr-payroll-records", "Payroll Records"], ["hr-subsidy-approvals", "Subsidy Approvals"],
     ["hr-adjustment-approvals", "Incentive & Loan Approvals"], ["hr-gov-rates", "Government Rates"], ["hr-reports", "HR Reports"], ["hr-remark-presets", "Preset Remarks"],

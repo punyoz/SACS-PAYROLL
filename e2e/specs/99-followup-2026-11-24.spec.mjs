@@ -62,9 +62,13 @@ test("AWOL reply: the employee replies from My Notices; the automation stops; HR
   await step(page, "HR > AWOL cases: the reply and its attachment; Record reply (offline); Close with a preset remark", async () => {
     await as(page, "hr", "hr-awol");
     await settle(page);
+    // 2026-11-26: the replies and their files are in the case's details drawer.
     const row = main(page).getByRole("row").filter({ hasText: bea.full_name });
-    await expect(row.getByTestId("awol-replies")).toContainText("I was confined at the hospital");
-    await expect(row.getByRole("button", { name: "medical-certificate.pdf" })).toBeVisible();
+    await row.getByRole("button", { name: bea.full_name, exact: true }).click();
+    const drawer = page.getByTestId("awol-drawer");
+    await expect(drawer.getByTestId("awol-replies")).toContainText("I was confined at the hospital");
+    await expect(drawer.getByRole("button", { name: "medical-certificate.pdf" })).toBeVisible();
+    await page.keyboard.press("Escape");
     const recorded = await api(page, "PATCH", "/api/hr/awol-cases", { case_id: caseId, action: "record_reply", employee_reply: "Called the office; confirmed the confinement.", received_how: "phone", received_on: manilaDay(0),
       attachments: [{ name: "call-notes.pdf", type: "application/pdf", data: PDF }] });
     expect(recorded.status, JSON.stringify(recorded.data)).toBe(200);

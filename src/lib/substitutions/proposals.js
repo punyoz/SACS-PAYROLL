@@ -1,3 +1,4 @@
+import { rangeLabel } from "@/lib/date-label";
 // Substitution proposals (2026-11-24): when a teacher's leave (or half-day
 // leave) is approved, the system proposes a substitution for each school day
 // of it: the date, the hours of the teacher's schedule that day (the morning
@@ -60,7 +61,7 @@ export async function proposeSubstitutions(supabase, leave) {
     if (created) {
       await supabase.rpc("automation_log", {
         p_module: "leave_recommendations", p_rule: "a teacher on approved leave: a substitution is proposed for each school day",
-        p_kind: "applied", p_summary: `${teacher.full_name}: ${created} substitution${created === 1 ? "" : "s"} proposed (${start}${end !== start ? ` to ${end}` : ""}); HR picks the teacher`,
+        p_kind: "applied", p_summary: `${teacher.full_name}: ${created} substitution${created === 1 ? "" : "s"} proposed (${rangeLabel(start, end)}); HR picks the teacher`,
         p_data: { leave_id: leave.id, created }, p_employee: teacher.id, p_branch: teacher.branch_id,
         p_entity_type: "substitution_proposal", p_entity_id: String(leave.id), p_effective_on: start,
       });

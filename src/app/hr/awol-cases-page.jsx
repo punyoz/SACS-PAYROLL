@@ -4,7 +4,10 @@ import { DecisionRemarkDialog } from "@/components/portal/remark-field";
 import { RECEIVED_HOW } from "@/lib/awol/replies";
 
 import * as React from "react";
-import { AlertTriangleIcon, FilePlus2Icon, HourglassIcon, Loader2Icon, PauseCircleIcon, RefreshCwIcon, UserXIcon } from "lucide-react";
+import { AlertTriangleIcon, FilePlus2Icon, HourglassIcon, Loader2Icon, MailIcon, MoreHorizontalIcon, PauseCircleIcon, RefreshCwIcon, UserXIcon } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
 import { useApprovalFilters } from "@/components/portal/approval-filters";
 import { downloadFile } from "@/lib/portal/download";
@@ -70,6 +73,21 @@ async function readFiles(list) {
   return out;
 }
 
+/** What happens next on an open case, in words (2026-11-26). */
+function nextStepOf(c) {
+  if (!c.open) return "—";
+  if (c.automation === "response") return "Reply received: you decide (Separate or Close)";
+  if (c.stage === "for_decision") return "Reply period ended: you decide (Separate or Close)";
+  if (c.stage === "flagged") return c.automation === "auto" ? "The system confirms it tonight" : "Needs your review: Proceed or Close";
+  if (c.stage === "first_notice") return `Waiting for the reply${c.first_notice_reply_by ? ` (by ${dateLabel(c.first_notice_reply_by)})` : ""}`;
+  if (c.stage === "second_notice") return c.separation_scheduled_on ? `Separation on ${dateLabel(c.separation_scheduled_on)}` : "Notice of separation sent";
+  return c.stage_label || "—";
+}
+
+/** A template with sample values, for the settings Preview. */
+const SAMPLE = { today: "Nov 26, 2026", employee_name: "Juan Dela Cruz", employee_code: "SACS-010", branch: "Main Branch", first_absent_on: "Nov 18, 2026", reply_by: "Nov 29, 2026", separation_on: "Dec 2, 2026" };
+const previewOf = (text) => String(text || "").replace(/\{(\w+)\}/g, (m, k) => SAMPLE[k] ?? m);
+
 export function AwolCasesPage({ refreshKey }) {
   const { notify } = usePortalSession();
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
@@ -78,6 +96,8 @@ export function AwolCasesPage({ refreshKey }) {
   const [input, setInput] = React.useState({});
   const [error, setError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [detail, setDetail] = React.useState(null);   // the case shown in the drawer
+  const [tplTab, setTplTab] = React.useState("first");
 
   const load = React.useCallback(async () => {
     setState((c) => ({ ...c, loading: true, error: null }));
@@ -137,8 +157,11 @@ export function AwolCasesPage({ refreshKey }) {
           record_reply: ["Reply Recorded", ""],
           separate: ["Employee Separated", `Effective ${dateLabel(input.separation_effective)}. Paid only through final pay.`],
           close: ["Case Closed", "Status Active; pay released. Held payslips need a Super Admin override."],
+          // 2026-11-25: Proceed had no words here, so the page failed after the case was saved.
+          proceed: ["AWOL Confirmed", "Pay is held and the 1st notice is sent; the case runs automatically from here."],
         };
-        notify(words[action][0], words[action][1], "success");
+        const [title, text] = words[action] || ["Saved", ""];
+        notify(title, text, "success");
       }
       setDialog(null);
       await load();
@@ -195,54 +218,51 @@ export function AwolCasesPage({ refreshKey }) {
   };
   const setDay = (k) => (e) => setTemplate((t) => ({ ...t, days: { ...t.days, [k]: e.target.value } }));
 
+  const pdf = (href, name) => downloadFile(href, {}, { fallbackName: name }).catch((e) => notify("Not downloaded", e.message, "error"));
+  // One primary action per case (2026-11-26); the rest sit in the ⋯ menu.
+  const primaryOf = (c) => {
+    if (!canEdit || !c.open) return null;
+    if (c.stage === "flagged" && c.automation !== "auto") return <Button size="sm" onClick={() => open("proceed", c)} data-testid="awol-proceed">Proceed</Button>;
+    if (c.stage === "for_decision" || (c.automation === "response" && c.stage === "first_notice")) return <Button size="sm" onClick={() => open("separate", c)} data-testid="awol-separate">Separate</Button>;
+    return <Button size="sm" variant="outline" onClick={() => open("record_reply", c)}>Record reply</Button>;
+  };
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, cell: (c) => (
       <div className="space-y-1">
-        <p className="font-medium">{c.employee_name}</p>
+        <button type="button" className="font-medium hover:underline" onClick={() => setDetail(c)}>{c.employee_name}</button>
         <p className="text-xs text-muted-foreground">{c.employee_code}{c.employee_status ? ` · ${c.employee_status}` : ""}</p>
-        {/* Part D: opened by the daily detection; a return or a leave filed since. */}
-        {c.auto_flagged ? <StatusBadge tone="muted">Opened by System</StatusBadge> : null}
         {c.open ? <span data-testid="awol-automation"><StatusBadge tone={AUTOMATION[c.automation]?.[1] || "muted"}>{AUTOMATION[c.automation]?.[0] || c.automation}</StatusBadge></span> : null}
-        {c.open && c.automation_reason ? <p className="max-w-64 text-xs whitespace-normal text-muted-foreground">{c.automation_reason}</p> : null}
-        {c.open && c.separation_scheduled_on ? <p className="text-xs text-destructive">Separation on {dateLabel(c.separation_scheduled_on)}{c.automation === "auto" ? " unless stopped" : ""}</p> : null}
       </div>
     ), searchValue: (c) => `${c.employee_name} ${c.employee_code}` },
-    { key: "absent", header: "Absent", cell: (c) => <div><p>{dateLabel(c.first_absent_on)}{c.last_absent_on && c.last_absent_on !== c.first_absent_on ? ` – ${dateLabel(c.last_absent_on)}` : ""}</p><p className="text-xs text-muted-foreground">{c.open ? `${c.absent_days} working day${c.absent_days === 1 ? "" : "s"}` : ""}{c.last_present_on ? ` · last present ${dateLabel(c.last_present_on)}` : ""}</p></div> },
-    { key: "stage", header: "Stage", cell: (c) => <div className="space-y-1"><StatusBadge tone={STAGE_TONE[c.stage] || "muted"}>{c.outcome_label || c.stage_label}</StatusBadge>{c.second_notice_reply_by || c.first_notice_reply_by ? <p className="text-xs text-muted-foreground">Reply by {dateLabel(c.second_notice_reply_by || c.first_notice_reply_by)}</p> : null}</div> },
-    { key: "guards", header: "Guards", cell: (c) => (c.open && c.guards?.checks ? (
-      <ul className="max-w-72 space-y-0.5 text-xs whitespace-normal" data-testid="awol-guards">
-        {c.guards.checks.map((g) => <li key={g.key} className={g.ok ? "text-muted-foreground" : "text-destructive"}>{g.ok ? "✓" : "✗"} {g.label}{g.ok ? "" : `: ${g.detail}`}</li>)}
-      </ul>
-    ) : <span className="text-xs text-muted-foreground">—</span>) },
-    { key: "notes", header: "Replies", cell: (c) => (c.replies?.length ? (
-      <ul className="max-w-72 space-y-1 text-xs whitespace-normal" data-testid="awol-replies">
-        {c.replies.map((r) => (
-          <li key={r.id}>
-            <span className="text-muted-foreground">{r.kind === "hr_record" ? `Recorded by ${r.author_name} (${String(r.received_how).replace("_", " ")})` : r.kind === "follow_up" ? "Follow-up" : "Reply"} · {dateLabel(r.received_on)}{r.return_on ? ` · return ${dateLabel(r.return_on)}` : ""}:</span> {r.explanation}
-            {(r.attachments || []).map((f) => <button key={f.path} type="button" className="ml-1 underline" onClick={() => downloadFile(`/api/hr/awol-cases/notice?reply_file=${encodeURIComponent(f.path)}`, {}, { fallbackName: f.name }).catch((e) => notify("Not downloaded", e.message, "error"))}>{f.name}</button>)}
-          </li>
-        ))}
-      </ul>
-    ) : <p className="max-w-64 text-xs whitespace-normal text-muted-foreground">{c.recommendation || "—"}</p>) },
+    { key: "absent", header: "Absent", cell: (c) => <div><p>{dateLabel(c.first_absent_on)}{c.last_absent_on && c.last_absent_on !== c.first_absent_on ? ` – ${dateLabel(c.last_absent_on)}` : ""}</p><p className="text-xs text-muted-foreground">{c.open ? `${c.absent_days} working day${c.absent_days === 1 ? "" : "s"}` : ""}</p></div> },
+    { key: "stage", header: "Stage", cell: (c) => <StatusBadge tone={STAGE_TONE[c.stage] || "muted"}>{c.outcome_label || c.stage_label}</StatusBadge> },
+    { key: "next", header: "Next step", cell: (c) => <p className="max-w-64 text-sm whitespace-normal" data-testid="awol-next-step">{nextStepOf(c)}</p> },
     {
       key: "actions", header: <span className="sr-only">Actions</span>, align: "right",
-      cell: (c) => (canEdit && c.open ? (
-        <div className="flex flex-wrap justify-end gap-1.5">
-          {(c.notices || []).map((n) => (
-            <Button key={n.id} size="sm" variant="outline" onClick={() => downloadFile(`/api/hr/awol-cases/notice?notice=${n.id}`, {}, { fallbackName: `awol-${n.kind}-notice.pdf` }).catch((e) => notify("Not downloaded", e.message, "error"))}>
-              {n.kind === "second" ? "2nd" : "1st"} notice (PDF)
-            </Button>
-          ))}
-          {c.stage === "flagged" ? (
-            <Button size="sm" variant="outline" onClick={() => downloadFile(`/api/hr/awol-cases/notice?id=${c.id}`, {}, { fallbackName: "awol-first-notice.pdf" }).catch((e) => notify("Not downloaded", e.message, "error"))}>Review notice (PDF)</Button>
-          ) : null}
-          {c.stage === "flagged" && c.automation !== "auto" ? <Button size="sm" onClick={() => open("proceed", c)} data-testid="awol-proceed">Proceed</Button> : null}
-          {c.stage === "for_decision" || (c.automation === "response" && c.stage === "first_notice")
-            ? <Button size="sm" onClick={() => open("separate", c)} data-testid="awol-separate">Separate</Button> : null}
-          <Button size="sm" variant="outline" onClick={() => open("record_reply", c)}>Record reply</Button>
-          <Button size="sm" variant="outline" onClick={() => open("close", c)}>Close</Button>
+      cell: (c) => (
+        <div className="flex items-center justify-end gap-1.5">
+          {primaryOf(c)}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon" variant="ghost" className="size-8" aria-label={`More for ${c.employee_name}`}><MoreHorizontalIcon aria-hidden="true" /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => setDetail(c)}>View details</DropdownMenuItem>
+              {(c.notices || []).map((n) => (
+                <DropdownMenuItem key={n.id} onSelect={() => pdf(`/api/hr/awol-cases/notice?notice=${n.id}`, `awol-${n.kind}-notice.pdf`)}>{n.kind === "second" ? "Notice of separation (PDF)" : "1st notice (PDF)"}</DropdownMenuItem>
+              ))}
+              {c.stage === "flagged" ? <DropdownMenuItem onSelect={() => pdf(`/api/hr/awol-cases/notice?id=${c.id}`, "awol-first-notice.pdf")}>Review notice (PDF)</DropdownMenuItem> : null}
+              {canEdit && c.open ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => open("record_reply", c)}>Record reply</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => open("close", c)}>Close</DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-      ) : null),
+      ),
     },
   ];
 
@@ -261,9 +281,9 @@ export function AwolCasesPage({ refreshKey }) {
   return (
     <>
       <section aria-label="Summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Open cases" value={summary.open || 0} hint="Flagged to HR decision" icon={UserXIcon} tone="danger" loading={first} href={currentPageHref({ awol_filter: "open" })} onClick={() => setFilter("open")} scrollTo="awol-table" actionLabel="Show open cases" />
-        <StatCard label="To confirm" value={summary.flagged || 0} hint="Flagged by the nightly check" icon={AlertTriangleIcon} tone="gold" loading={first} />
-        <StatCard label="For decision" value={summary.for_decision || 0} hint="Ready for your decision" icon={HourglassIcon} tone="info" loading={first} />
+        <StatCard label="Open cases" value={summary.open || 0} hint="Not closed yet" icon={UserXIcon} tone="danger" loading={first} href={currentPageHref({ awol_filter: "open" })} onClick={() => setFilter("open")} scrollTo="awol-table" actionLabel="Show open cases" />
+        <StatCard label="Waiting for reply" value={(state.data?.cases || []).filter((c) => c.open && c.stage === "first_notice" && c.automation === "auto").length} hint="1st notice sent" icon={MailIcon} tone="gold" loading={first} />
+        <StatCard label="Ready for HR decision" value={(state.data?.cases || []).filter((c) => c.open && (c.stage === "for_decision" || c.automation === "response" || (c.stage === "flagged" && c.automation !== "auto"))).length} hint="Separate or Close" icon={HourglassIcon} tone="info" loading={first} />
         <StatCard label="Pay on hold" value={summary.held || 0} hint="AWOL or separated" icon={PauseCircleIcon} tone="danger" loading={first} />
       </section>
 
@@ -297,23 +317,100 @@ export function AwolCasesPage({ refreshKey }) {
           <p className="mt-3 text-xs text-muted-foreground">Automatic only when every guard passes: AWOL confirmed (pay on hold) with the 1st notice. When the reply period ends ({replyDays} days), the case is ready for your decision: Separate (notice of separation; separated on its date) or Close. A reply, a tap or a request stops the automation for you to decide.</p>
         </CardContent>
       </Card>
+      <Sheet open={Boolean(detail)} onOpenChange={(o) => { if (!o) setDetail(null); }}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-lg" data-testid="awol-drawer">
+          {detail ? (
+            <>
+              <SheetHeader>
+                <SheetTitle>{detail.employee_name}</SheetTitle>
+                <SheetDescription>{detail.employee_code} · absent since {dateLabel(detail.first_absent_on)} · {detail.outcome_label || detail.stage_label}</SheetDescription>
+              </SheetHeader>
+              <div className="space-y-5 px-4 pb-6 text-sm">
+                <section aria-label="Timeline">
+                  <h3 className="mb-2 font-semibold">Timeline</h3>
+                  <ol className="space-y-1.5 border-l pl-3">
+                    {detail.last_present_on ? <li>Last present: {dateLabel(detail.last_present_on)}</li> : null}
+                    <li>Opened{detail.auto_flagged ? " by System" : ""}: absent since {dateLabel(detail.first_absent_on)}</li>
+                    {detail.first_notice_sent_on ? <li>1st notice sent {dateLabel(detail.first_notice_sent_on)}{detail.first_notice_reply_by ? `, reply by ${dateLabel(detail.first_notice_reply_by)}` : ""}</li> : null}
+                    {(detail.replies || []).map((r) => <li key={r.id}>{r.kind === "hr_record" ? "Reply recorded by HR" : r.kind === "follow_up" ? "Follow-up" : "Reply"} {dateLabel(r.received_on)}</li>)}
+                    {detail.second_notice_sent_on ? <li>Notice of separation sent {dateLabel(detail.second_notice_sent_on)}{detail.separation_scheduled_on ? `, effective ${dateLabel(detail.separation_scheduled_on)}` : ""}</li> : null}
+                    {!detail.open ? <li>Closed: {detail.outcome_label}</li> : <li className="font-medium">Next: {nextStepOf(detail)}</li>}
+                  </ol>
+                  {detail.automation_reason ? <p className="mt-2 text-xs text-muted-foreground">{detail.automation_reason}</p> : null}
+                </section>
+                {detail.guards?.checks ? (
+                  <section aria-label="Guards">
+                    <h3 className="mb-2 font-semibold">Guards</h3>
+                    <ul className="space-y-0.5 text-xs" data-testid="awol-guards">
+                      {detail.guards.checks.map((g) => <li key={g.key} className={g.ok ? "text-muted-foreground" : "text-destructive"}>{g.ok ? "✓" : "✗"} {g.label}{g.ok ? "" : `: ${g.detail}`}</li>)}
+                    </ul>
+                  </section>
+                ) : null}
+                <section aria-label="Notices">
+                  <h3 className="mb-2 font-semibold">Notices</h3>
+                  {(detail.notices || []).length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {detail.notices.map((n) => <Button key={n.id} size="sm" variant="outline" onClick={() => pdf(`/api/hr/awol-cases/notice?notice=${n.id}`, `awol-${n.kind}-notice.pdf`)}>{n.kind === "second" ? "Notice of separation" : "1st notice"} (PDF)</Button>)}
+                    </div>
+                  ) : <p className="text-muted-foreground">None sent yet.</p>}
+                </section>
+                <section aria-label="Replies">
+                  <h3 className="mb-2 font-semibold">Replies</h3>
+                  {(detail.replies || []).length ? (
+                    <ul className="space-y-2" data-testid="awol-replies">
+                      {detail.replies.map((r) => (
+                        <li key={r.id} className="rounded-md bg-muted/40 p-2">
+                          <p className="text-xs text-muted-foreground">{r.kind === "hr_record" ? `Recorded by ${r.author_name} (${String(r.received_how).replace("_", " ")})` : r.kind === "follow_up" ? "Follow-up" : "Reply"} · {dateLabel(r.received_on)}{r.return_on ? ` · return ${dateLabel(r.return_on)}` : ""}</p>
+                          <p className="whitespace-pre-wrap">{r.explanation}</p>
+                          {(r.attachments || []).map((f) => <Button key={f.path} size="sm" variant="ghost" className="h-7 px-2" onClick={() => pdf(`/api/hr/awol-cases/notice?reply_file=${encodeURIComponent(f.path)}`, f.name)}>{f.name}</Button>)}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <p className="text-muted-foreground">{detail.recommendation || "No reply yet."}</p>}
+                </section>
+              </div>
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+
       <Dialog open={Boolean(template)} onOpenChange={(o) => { if (!o && !templateBusy) setTemplate(null); }}>
         <DialogContent className="sm:max-w-2xl" data-testid="awol-notice-template">
           <DialogHeader>
             <DialogTitle>AWOL settings</DialogTitle>
-            <DialogDescription>The system runs each case by itself until separation, and stops when the employee responds. In a template the first paragraph is the title. Fields: {(template?.fields || []).map((f) => `{${f}}`).join(", ")}.</DialogDescription>
+            <DialogDescription>The days the automation uses and the two notices. The first paragraph of a notice is its title; tap a placeholder to add it.</DialogDescription>
           </DialogHeader>
           {template?.days ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {fieldFor("flag-days", "Days absent", <Input id="hr-awol-flag-days" type="number" min={3} max={30} value={template.days.flag_days} onChange={setDay("flag_days")} />)}
-              {fieldFor("reply-days", "Reply period (calendar days)", <Input id="hr-awol-reply-days" type="number" min={1} max={30} value={template.days.reply_days} onChange={setDay("reply_days")} />)}
+              {fieldFor("reply-days", "Reply period (days)", <Input id="hr-awol-reply-days" type="number" min={1} max={30} value={template.days.reply_days} onChange={setDay("reply_days")} />)}
               {fieldFor("separation-days", "Separation after decision (days)", <Input id="hr-awol-separation-days" type="number" min={1} max={30} value={template.days.separation_days} onChange={setDay("separation_days")} />)}
             </div>
           ) : null}
-          <Label htmlFor="hr-awol-template-1">1st notice (return to work / explain)</Label>
-          <Textarea id="hr-awol-template-1" aria-label="Notice template" rows={8} maxLength={4000} value={template?.text || ""} onChange={(e) => setTemplate((t) => ({ ...t, text: e.target.value }))} />
-          <Label htmlFor="hr-awol-template-2">2nd notice (notice of separation)</Label>
-          <Textarea id="hr-awol-template-2" rows={8} maxLength={4000} value={template?.second_text || ""} onChange={(e) => setTemplate((t) => ({ ...t, second_text: e.target.value }))} />
+          <Tabs value={tplTab} onValueChange={setTplTab}>
+            <TabsList>
+              <TabsTrigger value="first">1st notice</TabsTrigger>
+              <TabsTrigger value="second">Notice of separation</TabsTrigger>
+              <TabsTrigger value="preview">Preview</TabsTrigger>
+            </TabsList>
+            <TabsContent value="first" className="space-y-2">
+              <Textarea id="hr-awol-template-1" aria-label="Notice template" rows={9} maxLength={4000} value={template?.text || ""} onChange={(e) => setTemplate((t) => ({ ...t, text: e.target.value }))} />
+            </TabsContent>
+            <TabsContent value="second" className="space-y-2">
+              <Textarea id="hr-awol-template-2" aria-label="Notice of separation template" rows={9} maxLength={4000} value={template?.second_text || ""} onChange={(e) => setTemplate((t) => ({ ...t, second_text: e.target.value }))} />
+            </TabsContent>
+            <TabsContent value="preview">
+              <pre className="max-h-72 overflow-y-auto rounded-md border bg-muted/30 p-3 font-sans text-sm whitespace-pre-wrap" data-testid="awol-template-preview">{previewOf(template?.text)}{"\n\n— — —\n\n"}{previewOf(template?.second_text)}</pre>
+            </TabsContent>
+          </Tabs>
+          {tplTab !== "preview" ? (
+            <div className="flex flex-wrap gap-1.5" aria-label="Placeholders">
+              {(template?.fields || []).map((f) => (
+                <Button key={f} type="button" size="sm" variant="outline" className="h-7 px-2 font-mono text-xs"
+                  onClick={() => setTemplate((t) => (tplTab === "second" ? { ...t, second_text: `${t.second_text || ""}{${f}}` } : { ...t, text: `${t.text || ""}{${f}}` }))}>{`{${f}}`}</Button>
+              ))}
+            </div>
+          ) : null}
           <DialogFooter className="gap-2 sm:gap-2">
             <Button variant="outline" onClick={() => setTemplate(null)} disabled={templateBusy}>Cancel</Button>
             <Button onClick={saveTemplate} disabled={templateBusy}>{templateBusy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Save settings</Button>

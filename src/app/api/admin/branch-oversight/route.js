@@ -58,6 +58,7 @@ import { hrAccountIds, loadBranchStaff, notify, superAdminIds } from "@/lib/bran
 import { INCENTIVE_MAX, pesoLimit } from "@/lib/input-limits";
 import { textLimitError } from "@/lib/input-limits";
 import { reportResponse, wantsFile } from "@/lib/export/report-file";
+import { rangeLabel } from "@/lib/date-label";
 import { tableQuery } from "@/lib/export/table-query";
 import { REQUEST_SORTS, requestEmployee, requestSearchFields } from "@/lib/admin/request-table";
 
@@ -106,11 +107,13 @@ function range(url, { days = 0 } = {}) {
 }
 
 async function branchRequests(supabase, branchId, kinds) {
-  let query = supabase.from("branch_admin_requests").select("*").eq("branch_id", branchId);
+  let query = supabase.from("branch_admin_requests").select("*").eq("branch_id", branchId).is("archived_at", null);
   if (kinds?.length) query = query.in("kind", kinds);
   const result = await query.order("created_at", { ascending: false }).limit(1000);
   if (result.error) return { error: NOT_READY, rows: [] };
-  return { rows: result.data || [] };
+  // The branch's real name on every row (2026-11-26: never "Your branch").
+  const { data: branch } = await supabase.from("branches").select("name").eq("id", branchId).maybeSingle();
+  return { rows: (result.data || []).map((r) => ({ ...r, branch_name: r.branch_name || branch?.name || null })) };
 }
 
 async function attendanceLogs(supabase, ids, from, to) {
@@ -172,7 +175,7 @@ async function dashboardView(supabase, branchId, staff) {
   const pendingLeaves = leaves.filter((l) => LEAVE_PENDING.includes(l.status));
   const activity = [
     ...requests.rows.flatMap((r) => (r.history || []).map((h) => ({ at: h.at, text: `${REQUEST_KINDS[r.kind]?.label || r.kind}: ${STATUS_LABELS[h.status] || h.status}${h.by_name ? ` by ${h.by_name}` : ""}${r.details?.employee_name ? ` · ${r.details.employee_name}` : ""}` }))),
-    ...leaves.slice(0, 30).map((l) => ({ at: l.decided_at || l.submitted_at, text: `Leave ${l.decided_at ? (LEAVE_LABELS[l.status] || l.status).toLowerCase() : "filed"}: ${l.employee_name} (${l.leave_type}, ${l.start_date}${l.end_date !== l.start_date ? ` to ${l.end_date}` : ""})` })),
+    ...leaves.slice(0, 30).map((l) => ({ at: l.decided_at || l.submitted_at, text: `Leave ${l.decided_at ? (LEAVE_LABELS[l.status] || l.status).toLowerCase() : "filed"}: ${l.employee_name} (${l.leave_type}, ${rangeLabel(l.start_date, l.end_date)})` })),
     ...(announcements.data || []).map((a) => ({ at: a.created_at, text: `Announcement posted: ${a.title}` })),
   ].filter((a) => a.at).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 12);
   const active = staff.filter((p) => !p.archived);

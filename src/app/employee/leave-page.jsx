@@ -299,6 +299,9 @@ function LeaveBalance({ balance, loading }) {
                 {usedByType.length ? `Used: ${usedByType.map(([t, n]) => `${short(t)} ${n}`).join(", ")}` : "None used yet"}
                 {bal.without_pay_used ? ` · without pay: ${days(bal.without_pay_used)}` : ""}
               </p>
+              {bal.conversion?.eligible && bal.conversion.text ? (
+                <p className="mt-1 text-xs text-muted-foreground" data-testid="leave-conversion-preview">{bal.conversion.text}</p>
+              ) : null}
             </div>
             {statutory.length ? (
               <div className="space-y-1.5 border-t pt-3">

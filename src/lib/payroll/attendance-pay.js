@@ -68,6 +68,11 @@ export function peso(value) {
   return roundPeso(value);
 }
 
+/** Labor Code Art. 93: +30 % for work on a rest day (used when no rate row is saved). */
+export const REST_DAY_PREMIUM_PCT = 30;
+/** Labor Code: hours past 8 on a rest day earn the rest-day rate plus 30 % of it (130 % × 130 % = 169 %). */
+export const REST_DAY_BASE_MINUTES = 480;
+export const REST_DAY_PAST_8H_FACTOR = 1.3;
 const valueOf = (rates, type) => Number(rates?.[type]?.value ?? rates?.[type] ?? 0) || 0;
 const configOf = (rates, type) => rates?.[type]?.config_id || null;
 
@@ -138,6 +143,8 @@ export function computeAttendancePay({ logs, leaveDays, halfLeaveDays, rates, pe
   const lateMinutePct = valueOf(rates, "late_minute_charge_pct");
   const perfectBonus = valueOf(rates, "perfect_attendance_bonus");
   const overtimeHourly = hourly * (1 + valueOf(rates, "overtime_premium_pct") / 100);
+  // 2026-11-26: a rest day that is not a holiday pays (100 + rest_day_premium_pct) % (Labor Code: 130 %).
+  const restDayPct = 100 + (rates?.rest_day_premium_pct == null ? REST_DAY_PREMIUM_PCT : valueOf(rates, "rest_day_premium_pct"));
   const holidayPct = {
     holiday: valueOf(rates, "regular_holiday_premium_pct"),
     special: valueOf(rates, "special_holiday_premium_pct"),
@@ -245,16 +252,30 @@ export function computeAttendancePay({ logs, leaveDays, halfLeaveDays, rates, pe
     const approvedMinutes = Math.max(0, Math.round(Number(overtime?.get?.(logId)) || 0));
     if (logId && approvedMinutes > 0) {
       counts.overtime_minutes += approvedMinutes;
-      // A regular working day: the overtime setting (125%); a rest day or holiday: the rate table.
+      // A regular working day: the overtime setting (125%); a rest day (not a holiday): the
+      // rest-day premium (130%); a holiday: the rate table.
       const regularDay = !holidays?.get?.(date) && !restDays?.has?.(date);
+      const plainRestDay = !holidays?.get?.(date) && Boolean(restDays?.has?.(date));
       const useSetting = regularDay && Number(overtimeRegularPct) > 0;
-      const rate = useSetting ? hourly * Number(overtimeRegularPct) / 100 : overtimeHourly;
+      const rate = useSetting ? hourly * Number(overtimeRegularPct) / 100 : plainRestDay ? hourly * restDayPct / 100 : overtimeHourly;
+      // A rest day past 8 h (Labor Code): the rest-day rate × 130 % (130 % × 130 % = 169 %), on its own line.
+      const baseMinutes = plainRestDay ? Math.min(approvedMinutes, REST_DAY_BASE_MINUTES) : approvedMinutes;
       earnings.push({
-        type: "overtime", quantity: approvedMinutes, unit: "minute", rate: peso(rate),
-        rate_config_id: useSetting ? configOf(rates, "hourly") : configOf(rates, "overtime_premium_pct") || configOf(rates, "hourly"),
-        ...(useSetting ? { rate_pct: Number(overtimeRegularPct) } : {}),
-        amount: peso((approvedMinutes / 60) * rate), source_log_id: logId, log_date: date,
+        type: "overtime", quantity: baseMinutes, unit: "minute", rate: peso(rate),
+        rate_config_id: useSetting ? configOf(rates, "hourly") : plainRestDay ? configOf(rates, "rest_day_premium_pct") || configOf(rates, "hourly") : configOf(rates, "overtime_premium_pct") || configOf(rates, "hourly"),
+        ...(useSetting ? { rate_pct: Number(overtimeRegularPct) } : plainRestDay ? { rate_pct: restDayPct, rest_day: true } : {}),
+        amount: peso((baseMinutes / 60) * rate), source_log_id: logId, log_date: date,
       });
+      if (plainRestDay && approvedMinutes > baseMinutes) {
+        const pastPct = Math.round(restDayPct * REST_DAY_PAST_8H_FACTOR * 100) / 100;
+        const pastRate = hourly * pastPct / 100;
+        earnings.push({
+          type: "overtime", quantity: approvedMinutes - baseMinutes, unit: "minute", rate: peso(pastRate),
+          rate_config_id: configOf(rates, "rest_day_premium_pct") || configOf(rates, "hourly"),
+          rate_pct: pastPct, rest_day: true, past_8h: true, note: `Rest day, past 8 h: ${pastPct}% of the hourly rate`,
+          amount: peso(((approvedMinutes - baseMinutes) / 60) * pastRate), source_log_id: logId, log_date: date,
+        });
+      }
     }
 
     const holidayType = holidays?.get?.(date);

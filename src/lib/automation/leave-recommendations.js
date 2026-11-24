@@ -19,6 +19,7 @@ import { cancelSubstitutionProposals, proposeSubstitutions } from "@/lib/substit
 import { LEAVE_ADVANCE_DAYS } from "@/lib/leave-requests/advance-rule";
 import { splitForBalance } from "@/lib/leave-requests/split";
 import { leaveBalancesFor } from "@/lib/leave-requests/store";
+import { rangeLabel } from "@/lib/date-label";
 
 const dayKey = (v) => String(v || "").slice(0, 10);
 const addDays = (key, n) => new Date(Date.parse(`${key}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
@@ -119,7 +120,7 @@ export async function afterLeaveDecision(supabase, leave, decision) {
     const facts = await recommendLeave(supabase, leave);
     await supabase.rpc("automation_log", {
       p_module: "leave_recommendations", p_rule: "approved leave: the days marked On Leave and the credits used",
-      p_kind: "applied", p_summary: `${leave.employee_name}: ${facts.days.length} day${facts.days.length === 1 ? "" : "s"} On Leave (${dayKey(leave.start_date)} to ${dayKey(leave.end_date || leave.start_date)})`,
+      p_kind: "applied", p_summary: `${leave.employee_name}: ${facts.days.length} day${facts.days.length === 1 ? "" : "s"} On Leave (${rangeLabel(dayKey(leave.start_date), dayKey(leave.end_date || leave.start_date))})`,
       p_data: { leave_id: leave.id, days: facts.days, split: facts.split }, p_employee: leave.employee_id, p_branch: facts.branch_id,
       p_entity_type: "leave_request_applied", p_entity_id: String(leave.id),
     });

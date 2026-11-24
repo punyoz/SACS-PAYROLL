@@ -77,6 +77,8 @@ test("approval flow: who goes to HR, why a run cannot be submitted, and what is 
     await db().from("profiles").upsert({ id, email, full_name: name, role: "employee", branch_id: branch.id, employee_status: "Active", date_hired: "2024-06-01", archived: false, payroll_hold: false, ...profile });
     people[key] = { id, name };
   }
+  // The staff list is cached for 10 s (src/lib/auth/users-cache.js): the Accountant sees the new people after that.
+  await new Promise((r) => setTimeout(r, 11000));
 
   try {
     const inserted = await db().from("payroll_entries").insert([

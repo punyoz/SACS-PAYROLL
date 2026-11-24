@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangleIcon, CheckCircle2Icon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, FlagIcon, InfoIcon, Loader2Icon, LockIcon, MoreHorizontalIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import { AlertTriangleIcon, CalendarIcon, CheckCircle2Icon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, FlagIcon, InfoIcon, Loader2Icon, LockIcon, MoreHorizontalIcon, PauseCircleIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,10 +55,12 @@ import { TestingModeBanner } from "@/components/portal/testing-mode-banner";
 import { pesoText } from "@/lib/payroll/line-tags";
 import { compactLineGroups, previewLineGroups } from "@/lib/portal/payroll-line-preview";
 import { InfoTip } from "@/components/portal/info-tip";
+import { portalHref } from "@/lib/portal/navigate";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LineTag, LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
 import { SearchableSelect } from "@/components/portal/searchable-select";
 import { ruleIncentiveNote } from "@/lib/payroll/incentive-recommendations";
+import { FilterBar } from "@/components/portal/filter-bar";
 
 /*
  * Process Payroll (loadBatchPayrollTable / processBatchPayroll /
@@ -95,58 +97,80 @@ function clampSalary(raw) {
   return Number.isFinite(n) && n > SALARY_MAX ? String(SALARY_MAX) : value;
 }
 
+/** "Nov 26, 2026" for a month's lock day; the next month's name ("December"). */
+const lockDateLabel = (startKey, day) => dateLabel(`${String(startKey || "").slice(0, 7)}-${String(day).padStart(2, "0")}`);
+const nextMonthName = (startKey) => {
+  const d = new Date(`${String(startKey || "").slice(0, 7)}-01T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + 1);
+  return Number.isNaN(d.getTime()) ? "next month" : d.toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
+};
+
+/** One line of the period summary: icon, label, text, details behind ⓘ. */
+function SummaryLine({ icon: Icon, label, children, tip, testId }) {
+  return (
+    <li className="flex items-start gap-2 text-sm" data-testid={testId}>
+      <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <span className="min-w-0"><span className="font-medium">{label}: </span>{children}</span>
+      {tip ? <InfoTip label={`About ${label.toLowerCase()}`}>{tip}</InfoTip> : null}
+    </li>
+  );
+}
+
 function Banners({ data }) {
   const win = data?.generation_window || null;
   const semi = data?.semi_monthly || null;
   const period = data?.active_period?.label || "This period";
+  const held = (data?.employees || []).filter((e) => e.payroll_hold);
+  const att = semi?.attendance_window || semi?.window || null;
+  const semiText = !semi ? "" : semi.per_cutoff && semi.half === "first"
+    ? `1st cutoff: the semi-monthly salary less this cutoff's attendance only. No tax, contributions or loans: those are on the ${semi.second_half_label} payslip.`
+    : semi.per_cutoff
+      ? `2nd cutoff: this attendance only, plus SSS, PhilHealth, Pag-IBIG and loans. Tax and contributions are computed on the whole of ${semi.month_label}'s earnings.`
+      : semi.half === "first"
+        ? `1st half: the full semi-monthly salary, no deductions. ${semi.month_label}'s absences, leave, incentives, contributions and tax are settled on the ${semi.second_half_label} payslip.`
+        : `2nd half settles ${semi.month_label}: attendance, approved leave, incentives and overload, contributions and tax from the monthly table. Net pay is the month's net less what the 1st half paid.`;
   return (
     <>
-      {/* Super Admin testing switch OFF (window-enforcement.js). */}
-      <TestingModeBanner enforcement={win?.window_enforcement} compact />
+      {/* A real blocking warning: ONE amber alert, only when it applies. */}
       {data && data.payroll_ready === false ? (
         <Alert className="border-warning/40 bg-warning/10 text-warning">
           <AlertTriangleIcon aria-hidden="true" />
           <AlertDescription className="text-warning">{data.payroll_not_ready_message}</AlertDescription>
         </Alert>
       ) : null}
-      {win ? (
-        <Alert className={cn(win.state === "final" ? "border-success/40 bg-success/8" : win.state === "draft" ? "border-info/40 bg-info/8" : "border-warning/40 bg-warning/10")}>
-          {win.state === "final" || win.state === "draft" ? <InfoIcon aria-hidden="true" /> : <AlertTriangleIcon aria-hidden="true" />}
-          <AlertDescription>
-            <p><strong className="text-foreground">{period}:</strong> {win.message}</p>
-            {win.scheduled ? (
-              <p className="text-xs">{win.banner}. Pay date {dateLabel(win.pay_date)}{win.pay_date_scheduled ? " (from the Pay Calendar)" : ""}.</p>
-            ) : (
-              <p className="text-xs">Window {dateLabel(win.opens_on)} – {dateLabel(win.pay_date)}{win.pay_date_scheduled ? " (pay date from the Pay Calendar)" : ""}.</p>
-            )}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      {(data?.employees || []).some((e) => e.payroll_hold) ? (
-        <Alert className="border-warning/40 bg-warning/10">
-          <AlertTriangleIcon aria-hidden="true" />
-          <AlertDescription>
-            <p><strong className="text-foreground">Pay on hold:</strong> {(data.employees || []).filter((e) => e.payroll_hold).map((e) => e.full_name).join(", ")}. Their payslips are not generated: an AWOL case must be closed first (HR), and a separated employee is paid through Final Pay.</p>
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      {semi ? (
-        <Alert className="border-info/40 bg-info/8">
-          <InfoIcon aria-hidden="true" />
-          <AlertDescription>
-            {semi.per_cutoff && semi.half === "first" ? (
-              <p><strong className="text-foreground">1st cutoff:</strong> the semi-monthly salary (monthly salary ÷ 2) less this cutoff&apos;s attendance only — late, undertime and absences from {shortDate(semi.attendance_window?.start_key)} to {dateLabel(semi.attendance_window?.end_key)}. No withholding tax, SSS, PhilHealth, Pag-IBIG, loans or other deductions: those are on the {semi.second_half_label} payslip.</p>
-            ) : semi.per_cutoff ? (
-              <p><strong className="text-foreground">2nd cutoff:</strong> attendance from {shortDate(semi.attendance_window?.start_key)} to {dateLabel(semi.attendance_window?.end_key)} only, plus SSS, PhilHealth, Pag-IBIG, loans and other deductions. Withholding tax and contributions are computed on the whole of {semi.month_label}&apos;s earnings; each deduction is its own line on the payslip.</p>
-            ) : semi.half === "first" ? (
-              <p><strong className="text-foreground">1st half:</strong> the full semi-monthly salary (monthly salary ÷ 2) with no deductions. Absences, leave, incentives, contributions and withholding tax for {semi.month_label} are settled on the {semi.second_half_label} payslip.</p>
-            ) : (
-              <p><strong className="text-foreground">2nd half settles {semi.month_label}:</strong> attendance {shortDate(semi.window?.start_key)} – {dateLabel(semi.window?.end_key)}{semi.lock_day ? ` (locked on day ${semi.lock_day}; later items go to next month)` : ""}, approved leave, incentives and overload, the month&apos;s SSS / PhilHealth / Pag-IBIG and withholding tax from the monthly table. Net pay is the month&apos;s net less what the 1st half paid.</p>
-            )}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      <EarlyBirdBanner earlyBird={data?.early_bird} />
+      <Card className="min-w-0 shadow-xs" data-testid="period-summary">
+        <CardContent className="space-y-2 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold">{period}</p>
+            <TestingModeBanner enforcement={win?.window_enforcement} badge />
+          </div>
+          <ul className="grid gap-1.5 md:grid-cols-2">
+            {win ? (
+              <SummaryLine icon={CalendarIcon} label="Period" testId="summary-period"
+                tip={`${win.message}${win.scheduled ? ` ${win.banner}.` : ` Window ${dateLabel(win.opens_on)} – ${dateLabel(win.pay_date)}.`}${win.pay_date_scheduled ? " The pay date is from the Pay Calendar." : ""}`}>
+                Payslips {dateLabel(win.opens_on)} · Pay date {dateLabel(win.pay_date)}
+              </SummaryLine>
+            ) : null}
+            {att ? (
+              <SummaryLine icon={ClockIcon} label="Attendance counted" testId="summary-attendance" tip={semiText}>
+                {shortDate(att.start_key)} – {dateLabel(att.end_key)}
+              </SummaryLine>
+            ) : null}
+            {semi?.lock_day ? (
+              <SummaryLine icon={LockIcon} label="Incentive & overload cutoff" testId="summary-lock"
+                tip="Incentives and overload filed after this day go to next month's payroll.">
+                {lockDateLabel(data?.active_period?.start_key, semi.lock_day)}; later items go to {nextMonthName(data?.active_period?.start_key)}
+              </SummaryLine>
+            ) : null}
+            {held.length ? (
+              <SummaryLine icon={PauseCircleIcon} label="Pay on hold" testId="summary-hold"
+                tip="No payslip is generated for them: an AWOL case must be closed first (HR), and a separated employee is paid through Final Pay.">
+                {held.length} employee{held.length === 1 ? "" : "s"} ({held.map((e) => e.full_name).join(", ")}) · <a className="underline-offset-2 hover:underline" href={portalHref("ac-final-pay")}>Final Pay</a>
+              </SummaryLine>
+            ) : null}
+          </ul>
+        </CardContent>
+      </Card>
     </>
   );
 }
@@ -628,9 +652,15 @@ function BatchCard({ onNavigate, onEdit }) {
   const select = (row) => (row.state.processable ? (
     <Checkbox checked={selected.has(row.employee.id)} onCheckedChange={() => toggle(setSelected, row.employee.id)} aria-label={`Select ${row.employee.full_name}`} />
   ) : null);
+  const earlyBirdWinner = data?.early_bird?.winner || null;
   const who = (row) => (
     <div className="min-w-0">
-      <p className="truncate font-medium">{row.employee.full_name}</p>
+      <p className="flex min-w-0 items-center gap-1.5 font-medium"><span className="truncate">{row.employee.full_name}</span>
+        {earlyBirdWinner && String(earlyBirdWinner.employee_id) === String(row.employee.id) ? (
+          <span title={`Early Bird: ${earlyBirdWinner.early_count} early time-ins; ${money(earlyBirdWinner.amount)} on the payslip as its own line`} data-testid="early-bird-tag"
+            className="shrink-0 rounded-full border border-success/40 bg-success/10 px-1.5 text-[10px] font-medium text-success">Early Bird {money(earlyBirdWinner.amount)}</span>
+        ) : null}
+      </p>
       <p className="truncate text-[11px] text-muted-foreground">{[row.employee.employee_id, row.employee.employee_type, row.employee.employment_status].filter(Boolean).join(" · ")}</p>
     </div>
   );
@@ -724,13 +754,13 @@ function BatchCard({ onNavigate, onEdit }) {
           </Alert>
         ) : null}
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative sm:max-w-xs sm:flex-1">
+        <FilterBar data-testid="process-filters">
+          <div className="relative" data-filter="search">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-            <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or ID" aria-label="Search employees" className="h-8 pl-8" />
+            <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or ID" aria-label="Search employees" className="pl-8" />
           </div>
           <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger size="sm" className="w-full sm:w-44" aria-label="Status"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="Status"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
               {["ready", "draft", "final", "in_run", "blocked"].map((k) => <SelectItem key={k} value={k}>{BATCH_STATUS[k].label}</SelectItem>)}
@@ -765,7 +795,7 @@ function BatchCard({ onNavigate, onEdit }) {
               </SelectContent>
             </Select>
           ) : null}
-        </div>
+        </FilterBar>
 
         {isMobile ? (
           // Phone: one card per employee; tap to expand the breakdown.
@@ -1422,7 +1452,7 @@ export function ProcessPage({ onNavigate }) {
     <>
       <Banners data={data} />
       {/* Incentives filed after the 15th are paid next month (intended). */}
-      <DeferredIncentivesNotice monthKey={String(data?.active_period?.start_key || "").slice(0, 7)} />
+      <DeferredIncentivesNotice onlyMoved monthKey={String(data?.active_period?.start_key || "").slice(0, 7)} />
       <RunApprovalPanel />
       <BatchCard onNavigate={onNavigate} onEdit={(id) => setEditRequest({ id, at: Date.now() })} />
       <h2 className="mt-2 text-base font-semibold">Single entry / edit draft</h2>

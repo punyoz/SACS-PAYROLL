@@ -43,6 +43,8 @@ export const RATE_TYPES = Object.freeze({
   overtime_premium_pct: { label: "Overtime premium", unit: "percent", hint: "Approved overtime is paid at the hourly rate plus this % (25 = 125%)" },
   regular_holiday_premium_pct: { label: "Regular holiday premium", unit: "percent", hint: "Added % of the daily rate for working on a regular holiday (100 = double pay)" },
   special_holiday_premium_pct: { label: "Special day premium", unit: "percent", hint: "Added % of the daily rate for working on a special (non-working) day" },
+  // 2026-11-26 (Labor Code Art. 93): work on a rest day that is not a holiday is 130%.
+  rest_day_premium_pct: { label: "Rest day premium", unit: "percent", hint: "Overtime and substitutions on the employee's rest day (not a holiday) are paid at the hourly rate plus this % (30 = 130%). Holidays keep their own rates" },
   working_days_per_year: { label: "Working days per year", unit: "days", hint: "Daily rate = monthly salary × 12 ÷ this (261 = Monday to Friday, the school's real working days; 313 if Saturdays are school days). 31 or less is working days per month: monthly salary ÷ this (e.g. 22). Attendance deductions never exceed the monthly salary" },
   // Semi-monthly payroll (src/lib/payroll/semi-monthly.js).
   attendance_lock_day: { label: "Attendance lock day", unit: "day_of_month", hint: "Replaced by the Payslip Schedule once it is set up (System Configuration → Payroll): the 2nd half then reads attendance to the day before its generation day. Before that: day of the month attendance is locked for the 2nd half (0 = month end); anything dated or filed after it goes to next month's payroll" },
@@ -133,6 +135,7 @@ export const DEFAULT_RATES = Object.freeze({
   overtime_premium_pct: 25,
   regular_holiday_premium_pct: 100,
   special_holiday_premium_pct: 30,
+  rest_day_premium_pct: 30,
   working_days_per_year: 261,
   attendance_lock_day: 0,
   carry_after_lock: 1,

@@ -108,3 +108,10 @@ export async function requestTab(page, name) {
   await page.locator("#portal-main").getByRole("tab", { name: new RegExp(`^${name}`) }).click();
   await settle(page);
 }
+
+/** A date key as the tables show it (b978d69): "2026-11-26" -> "Nov 26, 2026". */
+const SHOWN_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export function shownDay(key) {
+  const [y, m, d] = String(key || "").slice(0, 10).split("-").map(Number);
+  return y && m && d ? `${SHOWN_MONTHS[m - 1]} ${d}, ${y}` : String(key || "");
+}

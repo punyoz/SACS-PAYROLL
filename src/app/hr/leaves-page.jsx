@@ -1,6 +1,7 @@
 "use client";
 
 import { dateLabel } from "@/lib/portal/payroll-preview";
+import { rangeLabel } from "@/lib/date-label";
 
 import { ItemThread } from "@/components/portal/item-thread";
 
@@ -44,6 +45,8 @@ const range = (req) => ({
   days: req.half_day ? requestDays(req) : req.days || req.duration_days || countLeaveDays(req.start_date, req.end_date || req.start_date) || "?",
   from: req.from_date || req.start_date || "—",
   to: req.half_day ? `${req.start_date} (${req.half_day})` : req.to_date || req.end_date || "—",
+  // Dates as people read them (2026-11-26): "Nov 27, 2026", "Nov 12 – 13, 2026", "Nov 11, 2026 (AM)".
+  range: req.half_day ? `${dateLabel(req.start_date)} (${req.half_day})` : rangeLabel(req.from_date || req.start_date, req.to_date || req.end_date),
   // A truthy marker for a stored proof (fetched on View, 20261105030000).
   proof: req.proof_url || req.proof_data || (req.has_stored_proof ? "stored" : ""),
 });
@@ -70,13 +73,9 @@ export function LeavesPage({ refreshKey }) {
   // bucket and it is fetched only when HR clicks View.
   const openProof = React.useCallback(async (req) => {
     if (!req.has_stored_proof) { openInlineProof(range(req).proof); return; }
-    try {
-      const data = await fetchJson(`/api/hr/leave-requests/proof?id=${encodeURIComponent(req.id)}`);
-      openInlineProof(data.proof_url);
-    } catch (error) {
-      notify("Cannot open proof", error.message || "The proof document could not be loaded.", "error");
-    }
-  }, [openInlineProof, notify]);
+    // The viewer opens at once and shows the file when it arrives (its errors are shown by the viewer).
+    openInlineProof(fetchJson(`/api/hr/leave-requests/proof?id=${encodeURIComponent(req.id)}`).then((data) => data.proof_url));
+  }, [openInlineProof]);
   const [state, setState] = React.useState({ loading: true, error: null, pending: [], history: [], balances: {} });
   const [busy, setBusy] = React.useState(null);
   // The request being decided, with its remark (Part H): { req, action }. A
@@ -163,7 +162,7 @@ export function LeavesPage({ refreshKey }) {
   const historyColumns = [
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", cell: (r) => r.employee_name || r.employee_id || "—", searchValue: (r) => r.employee_name },
     { key: "leave_type", header: "Leave type", sortable: true, searchValue: (r) => r.leave_type },
-    { key: "duration", header: "Duration", className: "whitespace-nowrap tabular-nums", cell: (r) => { const x = range(r); return `${x.days}d · ${x.from} – ${x.to}`; } },
+    { key: "duration", header: "Duration", className: "whitespace-nowrap tabular-nums", cell: (r) => { const x = range(r); return `${x.days}d · ${x.range}`; } },
     { key: "reason", header: "Reason", className: "max-w-48 truncate text-muted-foreground", cell: (r) => r.reason || "—", searchValue: (r) => r.reason },
     // 2026-11-24: the branch Admin follows the request; HR and the Admin can message each other on it.
     { key: "branch_admin", header: <span className="sr-only">Messages with the branch Admin</span>, align: "right", cell: (r) => <ItemThread itemType="leave_request" itemId={r.id} title={`Messages · ${r.employee_name || "leave request"}`} /> },
@@ -203,7 +202,7 @@ export function LeavesPage({ refreshKey }) {
         open={Boolean(bulk)}
         title={bulk?.decision === "reject" ? "Reject the selected leave requests" : "Approve the selected leave requests"}
         rows={bulk?.rows || []}
-        label={(r) => { const x = range(r); return `${r.employee_name || "Employee"} · ${r.leave_type || "Leave"} · ${x.from} to ${x.to}`; }}
+        label={(r) => { const x = range(r); return `${r.employee_name || "Employee"} · ${r.leave_type || "Leave"} · ${x.range}`; }}
         decision={bulk?.decision}
         entityType="leave_request"
         destructive={bulk?.decision === "reject"}
@@ -266,7 +265,7 @@ export function LeavesPage({ refreshKey }) {
                       <p className="text-sm">
                         <strong>{req.leave_type || "Leave"}</strong> · {req.pay_status === "without_pay" ? "Without pay" : "With pay"} · {String(x.days)} day{x.days !== 1 ? "s" : ""}
                       </p>
-                      <p className="flex items-center gap-1.5 text-sm text-muted-foreground tabular-nums"><CalendarDaysIcon className="size-3.5" aria-hidden="true" />{x.from} to {x.to}</p>
+                      <p className="flex items-center gap-1.5 text-sm text-muted-foreground tabular-nums"><CalendarDaysIcon className="size-3.5" aria-hidden="true" />{x.range}</p>
                       <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{req.reason || "—"}</p>
                       <LeaveBalanceNote balance={state.balances[req.employee_id]} request={req} />
                       <SystemRecommendation rec={req.system_recommendation} compact />

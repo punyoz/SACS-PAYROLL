@@ -185,6 +185,9 @@ export function ClassificationDialog({ employee, open, onOpenChange, onSaved }) 
                   </li>
                 ))}
               </ul>
+              {data.leave.conversion?.eligible && data.leave.conversion.text ? (
+                <p className="mt-2 text-xs text-muted-foreground" data-testid="hr-leave-conversion-preview">{data.leave.conversion.text}</p>
+              ) : null}
               {override ? (
                 <div className="mt-3 grid gap-3 rounded-md border p-3 sm:grid-cols-[8rem_1fr_auto] sm:items-end">
                   <div className="space-y-1.5"><Label htmlFor="cls-ov-days">{override.leave_type} days</Label>

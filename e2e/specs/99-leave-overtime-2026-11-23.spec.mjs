@@ -41,7 +41,9 @@ for (const [role, pageId] of [["employee", "emp-leave"], ["hr", "hr-my-leave"], 
     });
 
     await step(page, `${role} > balances on top, then the requests with Leave / Half day / Overtime tabs`, async () => {
-      await expect(main(page).getByText("Leave balance")).toBeVisible();
+      // The leave-credits pool (PR #55): one total for vacation, sick and emergency leave.
+      await expect(main(page).getByTestId("leave-credits")).toBeVisible();
+      await expect(main(page).getByText("Leave credits", { exact: true }).first()).toBeVisible();
       for (const t of ["Leave", "Half day", "Overtime"]) await expect(main(page).getByRole("tab", { name: new RegExp(`^${t}`) })).toBeVisible();
       await expect(main(page).getByRole("tab", { name: /^Leave/ })).toHaveAttribute("aria-selected", "true");
       await expect(main(page).getByTestId("new-request")).toHaveCount(1);

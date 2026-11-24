@@ -43,7 +43,7 @@ export async function GET(request) {
         .select("name,location,status")
         .eq("id", branchId)
         .maybeSingle();
-      branchLabel = normalizeText(branchResult.data?.name, "Your branch");
+      branchLabel = normalizeText(branchResult.data?.name, "Branch");
     }
 
     // ── Headcount ──

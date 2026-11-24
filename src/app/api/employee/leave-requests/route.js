@@ -21,6 +21,7 @@ import { leaveBalances, loadStatutoryLeaves } from "@/lib/employees/classificati
 import { statutoryRefusal } from "@/lib/employees/classification";
 import { readRequestSettings } from "@/lib/overtime-requests/rules";
 import { countLeaveDays } from "@/lib/leave-requests/split";
+import { conversionPreviewFor } from "@/lib/payroll/leave-conversion-server";
 
 /** Sex and civil status from the account (what statutory leave depends on). */
 async function personOf(employeeId) {
@@ -82,6 +83,9 @@ export async function GET(request) {
           refusal: statutoryRefusal(t, person, { days: 0, priorEvents: used }) };
       });
     }
+
+    // Leave conversion preview (2026-11-26): the same calculation the Dec 16–31 payslip uses.
+    if (balance) balance.conversion = await conversionPreviewFor(getServiceClient(), employeeId, balance);
 
     // The half-day filing window (the requests' settings), for the form's words.
     const settings = await readRequestSettings(getServiceClient());

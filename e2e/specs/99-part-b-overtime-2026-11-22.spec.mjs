@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, choose, manilaDay, pickDate, newRequest, requestTab } from "../support/flow.mjs";
+import { api, choose, manilaDay, pickDate, newRequest, requestTab, shownDay } from "../support/flow.mjs";
 import { db, rows, psql, profileByEmail } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -45,7 +45,9 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
   // Start clean on both days: another spec may have left Bea an open request on one of them
   // (one open request per day is a rule; 2026-11-24 full run: 99-leave-overtime used Nov 30).
   const bea0 = await profileByEmail(ACCOUNTS.employee2.email);
-  await db().from("overtime_requests").delete().eq("employee_id", bea0.id).in("request_date", [date, other]);
+  // Requests are never deleted (overtime_requests_guard): open ones are cancelled.
+  const cleared = await db().from("overtime_requests").update({ status: "cancelled" }).eq("employee_id", bea0.id).in("request_date", [date, other]).eq("status", "pending");
+  expect(cleared.error, "test setup: Bea's open requests on these days cancelled").toBeNull();
 
   await as(page, "employee2", "emp-leave");
   await settle(page);
@@ -59,7 +61,7 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
   // Filed: the dialog closes and the Overtime tab shows it.
   const card = main(page).getByTestId("my-overtime-requests");
   await expect(card).toBeVisible();
-  await expect(card.getByRole("row").filter({ hasText: date })).toContainText("Pending");
+  await expect(card.getByRole("row").filter({ hasText: shownDay(date) })).toContainText("Pending");
   await card.screenshot({ path: join(OUT, "employee-filed.png") });
 
   // Same day again, and more than 3 h: refused in plain words.
@@ -77,7 +79,7 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
   await page.reload();
   await settle(page);
   await requestTab(page, "Overtime");
-  const row = card.getByRole("row").filter({ hasText: other });
+  const row = card.getByRole("row").filter({ hasText: shownDay(other) });
   await row.getByRole("button", { name: "Cancel" }).click();
   await expect(row).toContainText("Cancelled");
 
@@ -91,7 +93,7 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
   await settle(page);
   const hr = main(page).getByTestId("hr-overtime-requests");
   await expect(hr).toBeVisible();
-  const bea = hr.getByRole("row").filter({ hasText: date });
+  const bea = hr.getByRole("row").filter({ hasText: shownDay(date) });
   await expect(bea.getByTestId("ot-facts")).toContainText("Requested 2 h; paid after the time-out tap if approved");
   await expect(bea.getByTestId("ot-facts")).toContainText("Allowed for this employee's category");
   await hr.screenshot({ path: join(OUT, "hr-pending.png") });
@@ -103,7 +105,7 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
 
   const noReason = await api(page, "PATCH", "/api/hr/overtime-requests", { id: anaRequest.id, decision: "reject" });
   expect(noReason.data.error).toBe("Choose a remark (a reason is required).");
-  const ana = hr.getByRole("row").filter({ hasText: other });
+  const ana = hr.getByRole("row").filter({ hasText: shownDay(other) });
   await ana.getByRole("button", { name: "Reject" }).click();
   const dialog = page.getByRole("dialog");
   // Part H: a rejection needs a remark; the preset carries extra words.

@@ -26,13 +26,17 @@ async function plantBlockedEmployee() {
   const bea = await profileByEmail("emp2@e2e.test");
   const stamp = Date.now();
   const email = `process-cleanup.${stamp}@e2e.test`;
-  const full_name = "Aaron E2E Process Cleanup";
+  const full_name = "Aaron Process Cleanup";
   const { data, error } = await db().auth.admin.createUser({ email, password: `E2e-Pc#${stamp}`, email_confirm: true, user_metadata: { role: "employee", full_name } });
   if (error) throw new Error(error.message);
   const id = data.user.id;
   // No card (set only through RFID registration) and no photo (it must sit in the owner's own folder).
   const { id: _id, email: _email, created_at: _c, updated_at: _u, rfid_uid: _card, photo_path: _p, photo_thumb_path: _t, photo_updated_at: _pu, ...rest } = bea;
-  await rows(db().from("profiles").upsert({ ...rest, id, email, full_name, employee_id: `E2E-PC-${stamp}`, archived: false, on_payroll: true }, { onConflict: "id" }).select("id"));
+  // Its own first / last name too: the full name follows them, so a copy of Bea's would read "Bea Reyes"
+  // (two Bea rows in other specs; 2026-11-24 full run).
+  await rows(db().from("profiles").upsert({ ...rest, id, email, full_name, first_name: "Aaron", middle_name: null, last_name: "Process Cleanup", suffix: null, employee_id: `E2E-PC-${stamp}`, archived: false, on_payroll: true }, { onConflict: "id" }).select("id"));
+  const named = await rows(db().from("profiles").select("full_name").eq("id", id).single());
+  expect(named.full_name, "the copy has its own name").toBe(full_name);
   const logs = [];
   for (let d = 1; d <= 30; d += 1) {
     const day = `2026-10-${String(d).padStart(2, "0")}`;
@@ -43,6 +47,8 @@ async function plantBlockedEmployee() {
   }
   await rows(db().from("attendance_logs").insert(logs).select("id"));
   await rows(db().from("attendance_logs").update({ time_out: null, status: "Incomplete" }).eq("employee_id", id).eq("log_date", BLOCKED_DAY).select("id"));
+  // The staff list is cached for 10 s (src/lib/auth/users-cache.js): the Accountant sees the new employee after that.
+  await new Promise((r) => setTimeout(r, 11000));
   return id;
 }
 
