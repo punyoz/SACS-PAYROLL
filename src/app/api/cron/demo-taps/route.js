@@ -11,7 +11,8 @@
  * Off when missing, disabled, or after `until`. GET Authorization: Bearer <CRON_SECRET> (Vercel Cron).
  */
 import { timingSafeEqual } from "node:crypto";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { POST as terminalTap } from "@/app/api/admin/attendance/route";
 import { appendAuditLog } from "@/lib/audit/store";
 import { getServiceClient } from "@/lib/supabase/admin";
 import { KIOSK_COOKIE, KIOSK_HEADER, createKioskToken } from "@/lib/auth/kiosk-session";
@@ -43,8 +44,9 @@ export async function GET(request) {
 
   const { data: people } = await supabase.from("profiles").select("id,branch_id,full_name,employee_status,role")
     .eq("archived", false).eq("on_payroll", true).eq("employee_status", "Active").in("role", ["employee", "accountant", "hr"]);
-  // The production domain: a cron call arrives on the deployment's own URL, which Vercel's protection guards.
-  const origin = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : new URL(request.url).origin;
+  // The terminal route's own handler, in this process (no network: the deployment URL is protected and the
+  // project's production domain is not one this app answers on). Same kiosk session, header and rules.
+  const origin = new URL(request.url).origin;
   let firstFailure = null;
   const done = [];
   for (const p of people || []) {
@@ -62,8 +64,8 @@ export async function GET(request) {
     const taps = dayTaps({ id: p.id, day: today, start: Number(s.work_start), end: Number(s.work_end), half: (leave || [])[0]?.half_day || null });
     const results = [];
     for (const t of taps) {
-      const res = await fetch(`${origin}/api/admin/attendance`, { method: "POST", headers: { cookie, [KIOSK_HEADER]: "1", "Content-Type": "application/json" },
-        body: JSON.stringify({ device: "RFID Terminal", rfid_code: card.uid, offline_tapped_at: `${today}T${hhmm(t)}:00+08:00` }) });
+      const res = await terminalTap(new NextRequest(`${origin}/api/admin/attendance`, { method: "POST", headers: { cookie, [KIOSK_HEADER]: "1", "Content-Type": "application/json" },
+        body: JSON.stringify({ device: "RFID Terminal", rfid_code: card.uid, offline_tapped_at: `${today}T${hhmm(t)}:00+08:00` }) }));
       results.push(res.status);
       if (res.status !== 200 && !firstFailure) firstFailure = `${res.status} ${(await res.text().catch(() => "")).slice(0, 160)}`;
     }
