@@ -16,6 +16,7 @@ import { fetchJson } from "@/lib/portal/api";
 import { downloadCsv } from "@/lib/portal/attendance";
 import { logAuditMovement } from "@/lib/portal/audit";
 import { SEARCH_MAX } from "@/lib/input-limits";
+import { FilterBar } from "@/components/portal/filter-bar";
 
 /*
  * Audit Logs (loadAuditLogs / exportAuditLogsCsv, public/legacy/js/admin.js):
@@ -141,38 +142,25 @@ export function AuditLogsPage({ refreshKey, limit = 250, csvName = () => "sacs-a
 
       <Card className="min-w-0 shadow-xs">
         <CardContent className="space-y-4">
-          <div className="grid items-end gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_auto]">
-            <div className="space-y-2">
-              <Label htmlFor="adm-audit-search">Search logs</Label>
-              <div className="relative">
+          <FilterBar data-testid="audit-filters">
+            <div className="relative" data-filter="search">
                 <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                <Input maxLength={SEARCH_MAX} id="adm-audit-search" type="search" className="pl-8" placeholder="Module, action, description, entity" value={search} onChange={(e) => setSearch(e.target.value)} />
-              </div>
+                <Input maxLength={SEARCH_MAX} id="adm-audit-search" type="search" className="pl-8" placeholder="Module, action, description, entity" aria-label="Search logs" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="adm-audit-module">Module</Label>
               <Select value={module} onValueChange={setModule}>
-                <SelectTrigger id="adm-audit-module" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="adm-audit-module" aria-label="Module"><SelectValue /></SelectTrigger>
                 <SelectContent>{MODULES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="adm-audit-action">Action</Label>
               <Select value={action} onValueChange={setAction}>
-                <SelectTrigger id="adm-audit-action" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="adm-audit-action" aria-label="Action"><SelectValue /></SelectTrigger>
                 <SelectContent>{ACTIONS.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
               </Select>
+            <div data-filter="date"><DatePicker id="adm-audit-from" aria-label="From" value={from} onChange={setFrom} max={to || undefined} placeholder="Any date" />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="adm-audit-from">From</Label>
-              <DatePicker id="adm-audit-from" value={from} onChange={setFrom} max={to || undefined} placeholder="Any date" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="adm-audit-to">To</Label>
-              <DatePicker id="adm-audit-to" value={to} onChange={setTo} min={from || undefined} placeholder="Any date" />
+            <div data-filter="date"><DatePicker id="adm-audit-to" aria-label="To" value={to} onChange={setTo} min={from || undefined} placeholder="Any date" />
             </div>
             <Button variant="outline" onClick={exportCsv} disabled={!state.logs.length}><DownloadIcon aria-hidden="true" />Export CSV</Button>
-          </div>
+          </FilterBar>
 
           <DataTable
             columns={AUDIT_COLUMNS}

@@ -23,6 +23,7 @@ import { useApprovalFilters } from "@/components/portal/approval-filters";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { ExportButtons } from "@/components/portal/export-buttons";
 import { cn } from "@/lib/utils";
+import { FilterBar } from "@/components/portal/filter-bar";
 
 /*
  * Substitute teaching (Part C, 2026-11-22; 2026-11-24): when a teacher's leave
@@ -271,16 +272,16 @@ export function SubstitutionsReportCard() {
         <CardDescription>What processed payslips paid for substitutions{state.totals ? `: ${state.totals.substitutions} substitution${state.totals.substitutions === 1 ? "" : "s"}, ${state.totals.hours} h, ₱${state.totals.amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}` : ""}.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="w-40"><DatePicker aria-label="From" value={f.from} max={f.to} onChange={(v) => setF((c) => ({ ...c, from: v }))} /></div>
-          <div className="w-40"><DatePicker aria-label="To" value={f.to} min={f.from} onChange={(v) => setF((c) => ({ ...c, to: v }))} /></div>
+        <FilterBar data-testid="substitution-report-filters">
+          <Input type="search" data-filter="search" aria-label="Search" placeholder="Search…" value={f.q} onChange={(e) => setF((c) => ({ ...c, q: e.target.value }))} />
           <Select value={f.by} onValueChange={(v) => setF((c) => ({ ...c, by: v }))}>
-            <SelectTrigger aria-label="Group by" className="w-48"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="Group by"><SelectValue /></SelectTrigger>
             <SelectContent>{Object.entries(BY).map(([v, l]) => <SelectItem key={v} value={v}>By {l.toLowerCase()}</SelectItem>)}</SelectContent>
           </Select>
-          <Input aria-label="Search" className="w-48" placeholder="Search…" value={f.q} onChange={(e) => setF((c) => ({ ...c, q: e.target.value }))} />
-          <span className="ml-auto"><ExportButtons href={`/api/reports/substitutions?${query}`} label="substitutions" disabled={state.loading} /></span>
-        </div>
+          <div data-filter="date"><DatePicker aria-label="From" value={f.from} max={f.to} onChange={(v) => setF((c) => ({ ...c, from: v }))} /></div>
+          <div data-filter="date"><DatePicker aria-label="To" value={f.to} min={f.from} onChange={(v) => setF((c) => ({ ...c, to: v }))} /></div>
+          <ExportButtons href={`/api/reports/substitutions?${query}`} label="substitutions" disabled={state.loading} />
+        </FilterBar>
         <DataTable searchable={false} caption="Substitute teaching" loading={state.loading} error={state.error} rows={state.rows} rowKey={(r) => r.key} minWidth={520}
           empty={{ title: "No substitutions paid in this range", icon: UsersIcon }}
           columns={[

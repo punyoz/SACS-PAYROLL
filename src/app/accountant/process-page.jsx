@@ -59,6 +59,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { LineTag, LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
 import { SearchableSelect } from "@/components/portal/searchable-select";
 import { ruleIncentiveNote } from "@/lib/payroll/incentive-recommendations";
+import { FilterBar } from "@/components/portal/filter-bar";
 
 /*
  * Process Payroll (loadBatchPayrollTable / processBatchPayroll /
@@ -724,13 +725,13 @@ function BatchCard({ onNavigate, onEdit }) {
           </Alert>
         ) : null}
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative sm:max-w-xs sm:flex-1">
+        <FilterBar data-testid="process-filters">
+          <div className="relative" data-filter="search">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-            <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or ID" aria-label="Search employees" className="h-8 pl-8" />
+            <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or ID" aria-label="Search employees" className="pl-8" />
           </div>
           <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger size="sm" className="w-full sm:w-44" aria-label="Status"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="Status"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
               {["ready", "draft", "final", "in_run", "blocked"].map((k) => <SelectItem key={k} value={k}>{BATCH_STATUS[k].label}</SelectItem>)}
@@ -765,7 +766,7 @@ function BatchCard({ onNavigate, onEdit }) {
               </SelectContent>
             </Select>
           ) : null}
-        </div>
+        </FilterBar>
 
         {isMobile ? (
           // Phone: one card per employee; tap to expand the breakdown.
