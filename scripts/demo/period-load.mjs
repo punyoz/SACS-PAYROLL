@@ -86,7 +86,7 @@ async function exportBundle() {
     if (p && !/^(marisol|carlo|liza|ramon|nestor)$/.test(p.key)) Object.assign(pr, PLAN.govNumbers(p.n));
   }
   // License changes go in with the plain number (the target encrypts it).
-  for (const r of tables.employee_license_changes) {
+  for (const r of tables.employee_license_changes || []) {
     const p = people.find((x) => x.licensed && profiles.find((pr) => pr.id === r.employee_id && pr.employee_id === x.match.code));
     if (p) r.prc_license_no = p.licensed.no;
     delete r.prc_license_no_enc; delete r.prc_license_no_last4;
