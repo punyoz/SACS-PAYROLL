@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { PATCH as payrollPatch } from "@/app/api/accountant/payroll/route";
 import { appendAuditLog } from "@/lib/audit/store";
 import { getServiceClient } from "@/lib/supabase/admin";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { createSessionToken } from "@/lib/rbac/session";
 import { manilaDateKey } from "@/lib/payroll/periods";
 
@@ -39,7 +40,7 @@ export async function GET(request) {
 
   const { data: entries } = await supabase.from("payroll_entries").select("employee_id,employee_name").eq("pay_period", setting.period).is("run_id", null);
   const ids = (entries || []).map((e) => e.employee_id);
-  const { data: people } = ids.length ? await supabase.from("profiles").select("id,branch_id").in("id", ids) : { data: [] };
+  const { data: people } = ids.length ? await fetchAllIn(() => supabase.from("profiles").select("id,branch_id"), "id", ids) : { data: [] };
   const branchOf = new Map((people || []).map((p) => [p.id, p.branch_id]));
   // The branch's Accountant (an active Accountant login of that branch; the demo approver first).
   const { data: accountants } = await supabase.from("profiles").select("id,full_name,email,branch_id,is_demo").eq("role", "accountant").eq("archived", false);

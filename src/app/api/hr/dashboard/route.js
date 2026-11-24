@@ -249,8 +249,8 @@ export async function GET(request) {
       const ids = [...new Set((subs || []).map((x) => x.substitute_id))];
       if (ids.length) {
         const [{ data: logs }, { data: people }] = await Promise.all([
-          supabase.from("attendance_logs").select("employee_id,log_date,time_in,time_out").in("employee_id", ids).gte("log_date", since).lte("log_date", until),
-          supabase.from("profiles").select("id,full_name").in("id", ids)]);
+          fetchAllIn(() => supabase.from("attendance_logs").select("employee_id,log_date,time_in,time_out").gte("log_date", since).lte("log_date", until), "employee_id", ids),
+          fetchAllIn(() => supabase.from("profiles").select("id,full_name"), "id", ids)]);
         const nameOf = new Map((people || []).map((p) => [p.id, p.full_name]));
         const mins = (iso) => { if (!iso) return null; const d = new Date(new Date(iso).getTime() + 8 * 3600e3); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
         const hm = (t) => { const [h, m] = String(t || "").split(":").map(Number); return h * 60 + (m || 0); };
