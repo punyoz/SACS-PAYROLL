@@ -142,7 +142,7 @@ async function plan() {
     log(`     ${["attendance_logs", "attendance_taps", "leave_requests", "overtime_requests", "payroll_entries"].map((t) => `${n(live, t)}->${n(bundle.tables, t)}`).join(", ")}`);
     log(`     ${nets.join("; ") || "no payslip"}`);
   }
-  log(`\nRecord updates: ${bundle.records.profiles.length} profiles (names, branch, IDs, contacts, government numbers, emergency contacts), ${bundle.records.salary.length} salary-history dates, ` +
+  if (!ONLY) log(`\nRecord updates: ${bundle.records.profiles.length} profiles (names, branch, IDs, contacts, government numbers, emergency contacts), ${bundle.records.salary.length} salary-history dates, ` +
     `${(bundle.records.actors || []).map((a) => a.full_name).join(" and ")} (the two approver accounts, renamed), ${(bundle.records.rates || []).length} rate row(s) (${PLAN.DEMO_NOTE}), Early Bird ₱${PLAN.EARLY_BIRD}, ${(bundle.records.audit || []).length} audit entries.`);
   log(`Rollback bundle saved: ${rb}`);
   log("Nothing was changed (plan only).");
