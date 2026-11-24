@@ -72,3 +72,20 @@ export function ok(what, res) {
   if (res.status < 200 || res.status >= 300) throw new Error(`${what}: HTTP ${res.status} ${JSON.stringify(res.data).slice(0, 500)}`);
   return res.data;
 }
+
+/** A kiosk (RFID terminal) session for an HR / Admin account, as unlocking the terminal issues (local test secret). */
+export function kioskCookie(person) {
+  const now = Math.floor(Date.now() / 1000);
+  const payload = { kind: "kiosk", kid: randomUUID(), sub: String(person.id), role: String(person.role).toLowerCase(), branch_id: person.role === "hr" ? null : person.branch_id || null,
+    email: String(person.email || ""), full_name: String(person.full || ""), terminal_id: null, terminal_name: null, terminal_branch_id: null, terminal_key: 0, iat: now, exp: now + 16 * 3600 };
+  const part = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return `sacs-kiosk=${encodeURIComponent(`${part}.${createHmac("sha256", TEST_SESSION_SECRET).update(part).digest("base64url")}`)}`;
+}
+
+/** One tap at the RFID terminal (the real route), with the time the terminal saved it. */
+export async function kioskTap(cookie, uid, atIso) {
+  const res = await fetch(`${LOCAL_BASE}/api/admin/attendance`, { method: "POST", headers: { cookie, "x-sacs-kiosk": "1", "Content-Type": "application/json" },
+    body: JSON.stringify({ device: "RFID Terminal", rfid_code: uid, offline_tapped_at: atIso }) });
+  let data = null; try { data = await res.json(); } catch { /* none */ }
+  return { status: res.status, data };
+}
