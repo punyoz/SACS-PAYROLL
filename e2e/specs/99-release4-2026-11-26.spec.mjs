@@ -6,7 +6,7 @@ import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
 import { api, choose, manilaDay, newRequest, pickDate, writeRemark } from "../support/flow.mjs";
-import { db, profileByEmail, rows } from "../support/db.mjs";
+import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
 const PROFILE = { employee: "emp-profile", hr: "hr-profile", accountant: "ac-profile", admin: "adm-profile", super_admin: "sa-profile" };
@@ -151,4 +151,33 @@ test("Admin > Incidents & RFID: one heading and one description per section", as
   await as(page, "admin", "adm-maintenance");
   await settle(page);
   await expect(main(page).getByText("Your branch's RFID cards, the RFID Terminal, the RFID issues you report, and the card history.")).toHaveCount(1);
+});
+
+test("HR > AWOL cases: Stop automation (with a reason) puts the case in HR's hands, Resume gives it back", async ({ page, monitor }) => {
+  monitor.at("HR > AWOL Cases (stop / resume)");
+  const carlo = await profileByEmail(ACCOUNTS.employee3.email);
+  psql(`set session_replication_role = replica; update employee_awol_cases set stage = 'closed', outcome = coalesce(outcome, 'false_alarm') where employee_id = '${carlo.id}' and stage <> 'closed';`);
+  const [kase] = await rows(db().from("employee_awol_cases").insert({
+    employee_id: carlo.id, branch_id: carlo.branch_id, first_absent_on: manilaDay(-6), stage: "flagged", auto_flagged: true,
+    notes: "E2E: opened by System for the stop / resume check.",
+  }).select("id"));
+  try {
+    await as(page, "hr", "hr-awol");
+    await settle(page);
+    let row = main(page).locator("tr", { hasText: carlo.full_name }).filter({ hasNot: page.getByRole("checkbox") }).first();
+    await expect(row.getByTestId("awol-automation")).toContainText("Automatic");
+    await row.getByRole("button", { name: `More for ${carlo.full_name}` }).click();
+    await page.getByRole("menuitem", { name: "Stop automation" }).click();
+    await writeRemark(page, "awol-stop", "E2E: HR handles this one by hand");
+    await page.getByRole("dialog").getByRole("button", { name: "Stop automation" }).click();
+    await expect.poll(async () => (await rows(db().from("employee_awol_cases").select("automation").eq("id", kase.id).single())).automation).toBe("stopped");
+    row = main(page).locator("tr", { hasText: carlo.full_name }).filter({ hasNot: page.getByRole("checkbox") }).first();
+    await expect(row.getByTestId("awol-proceed")).toBeVisible();
+    await row.getByRole("button", { name: `More for ${carlo.full_name}` }).click();
+    await expect(page.getByRole("menuitem", { name: "Stop automation" })).toHaveCount(0);
+    await page.getByRole("menuitem", { name: "Resume automation" }).click();
+    await expect.poll(async () => (await rows(db().from("employee_awol_cases").select("automation").eq("id", kase.id).single())).automation).toBe("auto");
+  } finally {
+    psql(`set session_replication_role = replica; update employee_awol_cases set stage = 'closed', outcome = 'false_alarm' where id = '${kase.id}';`);
+  }
 });
