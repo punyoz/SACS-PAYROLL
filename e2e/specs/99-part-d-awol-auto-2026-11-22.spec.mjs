@@ -32,7 +32,7 @@ test("AWOL: a system-opened case — automatic, review the prepared notice; by h
     await step(page, "HR > AWOL Cases > the system-opened case: Automatic, the system confirms it tonight, no deadline yet; the drawer says 'Opened by System'", async () => {
       await expect(row.getByTestId("awol-automation")).toContainText("Automatic");
       await expect(row.getByTestId("awol-next-step")).toContainText("The system confirms it tonight");
-      await expect(row).not.toContainText("Reply by");
+      await expect(row).not.toContainText("Waiting for the reply");
       await row.getByRole("button", { name: bea.full_name, exact: true }).click();
       const drawer = page.getByTestId("awol-drawer");
       await expect(drawer).toContainText("Opened by System");
@@ -57,7 +57,7 @@ test("AWOL: a system-opened case — automatic, review the prepared notice; by h
       const hand = main(page).locator("tr", { hasText: bea.full_name }).filter({ has: page.getByTestId("awol-next-step") });
       await hand.getByTestId("awol-proceed").click();
       await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
-      await expect(hand).toContainText("Reply by", { timeout: 20000 });
+      await expect(hand.getByTestId("awol-next-step")).toContainText(/^Waiting for the reply \(by [A-Z][a-z]{2} \d{1,2}, \d{4}\)/, { timeout: 20000 });
       const saved = await rows(db().from("employee_awol_cases").select("stage,first_notice_sent_on,first_notice_reply_by").eq("id", opened.id).single());
       expect(saved.stage).toBe("first_notice");
       expect(saved.first_notice_sent_on).toBeTruthy();
