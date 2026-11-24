@@ -37,10 +37,16 @@ describe("substitution pay as overtime (2026-11-26)", () => {
     expect(lines[0].note).toMatch(/overlapping overtime paid once/);
   });
 
-  it("holidays use the rates table (× 130%); a rest day is 125% (no rest-day premium)", () => {
+  it("holidays use the rates table (× 130%); a rest day is the rest-day premium, 130% (2026-11-26)", () => {
     expect(pay([sub()], { dayKindOf: () => "holiday" }).lines[0]).toMatchObject({ rate_pct: 260, amount: 478.17 });
     expect(pay([sub()], { dayKindOf: () => "special" }).lines[0]).toMatchObject({ rate_pct: 169, amount: 310.81 });
-    expect(pay([sub()], { dayKindOf: () => "rest_day" }).lines[0]).toMatchObject({ rate_pct: 125 });
+    // No rate row saved: the Labor Code's 30%.
+    expect(pay([sub()], { dayKindOf: () => "rest_day" }).lines[0]).toMatchObject({ rate_pct: 130, amount: 239.08 });
+    expect(pay([sub()], { dayKindOf: () => "rest_day" }).lines[0].note).toBe("Overtime (substitution): 1 h × ₱183.91 × 130%, covering T. Reyes, Grade 5 (Nov 18)");
+    // The rates table's value wins.
+    expect(pay([sub()], { dayKindOf: () => "rest_day", rates: { ...rates, rest_day_premium_pct: 35 } }).lines[0]).toMatchObject({ rate_pct: 135, amount: 248.28 });
+    // A regular day is unchanged.
+    expect(pay([sub()], { dayKindOf: () => "regular" }).lines[0]).toMatchObject({ rate_pct: 125, amount: 229.89 });
   });
 
   it("substitution hours do not count toward the overtime caps (setting, off)", () => {

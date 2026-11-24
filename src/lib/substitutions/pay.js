@@ -7,7 +7,7 @@
  * Pay (2026-11-26, school policy; replaces the ₱150-a-period allowance and the inside / outside / overload
  * split, from Nov 16-30 on; earlier payslips keep their lines): OVERTIME,
  *   periods covered × period length (setting, 1 h) × the substitute's hourly rate × the overtime rate
- *   (regular day 125%; a holiday: the holiday rate × 130%; a rest day: 125%, no rest-day premium).
+ *   (regular day 125%; a holiday: the holiday rate × 130%; a rest day: the rest-day premium, 130% — 2026-11-26).
  * The HR-approved substitution is the authorization (no overtime request). The substitute's taps must cover
  * the class time; without them it is not paid and HR is told. Never paid twice: minutes an approved overtime
  * request already covers are left out of the substitution line (and flagged). Substitution hours do not count
@@ -68,7 +68,9 @@ export function computeSubstitutionPay({ subs, tapsOf, dayKindOf = () => "regula
   const hourly = Number(rates.hourly) || 0;
   const regularPct = Number(rates.overtime_regular_pct) || 125;
   const pctOf = (kind) => (kind === "holiday" ? Math.round((100 + (Number(rates.regular_holiday_premium_pct) || 0)) * 1.3)
-    : kind === "special" ? Math.round((100 + (Number(rates.special_holiday_premium_pct) || 0)) * 1.3) : regularPct);
+    : kind === "special" ? Math.round((100 + (Number(rates.special_holiday_premium_pct) || 0)) * 1.3)
+    // 2026-11-26: a rest day (not a holiday) pays the rest-day premium (Labor Code: 130 %).
+    : kind === "rest_day" ? 100 + (rates.rest_day_premium_pct == null ? 30 : Number(rates.rest_day_premium_pct) || 0) : regularPct);
   const periodHours = Number(settings?.substitution_period_hours) || 1;
   const lines = [];
   const unconfirmed = [];

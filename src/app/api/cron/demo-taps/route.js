@@ -7,6 +7,9 @@
  * sets the status. Normal day: in 5-25 min before the start, out 0-20 min after the end; about one day in
  * twenty is a late arrival. A half-day leave taps only the worked half.
  *
+ * ?run=early (vercel.json, Thu 23:00 UTC = Fri 07:00 Manila hour): also records each not-yet-due time in a
+ * few minutes before the run (never in the future, always before the shift), so the defense morning shows them.
+ *
  * Switch: system_config demo.daily_taps = {"enabled": true, "until": "2026-11-27", "kiosk_account": "<HR id>"}.
  * Off when missing, disabled, or after `until`. GET Authorization: Bearer <CRON_SECRET> (Vercel Cron).
  */
@@ -49,6 +52,7 @@ export async function GET(request) {
   const origin = new URL(request.url).origin;
   const manilaNow = new Date(Date.now() + 8 * 3600e3);
   const nowMin = manilaNow.getUTCHours() * 60 + manilaNow.getUTCMinutes();
+  const early = new URL(request.url).searchParams.get("run") === "early";
   let firstFailure = null;
   const done = [];
   for (const p of people || []) {
@@ -66,7 +70,14 @@ export async function GET(request) {
     // Two runs a day (2026-11-26): each posts the planned taps already due and not yet recorded, so the
     // morning run records the time in and the evening run the time out (and a late time in it finds missing).
     const planned = dayTaps({ id: p.id, day: today, start: Number(s.work_start), end: Number(s.work_end), half: (leave || [])[0]?.half_day || null });
-    const taps = planned.slice(count || 0).filter((t) => t <= nowMin);
+    let taps = planned.slice(count || 0).filter((t) => t <= nowMin);
+    // The early run (?run=early, 2026-11-27 ~07:00 Manila, owner's request): a time in planned for later is
+    // recorded a few minutes before this run instead, so it is never in the future and always before the
+    // shift starts. Only when the shift starts within 3 h (the terminal refuses taps earlier than that).
+    if (early && !(count || 0) && !taps.length && nowMin < Number(s.work_start) && Number(s.work_start) - nowMin <= 180) {
+      const jitter = 1 + (parseInt(String(p.id).replace(/-/g, "").slice(0, 4), 16) % 6);
+      taps = [Math.max(0, nowMin - jitter)];
+    }
     if (!taps.length) continue;
     const results = [];
     for (const t of taps) {

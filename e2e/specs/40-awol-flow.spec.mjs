@@ -27,7 +27,8 @@ test("AWOL: admin files a no-show → HR AWOL case → HR confirms and closes �
   await step(page, "Admin > Incident & AWOL Reports > file a no-show for Bea", async () => {
     const dialog = page.getByRole("dialog");
     await choose(page, dialog.locator("#ov-employee_id"), /Bea/);
-    await dialog.locator("#ov-note").fill(NOTE);
+    // Part H: the remark for HR is a preset remark ("Other" + its text).
+    await writeRemark(page, "ov-remark", NOTE);
     await dialog.getByRole("button", { name: "Send to HR" }).click();
     await expect(dialog).toBeHidden({ timeout: 30000 });
     await refresh(page);

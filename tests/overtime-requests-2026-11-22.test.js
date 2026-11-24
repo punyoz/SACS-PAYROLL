@@ -72,10 +72,18 @@ describe("overtime pay rate (Part B, 2026-11-22)", () => {
     expect(regular).toMatchObject({ source_log_id: "a", rate: 125, rate_pct: 125, amount: 250 });
   });
 
-  it("a rest day or a holiday keeps the rate table's rate", () => {
+  it("a rest day pays the rest-day premium (130%, 2026-11-26); a holiday keeps the rate table's rate", () => {
     const rest = pay({ restDays: new Set(["2026-11-21"]) }).find((e) => e.source_log_id === "b");
-    expect(rest).toMatchObject({ rate: 100, amount: 100 });
-    expect(rest.rate_pct).toBeUndefined();
+    expect(rest).toMatchObject({ rate: 130, amount: 130, rate_pct: 130, rest_day: true, rate_config_id: "cfg-rest_day_premium_pct" });
+    const rest35 = computeAttendancePay({
+      logs: [log("b", "2026-11-21")], rates: rates({ rest_day_premium_pct: 35 }), periodStart: "2026-11-16", periodEnd: "2026-11-30",
+      overtime: new Map([["b", 60]]), overtimeRegularPct: 125, restDays: new Set(["2026-11-21"]),
+    }).earnings.find((e) => e.type === "overtime");
+    expect(rest35).toMatchObject({ rate: 135, amount: 135, rate_pct: 135 });
+    // A holiday that is also a rest day keeps the holiday rules (the rate table's overtime rate).
+    const both = pay({ restDays: new Set(["2026-11-21"]), holidays: new Map([["2026-11-21", "holiday"]]) }).find((e) => e.source_log_id === "b" && e.type === "overtime");
+    expect(both).toMatchObject({ rate: 100 });
+    expect(both.rate_pct).toBeUndefined();
     const holidays = new Map([["2026-11-17", "holiday"]]);
     expect(pay({ holidays }).find((e) => e.source_log_id === "a")).toMatchObject({ rate: 100 });
   });

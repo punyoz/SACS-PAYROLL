@@ -91,11 +91,13 @@ test("work schedules: HR creates a schedule; it and its history stay after refre
     expect(saved.length).toBeGreaterThan(0);
   });
 
-  await step(page, "Admin > Schedule Requests > can request, not edit schedules", async () => {
+  await step(page, "Admin > Schedule Requests > view only: no request, no edit", async () => {
     monitor.at("Admin > Schedule Requests");
     monitor.allow(/^403 /);
     await as(page, "admin", "adm-schedules");
-    await expect(main(page).getByRole("button", { name: "Request a change" })).toBeVisible();
+    // 8f4d052: HR changes schedules; the Admin page lists them view only.
+    await expect(main(page).getByText(/HR changes work schedules and class loads/)).toBeVisible();
+    await expect(main(page).getByRole("button", { name: "Request a change" })).toHaveCount(0);
     await expect(main(page).getByRole("button", { name: "New schedule" })).toHaveCount(0);
     const res = await api(page, "POST", "/api/admin/work-schedules", { action: "save_profile", name: "hack", work_start: "08:00", work_end: "17:00" });
     expect([401, 403]).toContain(res.status);
