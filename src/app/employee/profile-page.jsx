@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BriefcaseIcon, HeartHandshakeIcon, PencilIcon, ShieldCheckIcon, UserRoundIcon } from "lucide-react";
+import { HeartHandshakeIcon, PencilIcon, UserRoundIcon } from "lucide-react";
 import { ProfilePhotoButton } from "@/components/portal/profile-photo-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,8 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InfoList } from "@/components/portal/info-list";
 import { useAccountDialogs } from "@/components/portal/app-shell";
 import { usePortalSession } from "@/components/portal/session";
-import { apiFetch } from "@/lib/portal/api";
-import { DIGIT_FIELD_SPECS, formatContactNumber, formatPiiForDisplay, initialsOf } from "@/lib/portal/format";
+import { EmploymentSection, GovernmentSection, governmentNumbers, useStoredProfile } from "@/components/portal/staff-profile";
+import { formatContactNumber } from "@/lib/portal/format";
 
 /* The Profile page (loadProfilePage, public/legacy/js/employee.js). */
 
@@ -37,21 +37,13 @@ export function ProfilePage() {
   const { open } = useAccountDialogs();
 
   // The emergency contact is refreshed from the stored profile
-  // (loadOwnEmergencyContact, app.js).
-  React.useEffect(() => {
-    let cancelled = false;
-    apiFetch("/api/legacy-auth/update-profile", { method: "GET", cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        const stored = data?.profile;
-        if (cancelled || !stored) return;
-        const patch = {};
-        EMERGENCY_KEYS.forEach((key) => { patch[key] = stored[key] || ""; });
-        updateContext(patch);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [updateContext]);
+  // (loadOwnEmergencyContact, app.js); Employment and Government contributions come from it too (2026-11-26).
+  const stored = useStoredProfile(React.useCallback((p) => {
+    const patch = {};
+    EMERGENCY_KEYS.forEach((key) => { patch[key] = p[key] || ""; });
+    updateContext(patch);
+  }, [updateContext]));
+  const onPayroll = stored ? stored.on_payroll !== false : null;
 
   const name = ctx?.full_name || "Employee Name";
 
@@ -92,14 +84,7 @@ export function ProfilePage() {
           ]} />
         </Section>
 
-        <Section icon={BriefcaseIcon} title="Employment">
-          <InfoList items={[
-            { label: "Position", value: ctx?.position },
-            { label: "Category", value: ctx?.employee_type },
-            { label: "Employment", value: ctx?.employment_status || "" },
-            { label: "Date hired", value: ctx?.date_hired },
-          ]} />
-        </Section>
+        {onPayroll === true ? <EmploymentSection employment={stored.employment} /> : null}
 
         <Section icon={HeartHandshakeIcon} title="Emergency contact">
           <InfoList items={[
@@ -110,15 +95,7 @@ export function ProfilePage() {
           ]} />
         </Section>
 
-        <Section icon={ShieldCheckIcon} title="Government contributions">
-          <InfoList items={[
-            { label: "SSS number", value: ctx?.sss_number },
-            { label: "PhilHealth number", value: ctx?.philhealth_number },
-            { label: "Pag-IBIG number", value: ctx?.pagibig_number },
-            { label: "TIN", value: formatPiiForDisplay(ctx?.tin_number, DIGIT_FIELD_SPECS.tin_number.groups) },
-          ]} />
-          <p className="mt-4 text-xs text-muted-foreground">Government numbers are set by HR for payroll. Contact HR to change them.</p>
-        </Section>
+        {onPayroll === true ? <GovernmentSection numbers={governmentNumbers(stored, ctx)} note="Government numbers are set by HR for payroll. Contact HR to change them." /> : null}
       </div>
     </>
   );
