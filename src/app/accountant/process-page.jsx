@@ -97,6 +97,14 @@ function clampSalary(raw) {
   return Number.isFinite(n) && n > SALARY_MAX ? String(SALARY_MAX) : value;
 }
 
+/** "Nov 26, 2026" for a month's lock day; the next month's name ("December"). */
+const lockDateLabel = (startKey, day) => dateLabel(`${String(startKey || "").slice(0, 7)}-${String(day).padStart(2, "0")}`);
+const nextMonthName = (startKey) => {
+  const d = new Date(`${String(startKey || "").slice(0, 7)}-01T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + 1);
+  return Number.isNaN(d.getTime()) ? "next month" : d.toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
+};
+
 /** One line of the period summary: icon, label, text, details behind ⓘ. */
 function SummaryLine({ icon: Icon, label, children, tip, testId }) {
   return (
@@ -151,7 +159,7 @@ function Banners({ data }) {
             {semi?.lock_day ? (
               <SummaryLine icon={LockIcon} label="Incentive & overload cutoff" testId="summary-lock"
                 tip="Incentives and overload filed after this day go to next month's payroll.">
-                day {semi.lock_day} of {semi.month_label}; later items go to next month
+                {lockDateLabel(data?.active_period?.start_key, semi.lock_day)}; later items go to {nextMonthName(data?.active_period?.start_key)}
               </SummaryLine>
             ) : null}
             {held.length ? (
@@ -1444,7 +1452,7 @@ export function ProcessPage({ onNavigate }) {
     <>
       <Banners data={data} />
       {/* Incentives filed after the 15th are paid next month (intended). */}
-      <DeferredIncentivesNotice monthKey={String(data?.active_period?.start_key || "").slice(0, 7)} />
+      <DeferredIncentivesNotice onlyMoved monthKey={String(data?.active_period?.start_key || "").slice(0, 7)} />
       <RunApprovalPanel />
       <BatchCard onNavigate={onNavigate} onEdit={(id) => setEditRequest({ id, at: Date.now() })} />
       <h2 className="mt-2 text-base font-semibold">Single entry / edit draft</h2>

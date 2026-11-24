@@ -25,7 +25,7 @@ export function LeaveBalanceNote({ balance, request = null, className }) {
   const split = pending && request.pay_status !== "without_pay" ? splitForBalance(request, remaining) : null;
   return (
     <p className={cn("text-xs text-muted-foreground", className)} data-testid="leave-balance">
-      {label}: {used} of {allotment} days used, {remaining} remaining
+      {label}: {used} of {allotment} day{Number(allotment) === 1 ? "" : "s"} used, {remaining} remaining
       {split?.without_pay_days ? <span className="block font-medium text-warning">Over the leave credits: {describeSplit(split)} on approval.</span> : null}
     </p>
   );

@@ -82,7 +82,7 @@ export function DeferredBadge({ item }) {
  * that were filed after its cutoff, so they are paid next month (by
  * design), listed so nothing seems to have gone missing.
  */
-export function DeferredIncentivesNotice({ monthKey }) {
+export function DeferredIncentivesNotice({ monthKey, onlyMoved = false }) {
   const [state, setState] = React.useState({ items: [], cutoff: null });
   React.useEffect(() => {
     if (!/^\d{4}-\d{2}$/.test(String(monthKey || ""))) return undefined;
@@ -98,6 +98,8 @@ export function DeferredIncentivesNotice({ monthKey }) {
   const { items, cutoff } = state;
   if (!cutoff && !items.length) return null;
   const moved = items.length > 0;
+  // Process Payroll (2026-11-26): the cutoff date is in the period summary; only moved items warrant a note.
+  if (onlyMoved && !moved) return null;
   return (
     <Alert className={moved ? "border-warning/40 bg-warning/5" : "border-info/40 bg-info/8"}>
       <CalendarClockIcon className={moved ? "text-warning" : "text-info"} aria-hidden="true" />
