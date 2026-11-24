@@ -235,6 +235,8 @@ const API_MODULES = [
   ["/api/profile-photo", "profile"],
   // "My Account" (2026-11-09): the caller's own records, every role on payroll.
   ["/api/me", "my_account"],
+  // My Notices (AWOL, 2026-11-24): "profile", which a separated account keeps, so they can always reply and see the outcome.
+  ["/api/me/awol-notices", "profile"],
   // Items waiting on the Super Admin as the fallback approver.
   ["/api/super-admin/fallback", "fallback_approvals"],
   ["/api/employee/payslips", "payslips"],
@@ -267,6 +269,7 @@ const METHOD_ACTIONS = {
  * matrix's "update" permission is the right one to require.
  */
 const POST_IS_UPDATE = [
+  "/api/me/awol-notices",        // a reply to one's own AWOL notice (profile: update)
   "/api/admin/attendance",       // recording/correcting a scan
   "/api/admin/branch-employees", // assigning staff to a branch
 ];

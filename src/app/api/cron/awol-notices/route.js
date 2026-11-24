@@ -36,6 +36,12 @@ export async function GET(request) {
     .is("emailed_at", null).lt("attempts", MAX_ATTEMPTS).order("created_at", { ascending: true }).limit(25);
   if (error) return NextResponse.json({ error: "Could not read the notices." }, { status: 500 });
   const mailOn = isMailConfigured();
+  // My Notices (sign-in required) and how to reply without it (2026-11-24).
+  const link = `${new URL(request.url).origin}/employee?page=emp-notices`;
+  const howToReply = `
+
+To reply, sign in and open My Notices: ${link}
+If you cannot sign in, reply in person at the HR office (or by letter) before the deadline.`;
   const done = [];
   for (const n of pending || []) {
     const patch = { attempts: Number(n.attempts || 0) + 1 };
@@ -54,8 +60,8 @@ export async function GET(request) {
         await sendMail({
           to: n.email_to,
           subject: n.title,
-          text: n.body,
-          html: `<pre style="font-family:inherit;white-space:pre-wrap">${escapeHtml(n.body)}</pre>`,
+          text: `${n.body}${howToReply}`,
+          html: `<pre style="font-family:inherit;white-space:pre-wrap">${escapeHtml(n.body)}</pre><p>To reply, sign in and open <a href="${escapeHtml(link)}">My Notices</a>.<br>If you cannot sign in, reply in person at the HR office (or by letter) before the deadline.</p>`,
           attachments: [{ filename: `${n.kind === "second" ? "notice-of-separation" : "notice-to-return"}-${n.sent_on}.pdf`, content: pdf, contentType: "application/pdf" }],
         });
         patch.emailed_at = new Date().toISOString();

@@ -6,6 +6,7 @@
  *
  *   GET                       { cases: [{ id, stage, open, automation, notices[], replies[], decision }], banner }
  *   GET ?file=<path>          one of the employee's own attachments
+ *   GET ?notice=<id>          one of the employee's own notices (PDF)
  *   POST { case_id, kind: "reply" | "follow_up", reason_code, explanation, return_on?, attachments?: [{ name, type, data (base64) }] }
  *        A reply stops the automation ("Response received: HR decides") and HR is told. Never edited later; a
  *        follow-up adds to the same thread.
@@ -18,6 +19,7 @@ import { getServiceClient } from "@/lib/supabase/admin";
 import { notify } from "@/lib/branch-requests-server";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { REPLY_REASONS, saveReplyFiles } from "@/lib/awol/replies";
+import { noticePdf } from "@/lib/awol/notice-pdf";
 
 const ID = /^[0-9a-f-]{36}$/i;
 const STAGE_TEXT = {
@@ -32,6 +34,15 @@ export async function GET(request) {
     if (guard.denied) return guard.denied;
     const supabase = getServiceClient();
     const url = new URL(request.url);
+    // One of the employee's own notices as a PDF.
+    const noticeId = url.searchParams.get("notice");
+    if (noticeId) {
+      if (!ID.test(noticeId)) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const { data: n } = await supabase.from("awol_notices").select("id,case_id,kind,title,body,sent_on,pdf_path,employee_id").eq("id", noticeId).eq("employee_id", guard.userId).maybeSingle();
+      if (!n) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const pdf = await noticePdf(supabase, n);
+      return new NextResponse(pdf, { status: 200, headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="notice-${n.sent_on}.pdf"`, "Cache-Control": "no-store" } });
+    }
     const file = url.searchParams.get("file");
     if (file) {
       // Only an attachment of the caller's own case.
