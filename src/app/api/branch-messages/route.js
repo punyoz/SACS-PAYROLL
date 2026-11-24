@@ -57,6 +57,8 @@ export async function GET(request) {
     if (!ITEMS[type]) return NextResponse.json({ error: "Unknown item." }, { status: 400 });
     const supabase = getServiceClient();
     const ids = (url.searchParams.get("ids") || "").split(",").filter((x) => ID.test(x)).slice(0, 500);
+    // Counts asked for items with no thread-able id (an older text id): none, not an error (2026-11-25).
+    if (url.searchParams.has("ids") && !ids.length) return NextResponse.json({ counts: {} });
     if (ids.length) {
       // Counts only; an Admin's counts are limited to their branch's messages.
       let q = supabase.from("branch_item_messages").select("item_id,branch_id").eq("item_type", type).in("item_id", ids);

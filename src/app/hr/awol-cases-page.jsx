@@ -157,8 +157,11 @@ export function AwolCasesPage({ refreshKey }) {
           record_reply: ["Reply Recorded", ""],
           separate: ["Employee Separated", `Effective ${dateLabel(input.separation_effective)}. Paid only through final pay.`],
           close: ["Case Closed", "Status Active; pay released. Held payslips need a Super Admin override."],
+          // 2026-11-25: Proceed had no words here, so the page failed after the case was saved.
+          proceed: ["AWOL Confirmed", "Pay is held and the 1st notice is sent; the case runs automatically from here."],
         };
-        notify(words[action][0], words[action][1], "success");
+        const [title, text] = words[action] || ["Saved", ""];
+        notify(title, text, "success");
       }
       setDialog(null);
       await load();

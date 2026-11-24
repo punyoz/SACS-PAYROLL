@@ -39,7 +39,8 @@ ALTER TABLE public.automation_actions ENABLE TRIGGER USER;
 
 DELETE FROM public.system_config WHERE (section = 'payroll' AND key IN ('leave_conversion_tax_free_days', 'leave_conversion_statuses')) OR (section = 'demo' AND key = 'recompute');
 UPDATE public.system_config c SET value = b.val FROM private.release_20261126_before b WHERE b.tbl = 'system_config' AND c.section || '.' || c.key = b.id;
-UPDATE public.system_config SET value = 'false' WHERE section = 'payroll' AND key = 'leave_conversion_enabled'
+-- A setting the data step created (none before) is removed again.
+DELETE FROM public.system_config WHERE section = 'payroll' AND key = 'leave_conversion_enabled'
   AND NOT EXISTS (SELECT 1 FROM private.release_20261126_before b WHERE b.tbl = 'system_config' AND b.id = 'payroll.leave_conversion_enabled');
 
 -- Migration 20261126010000 (the archive columns; archived rows become visible again).
