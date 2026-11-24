@@ -129,7 +129,7 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
       </CardHeader>
       <CardContent className="space-y-4">
         <DataTable toolbar={<><FilterTabs value={tab} onValueChange={setTab} label="Approval filter" options={[{ value: "pending", label: "Pending", count: data?.pending || undefined }, { value: "decided", label: "Decided" }]} />{filters.toolbar}</>}
-          columns={columns} rows={rows} rowKey={(i) => `${i.kind}-${i.id}`} loading={state.loading && !data} error={state.error} onRetry={load} pageSize={15}
+          columns={columns} rows={rows} rowKey={(i) => `${i.kind}-${i.id}`} loading={state.loading && !data} error={state.error} onRetry={load}
           searchPlaceholder="Search employee, type or details…" caption="Incentive and loan approvals" minWidth={1000}
           empty={{ title: tab === "pending" ? "Nothing waiting for HR" : "No decisions yet", icon: ClipboardCheckIcon }}
           selection={canDecide ? { ...bulk.selection, rowId: (i) => `${i.kind}-${i.id}` } : null} />

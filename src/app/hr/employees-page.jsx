@@ -248,7 +248,7 @@ export function EmployeesPage({ refreshKey }) {
             loading={state.loading}
             error={state.error}
             onRetry={load}
-            pageSize={15}
+           
             searchPlaceholder="Search name, ID, email, position or branch…"
             empty={{ title: "No employees found", icon: UsersIcon }}
             caption="Staff list"

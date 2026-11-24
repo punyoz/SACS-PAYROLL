@@ -148,7 +148,7 @@ export function ThirteenthMonthPage({ refreshKey }) {
             loading={state.loading && !data}
             error={state.error}
             onRetry={load}
-            pageSize={15}
+           
             searchPlaceholder="Search employee…"
             empty={{ title: "No employees found", icon: CalendarIcon }}
             caption="13th month pay"

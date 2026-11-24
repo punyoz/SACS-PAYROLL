@@ -1,5 +1,7 @@
 "use client";
 
+import { dateLabel } from "@/lib/portal/payroll-preview";
+
 import { ItemThread } from "@/components/portal/item-thread";
 
 import { SystemRecommendation } from "@/components/portal/system-recommendation";
@@ -126,7 +128,7 @@ export function LeavesPage({ refreshKey }) {
       if (Array.isArray(conflicts) && conflicts.length) {
         notify(
           "Leave overlaps recorded attendance",
-          `These days already have an RFID tap and were left as recorded, not marked On Leave: ${conflicts.map((c) => `${c.log_date} (${c.status})`).join(", ")}. Resolve them in Attendance if needed.`,
+          `These days already have an RFID tap and were left as recorded, not marked On Leave: ${conflicts.map((c) => `${dateLabel(c.log_date)} (${c.status})`).join(", ")}. Resolve them in Attendance if needed.`,
           "error",
         );
       }

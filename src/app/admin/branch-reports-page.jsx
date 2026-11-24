@@ -110,7 +110,7 @@ export function BranchReportsPage({ refreshKey }) {
             { key: "late_minutes", header: "Late min", align: "right", sortable: true, className: "tabular-nums" },
             { key: "leave_days", header: "Leave days", align: "right", sortable: true, className: "tabular-nums" },
             { key: "attendance_rate", header: "Rate", align: "right", sortable: true, className: "tabular-nums", cell: (e) => `${e.attendance_rate}%` },
-          ]} rows={data?.employees || []} loading={view.first} pageSize={15} searchPlaceholder="Search employee…" empty={{ title: "No records", icon: UsersIcon }} caption="Attendance by employee" minWidth={760} />
+          ]} rows={data?.employees || []} loading={view.first} searchPlaceholder="Search employee…" empty={{ title: "No records", icon: UsersIcon }} caption="Attendance by employee" minWidth={760} />
         </CardContent>
       </Card>
     </>

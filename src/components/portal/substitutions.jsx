@@ -1,5 +1,7 @@
 "use client";
 
+import { dateLabel } from "@/lib/portal/payroll-preview";
+
 import { ItemThread } from "@/components/portal/item-thread";
 
 import * as React from "react";
@@ -87,7 +89,7 @@ function ArrangeDialog({ open, initial, proposal = null, teachers, onClose, onSa
         <DialogHeader>
           <DialogTitle>{proposal ? `Pick the substitute · ${proposal.absent_name}` : "Substitute for an unplanned absence"}</DialogTitle>
           <DialogDescription>{proposal
-            ? `${proposal.sub_date} ${String(proposal.start_time).slice(0, 5)}–${String(proposal.end_time).slice(0, 5)}, ${proposal.periods} period${proposal.periods === 1 ? "" : "s"} (from the approved leave). Suggestions: same level and branch, tapped in that day, not on leave, under the weekly cap. Approving saves your pick.`
+            ? `${dateLabel(proposal.sub_date)} ${String(proposal.start_time).slice(0, 5)}–${String(proposal.end_time).slice(0, 5)}, ${proposal.periods} period${proposal.periods === 1 ? "" : "s"} (from the approved leave). Suggestions: same level and branch, tapped in that day, not on leave, under the weekly cap. Approving saves your pick.`
             : "Only for a no-show or a sudden illness: planned leave gets a system proposal. Suggestions: same level and branch, tapped in that day, not on leave, under the weekly cap. Filed and approved at once."}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -169,11 +171,11 @@ export function SubstitutionsPanel({ role, refreshKey = 0 }) {
     // A proposal needs its own pick: not in the bulk approve.
     isSelectable: (r) => role === "hr" && r.status === "pending" && !r.needs_substitute,
     label: (r) => `${r.substitute_name} ${r.sub_date}`,
-    rowLabel: (r) => `${r.substitute_name} covering ${r.absent_name} · ${r.sub_date} ${r.start_time}-${r.end_time}`,
+    rowLabel: (r) => `${r.substitute_name || "(teacher to pick)"} covering ${r.absent_name} · ${dateLabel(r.sub_date)} ${r.start_time}-${r.end_time}`,
   });
 
   const columns = [
-    { key: "sub_date", header: "Date", sortable: true, cell: (r) => <div><p className="font-medium">{r.sub_date}</p><p className="text-xs text-muted-foreground">{r.start_time}-{r.end_time} · {r.periods} period{r.periods === 1 ? "" : "s"}</p></div> },
+    { key: "sub_date", header: "Date", sortable: true, cell: (r) => <div><p className="font-medium">{dateLabel(r.sub_date)}</p><p className="text-xs text-muted-foreground">{r.start_time}-{r.end_time} · {r.periods} period{r.periods === 1 ? "" : "s"}</p></div> },
     { key: "who", header: "Substitute → covering", cell: (r) => <div><p className="font-medium">{r.substitute_name || <span className="text-gold-text">Pick a teacher</span>}</p><p className="text-xs text-muted-foreground">covering {r.absent_name}{r.class_section ? `, ${r.class_section}` : ""}{r.subject ? ` (${r.subject})` : ""}</p></div>, searchValue: (r) => `${r.substitute_name} ${r.absent_name}` },
     { key: "tap", header: "Taps", cell: (r) => <StatusBadge tone={TAP[r.tap_check]?.[0] || "muted"}>{TAP[r.tap_check]?.[1] || r.tap_check}</StatusBadge> },
     { key: "status", header: "Status", sortable: true, cell: (r) => <div className="space-y-0.5"><StatusBadge tone={STATUS_TONE[r.status] || "muted"}>{r.status}</StatusBadge>{r.decided_by_name ? <p className="text-xs text-muted-foreground">{r.decided_by_name}{r.decision_note ? ` · ${r.decision_note}` : ""}</p> : null}</div> },
@@ -237,7 +239,7 @@ export function SubstitutionsActionNeededCard({ refreshKey = 0, onOpen }) {
     <div role="status" className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm" data-testid="substitutions-action-needed">
       <p className="font-semibold">Action needed: substitutions approved after their cutoff ({rows.length})</p>
       <p className="mb-1 text-xs text-muted-foreground">Their cutoff was already processed: they are paid on the next payslip as an adjustment when you process it.</p>
-      <ul className="space-y-0.5">{rows.slice(0, 8).map((r) => <li key={r.id}>{r.substitute_name} · {r.sub_date} {r.start_time}-{r.end_time}, covering {r.absent_name}</li>)}</ul>
+      <ul className="space-y-0.5">{rows.slice(0, 8).map((r) => <li key={r.id}>{r.substitute_name} · {dateLabel(r.sub_date)} {r.start_time}-{r.end_time}, covering {r.absent_name}</li>)}</ul>
       {onOpen ? <Button size="sm" variant="outline" className="mt-2" onClick={onOpen}>Open Process Payroll</Button> : null}
     </div>
   );

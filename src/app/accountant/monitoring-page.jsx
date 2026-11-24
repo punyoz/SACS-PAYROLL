@@ -91,7 +91,7 @@ export function MonitoringPage() {
             loading={first}
             error={error}
             onRetry={() => load()}
-            pageSize={15}
+           
             searchPlaceholder="Search employee name…"
             empty={{ title: "No payroll records found", icon: ReceiptTextIcon }}
             caption="Payroll history"

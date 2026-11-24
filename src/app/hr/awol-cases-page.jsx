@@ -225,7 +225,7 @@ export function AwolCasesPage({ refreshKey }) {
           </CardAction>
         </CardHeader>
         <CardContent>
-          <DataTable toolbar={caseFilters.toolbar} columns={columns} rows={rows} loading={first} error={state.error} onRetry={load} pageSize={15}
+          <DataTable toolbar={caseFilters.toolbar} columns={columns} rows={rows} loading={first} error={state.error} onRetry={load}
             searchPlaceholder="Search employee…" empty={{ title: "No AWOL cases", icon: UserXIcon }} caption="AWOL cases" minWidth={980} />
           <p className="mt-3 text-xs text-muted-foreground">An AWOL case is not automatically abandonment: separation needs both notices, a chance to reply, and HR&apos;s decision. Reply periods are at least {replyDays} calendar days.</p>
         </CardContent>
