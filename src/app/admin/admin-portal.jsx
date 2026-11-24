@@ -69,8 +69,8 @@ const NAV = [
       ] },
       { id: "adm-incidents", label: "Incidents & RFID", icon: SirenIcon, tabs: [
         { id: "adm-incidents", label: "Incident & AWOL reports", module: BO },
-        { id: "adm-rfid-issues", label: "RFID issues", module: BO },
-        { id: "adm-maintenance", label: "RFID terminal & cards", module: "system_maintenance" },
+        // One RFID page (2026-11-24): cards, terminal, issues and card history.
+        { id: "adm-maintenance", label: "RFID", module: "system_maintenance" },
       ] },
     ],
   },
@@ -83,7 +83,7 @@ const PAGE_IDS = NAV_ITEMS.map((item) => item.id);
 const TITLES = {
   "adm-dashboard": "Dashboard", "adm-announcements": "Announcements", "adm-attendance": "Branch Attendance", "adm-overtime": "Overtime & Substitute",
   "adm-leaves": "Leave Recommendations", "adm-transfers": "Transfer Endorsements", "adm-incentives": "Incentive Recommendations", "adm-schedules": "Schedule Requests",
-  "adm-incidents": "Incident & AWOL Reports", "adm-rfid-issues": "RFID Issues", "adm-maintenance": "RFID Terminal & Cards", "adm-payroll": "Payroll Summary",
+  "adm-incidents": "Incident & AWOL Reports", "adm-maintenance": "RFID", "adm-payroll": "Payroll Summary",
   "adm-branch-reports": "Branch Reports", "adm-pay-rates": "Pay Rates", "adm-profile": "Profile",
 };
 
@@ -96,16 +96,27 @@ const DESCRIPTIONS = {
   "adm-incentives": "Recommend incentives and overload pay. HR approves them.",
   "adm-schedules": "Ask HR to change an employee's work schedule or class load.",
   "adm-incidents": "Report incidents and no-shows. They go to HR's AWOL Cases; HR handles them.",
-  "adm-rfid-issues": "Report lost or broken cards and faulty readers. HR or the Super Admin resolves them.",
   "adm-announcements": "Announcements for your branch's employees.",
   "adm-payroll": "Total payroll cost of your branch per approved period. No individual pay.",
   "adm-branch-reports": "Attendance rate, lateness and leave usage for your branch.",
   "adm-pay-rates": "View-only: your branch's daily rate and its hourly rate (daily ÷ 8). HR and the Super Admin change the daily rate.",
-  "adm-maintenance": "Run the RFID Terminal and register, replace or void your branch's RFID cards.",
+  "adm-maintenance": "Your branch's RFID cards, the RFID Terminal, the RFID issues you report, and the card history.",
   "adm-profile": null,
 };
 
+
+/** Old addresses (2026-11-24: one RFID page): rewritten before the page is read. */
+function redirectMovedPage(moved) {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const to = moved[params.get("page")];
+  if (!to) return;
+  params.set("page", to);
+  window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
+}
+
 function AdminScreens() {
+  redirectMovedPage({ "adm-rfid-issues": "adm-maintenance" });
   const { can, me } = usePortalSession();
   const [page, setPage] = usePersistedPage("admin", PAGE_IDS, "adm-dashboard");
   const [refreshKey, setRefreshKey] = React.useState(0);
@@ -161,13 +172,12 @@ function AdminScreens() {
       {current === "adm-incentives" ? <IncentiveEndorsementsPage refreshKey={refreshKey} /> : null}
       {current === "adm-schedules" ? <ScheduleRequestsPage refreshKey={refreshKey} /> : null}
       {current === "adm-incidents" ? <IncidentReportsPage refreshKey={refreshKey} /> : null}
-      {current === "adm-rfid-issues" ? <RfidIssuesPage refreshKey={refreshKey} /> : null}
       {current === "adm-announcements" ? <AnnouncementsPage refreshKey={refreshKey} /> : null}
       {current === "adm-payroll" ? <PayrollSummaryPage refreshKey={refreshKey} /> : null}
       {current === "adm-branch-reports" ? <BranchReportsPage refreshKey={refreshKey} /> : null}
       {current === "adm-branch-reports" ? <DecisionReasonsCard refreshKey={refreshKey} /> : null}
       {current === "adm-pay-rates" ? <PayRatesPanel refreshKey={refreshKey} /> : null}
-      {current === "adm-maintenance" ? <MaintenancePage refreshKey={refreshKey} /> : null}
+      {current === "adm-maintenance" ? <MaintenancePage refreshKey={refreshKey} description="Your branch's RFID cards, the RFID Terminal, the RFID issues you report, and the card history." issues={<RfidIssuesPage refreshKey={refreshKey} />} /> : null}
       {current === "adm-profile" ? <StaffProfilePage roleLabel="Administrator" /> : null}
     </AppShell>
   );

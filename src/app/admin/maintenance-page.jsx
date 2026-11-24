@@ -142,26 +142,17 @@ export function RfidTerminalLauncher({ text = ADMIN_TERMINAL_TEXT }) {
   );
 }
 
-// section (alpha test B1): "terminal" or "cards" shows one part (the Super
-// Admin's RFID Management pages); without it, both, as before.
-export function MaintenancePage({ refreshKey, registrationText = ADMIN_REGISTRATION_TEXT, auditActor = "Admin", terminalText = ADMIN_TERMINAL_TEXT, section = null }) {
+/**
+ * The ONE RFID page (2026-11-24), the same for HR, the branch Admin and the Super Admin: the summary cards, the
+ * cards list (with "Open RFID Terminal" next to Register card for the roles allowed to open it), the RFID issues,
+ * then the card history. Each role sees only its own actions; one short description line.
+ */
+export function MaintenancePage({ refreshKey, description = "Register, replace and deactivate RFID cards, open the RFID Terminal, and follow the RFID issues and the card history.", issues = null }) {
   const { can } = usePortalSession();
-
-  if (section === "terminal") return can("rfid_devices", "update") ? <RfidTerminalLauncher text={terminalText} /> : null;
-
   return (
     <>
-      {/* The RFID reader is a device: HR, the Admin and the Super Admin run it
-          from here (it used to sit on their Attendance pages). */}
-      {section !== "cards" && can("rfid_devices", "update") ? <RfidTerminalLauncher text={terminalText} /> : null}
-      {/* Cards: the same records HR and the Super Admin see (an Admin: its own
-          branch). 2026-10-21. Registered terminals were removed 2026-10-27:
-          nobody adds or edits them; the password opens the kiosk. */}
-      <p className="text-sm text-muted-foreground">{registrationText}</p>
-      <RfidCardsPanel refreshKey={refreshKey} />
-
-      {/* Recording a scan writes attendance, which only HR manages (2026-10-20). */}
-      {can("attendance", "update") ? <ScanCard auditActor={auditActor} /> : null}
+      <p className="text-sm text-muted-foreground">{description}</p>
+      <RfidCardsPanel refreshKey={refreshKey} terminal={can("rfid_devices", "update")}>{issues}</RfidCardsPanel>
     </>
   );
 }

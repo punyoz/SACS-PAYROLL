@@ -40,8 +40,8 @@ const STATUS_TABS = ["all", "active", "inactive", "lost", "replaced"];
 const ALL = "all";
 
 /**
- * `terminal` (2026-11-24, HR's one RFID tab): an "Open RFID Terminal" button next to Register card; `children`
- * (RFID issues) after the card history.
+ * `terminal` (2026-11-24, the one RFID page): an "Open RFID Terminal" button next to Register card; `children`
+ * (the RFID issues) between the cards list and the card history.
  */
 export function RfidCardsPanel({ refreshKey, terminal = false, children = null }) {
   const { notify } = usePortalSession();
@@ -229,6 +229,9 @@ export function RfidCardsPanel({ refreshKey, terminal = false, children = null }
         </CardContent>
       </Card>
 
+      {/* The one RFID page (2026-11-24): the RFID issues between the cards list and the card history. */}
+      {children}
+
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><HistoryIcon className="size-4" aria-hidden="true" />Card history</CardTitle>
@@ -241,8 +244,6 @@ export function RfidCardsPanel({ refreshKey, terminal = false, children = null }
         </CardContent>
       </Card>
 
-      {/* HR's one RFID tab (2026-11-24): RFID issues after the card history. */}
-      {children}
 
       <Dialog open={Boolean(dialog)} onOpenChange={(o) => { if (!o && !busy) setDialog(null); }}>
         <DialogContent className={cn(dialog?.kind === "history" ? "sm:max-w-3xl" : "sm:max-w-md")}>

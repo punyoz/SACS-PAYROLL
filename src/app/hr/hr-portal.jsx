@@ -1,5 +1,7 @@
 "use client";
 
+import { MaintenancePage } from "../admin/maintenance-page";
+
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
@@ -242,9 +244,8 @@ function HrScreens() {
         {current === "hr-tenure" ? <TenureProtectionPanel refreshKey={refreshKey} /> : null}
         {current === "hr-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
         {current === "hr-rfid-cards" ? (
-          <RfidCardsPanel refreshKey={refreshKey} terminal>
-            <BranchRequestsReview refreshKey={refreshKey} kinds={["rfid_issue"]} title="RFID issues" description="Lost or broken cards and faulty readers reported by the branch Admins. HR or the Super Admin marks them resolved." />
-          </RfidCardsPanel>
+          <MaintenancePage refreshKey={refreshKey} description="Every branch's RFID cards, the RFID Terminal, the RFID issues the branch Admins report, and the card history."
+            issues={<BranchRequestsReview refreshKey={refreshKey} kinds={["rfid_issue"]} title="RFID issues" description="Lost or broken cards and faulty readers reported by the branch Admins. HR or the Super Admin marks them resolved." />} />
         ) : null}
         {current === "hr-automation" ? <AutomationSettings refreshKey={refreshKey} /> : null}
         {current === "hr-payroll-approval" ? <PayrollApprovalPage key={sectionKey} refreshKey={refreshKey} onChanged={() => { reloadPending(); reloadFinalPay(); }} counts={{ runs: pendingRuns, finalPay: pendingFinalPay }} /> : null}
