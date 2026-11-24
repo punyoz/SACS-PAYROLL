@@ -73,13 +73,9 @@ export function LeavesPage({ refreshKey }) {
   // bucket and it is fetched only when HR clicks View.
   const openProof = React.useCallback(async (req) => {
     if (!req.has_stored_proof) { openInlineProof(range(req).proof); return; }
-    try {
-      const data = await fetchJson(`/api/hr/leave-requests/proof?id=${encodeURIComponent(req.id)}`);
-      openInlineProof(data.proof_url);
-    } catch (error) {
-      notify("Cannot open proof", error.message || "The proof document could not be loaded.", "error");
-    }
-  }, [openInlineProof, notify]);
+    // The viewer opens at once and shows the file when it arrives (its errors are shown by the viewer).
+    openInlineProof(fetchJson(`/api/hr/leave-requests/proof?id=${encodeURIComponent(req.id)}`).then((data) => data.proof_url));
+  }, [openInlineProof]);
   const [state, setState] = React.useState({ loading: true, error: null, pending: [], history: [], balances: {} });
   const [busy, setBusy] = React.useState(null);
   // The request being decided, with its remark (Part H): { req, action }. A
