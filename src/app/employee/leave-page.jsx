@@ -270,7 +270,7 @@ function LeaveRequestForm({ onSubmitted, balance = null, filing = null, mode = "
             render={({ field }) => (
               <FormItem>
                 <FormLabel>End date</FormLabel>
-                <FormControl><DatePicker value={field.value} onChange={field.onChange} min={startDate && startDate > earliest ? startDate : earliest} /></FormControl>
+                <FormControl><DatePicker value={field.value} onChange={field.onChange} min={bereavement ? startDate || undefined : startDate && startDate > earliest ? startDate : earliest} /></FormControl>
                 <FormMessage />
               </FormItem>
             )}

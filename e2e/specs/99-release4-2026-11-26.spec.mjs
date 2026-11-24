@@ -11,14 +11,16 @@ import { ACCOUNTS } from "../accounts.mjs";
 
 const PROFILE = { employee: "emp-profile", hr: "hr-profile", accountant: "ac-profile", admin: "adm-profile", super_admin: "sa-profile" };
 
-test("profile: Employment and Government contributions for every on-payroll role; none for Admin and Super Admin", async ({ page }) => {
+test("profile: Employment and Government contributions for every account on payroll (employee, HR, Accountant); none for an account not on payroll", async ({ page }) => {
   for (const role of ["employee", "hr", "accountant", "admin", "super_admin"]) {
     await step(page, `${role} > Profile`, async () => {
       await as(page, role, PROFILE[role]);
       await settle(page);
-      const onPayroll = ["employee", "hr", "accountant"].includes(role);
+      const me = await profileByEmail(ACCOUNTS[role].email);
+      // The rule is the account's own flag (live: Admin and Super Admin are not on payroll); the Super Admin page is account-only.
+      const onPayroll = role !== "super_admin" && me.on_payroll !== false;
+      if (["employee", "hr", "accountant"].includes(role)) expect(onPayroll, `${role} is on payroll`).toBe(true);
       if (onPayroll) {
-        const me = await profileByEmail(ACCOUNTS[role].email);
         await expect(main(page).getByTestId("profile-employment")).toBeVisible();
         await expect(main(page).getByTestId("profile-government")).toBeVisible();
         for (const label of ["Employee ID", "Category", "Employment status", "Position", "Branch", "Date hired"]) {
@@ -179,5 +181,20 @@ test("HR > AWOL cases: Stop automation (with a reason) puts the case in HR's han
     await expect.poll(async () => (await rows(db().from("employee_awol_cases").select("automation").eq("id", kase.id).single())).automation).toBe("auto");
   } finally {
     psql(`set session_replication_role = replica; update employee_awol_cases set stage = 'closed', outcome = 'false_alarm' where id = '${kase.id}';`);
+  }
+});
+
+test("profile: an account not on payroll shows no Employment or Government contributions", async ({ page }) => {
+  const admin = await profileByEmail(ACCOUNTS.admin.email);
+  const was = admin.on_payroll;
+  await db().from("profiles").update({ on_payroll: false }).eq("id", admin.id);
+  try {
+    await as(page, "admin", "adm-profile");
+    await settle(page);
+    await page.waitForTimeout(1500); // the stored profile has loaded
+    await expect(main(page).getByTestId("profile-employment")).toHaveCount(0);
+    await expect(main(page).getByTestId("profile-government")).toHaveCount(0);
+  } finally {
+    await db().from("profiles").update({ on_payroll: was }).eq("id", admin.id);
   }
 });

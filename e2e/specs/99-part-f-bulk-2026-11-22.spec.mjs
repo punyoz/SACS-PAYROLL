@@ -171,7 +171,7 @@ test("bulk: HR approves two incentive proposals from branch Admins with one rema
 
 // 2026-11-24: the branch Admin is view-only (no endorsing); HR decides. The Admin still sees the branch's pending
 // leave and transfers, with no Endorse action and no selection boxes; nothing is written by the Admin.
-test("view-only: the branch Admin sees pending leave but cannot endorse or select it; nothing is written", async ({ page }) => {
+test("view-only: the branch Admin sees pending leave and cannot endorse it; selecting only messages HR (2026-11-26); nothing is written", async ({ page }) => {
   const people = await Promise.all([ACCOUNTS.employee.email, ACCOUNTS.employee2.email].map(profileByEmail));
   const TAG = `E2E view-only ${Date.now()}`;
   const ids = [];
@@ -186,7 +186,11 @@ test("view-only: the branch Admin sees pending leave but cannot endorse or selec
   await settle(page);
   await expect(main(page).getByText(TAG).first()).toBeVisible();
   await expect(main(page).getByRole("button", { name: /Endorse/ })).toHaveCount(0);
-  await expect(main(page).getByRole("checkbox", { name: new RegExp(`^Select ${people[0].full_name} `) })).toHaveCount(0);
+  // Selecting (Branch Review, 2026-11-26) offers one thing: a message to HR. No decision, no endorsement.
+  await main(page).getByRole("checkbox", { name: new RegExp(`^Select ${people[0].full_name} `) }).first().check();
+  const bar = main(page).getByTestId("bulk-bar");
+  await expect(bar.getByRole("button")).toHaveText(["Message HR about selected", "Clear"]);
+  await bar.getByRole("button", { name: "Clear" }).click();
   const recs = await rows(db().from("branch_admin_requests").select("id").eq("kind", "leave_endorsement").in("ref_id", ids));
   expect(recs).toHaveLength(0);
 });
@@ -201,7 +205,8 @@ test("view-only: the branch Admin sees a pending transfer but cannot endorse it"
     await settle(page);
     await expect(main(page).getByText(bea.full_name).first()).toBeVisible();
     await expect(main(page).getByRole("button", { name: /Endorse/ })).toHaveCount(0);
-    await expect(main(page).getByRole("checkbox", { name: `Select ${bea.full_name} transfer` })).toHaveCount(0);
+    await main(page).getByRole("checkbox", { name: new RegExp(`^Select ${bea.full_name} · `) }).first().check();
+    await expect(main(page).getByTestId("bulk-bar").getByRole("button")).toHaveText(["Message HR about selected", "Clear"]);
   } finally {
     await db().from("transfer_requests").update({ status: "rejected" }).eq("id", t.id);
   }
