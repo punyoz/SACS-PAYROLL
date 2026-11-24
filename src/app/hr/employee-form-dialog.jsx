@@ -60,7 +60,7 @@ const DIGIT_SPEC = {
 const LABELS = {
   first_name: "First name", middle_initial: "Middle name", last_name: "Last name", suffix: "Suffix", email: "Email",
   role: "Role", employee_status: "Account status", branch_id: "Branch", date_of_birth: "Date of birth", sex: "Sex",
-  civil_status: "Civil status", employee_type: "Category", staff_group: "Group", position: "Position", employment_type: "Employment type",
+  civil_status: "Civil status", employee_type: "Category", position: "Position", employment_type: "Employment type",
   employment_status: "Employment status", date_hired: "Date hired", basic_salary: "Basic salary", address: "Home address",
   cp_number: "Contact number", emergency_contact_name: "Contact person", emergency_contact_relationship: "Relationship",
   emergency_contact_number: "Emergency contact number", emergency_contact_address: "Emergency contact address",
@@ -102,7 +102,7 @@ function pick(options, value) {
 function emptyValues() {
   return {
     first_name: "", middle_initial: "", last_name: "", suffix: "", email: "", role: "employee", employee_status: "Active", branch_id: "",
-    date_of_birth: "", sex: "", civil_status: "", employee_type: "", staff_group: "", position: "Employee", employment_type: "", employment_status: "",
+    date_of_birth: "", sex: "", civil_status: "", employee_type: "", position: "Employee", employment_type: "", employment_status: "",
     date_hired: "", basic_salary: "", address: "", cp_number: "", emergency_contact_name: "", emergency_contact_relationship: "",
     emergency_contact_number: "", emergency_contact_address: "", sss_number: "", philhealth_number: "", pagibig_number: "",
     tin_number: "", contract_end_date: "",
@@ -121,7 +121,6 @@ function valuesFromEmployee(e) {
     sex: pick(SEXES, e.sex),
     civil_status: pick(CIVIL, e.civil_status),
     employee_type: pick(TYPES, e.employee_type),
-    staff_group: e.staff_group === "Maintenance" ? "Maintenance" : "",
     position: e.position || positionForRole(e.role),
     employment_type: pick(EMPLOYMENT_TYPES, e.employment_type),
     employment_status: pick(EMPLOYMENT_STATUSES, e.employment_status),
@@ -210,7 +209,6 @@ function validate(values, { creating, ecOnFile }) {
   const payload = {
     first_name: v("first_name"), middle_initial: v("middle_initial"), last_name: v("last_name"), suffix: v("suffix"), email: v("email"),
     date_of_birth: v("date_of_birth"), sex: v("sex"), civil_status: v("civil_status"), employee_type: v("employee_type"),
-    staff_group: v("employee_type") === "Non-Teaching" ? v("staff_group") : "",
     position: v("position"), employment_type: v("employment_type"), employment_status: v("employment_status"),
     employee_status: v("employee_status"), date_hired: v("date_hired"), address: v("address"), cp_number: cp,
     sss_number: sss, philhealth_number: philhealth, pagibig_number: pagibig, tin_number: tin,
@@ -462,8 +460,7 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
 
             <Section>Employment</Section>
             {field("employee_type", classLocked ? readOnly("employee_type", values.employee_type) : select("employee_type", TYPES, "Select type"), { required: true })}
-            {/* Maintenance is a group within Non-Teaching (2026-11-23). */}
-            {values.employee_type === "Non-Teaching" ? field("staff_group", select("staff_group", ["Maintenance"], "No group", { allowNone: true }), { hint: "Maintenance staff are Non-Teaching." }) : null}
+            {/* Maintenance is a position, chosen below (2026-11-24): no Group field. */}
             {field("position", (
               <div className="space-y-2">
                 <SearchableSelect id="emp-form-position" label="Position" value={values.position || ""} onValueChange={(v) => set("position", v)}

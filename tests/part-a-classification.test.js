@@ -187,13 +187,15 @@ describe("no part-time employees (2026-11-23)", () => {
 describe("Provisional, Maintenance and the 5 / 3 credit defaults (2026-11-23)", () => {
   const R = (status, days) => ["Vacation Leave", "Sick Leave"].map((leave_type) => ({ leave_type, employee_type: "Teaching", employment_status: status, employment_type: "Full-time", days_per_year: days, effective_from: "2026-01-01" }));
   const rules = [...R("Regular", 5), ...R("Provisional", 3), ...R("Probationary", 3)];
-  it("Provisional is a status; Maintenance only within Non-Teaching", async () => {
+  it("Provisional is a status; Maintenance is a POSITION (2026-11-24), the old group is never written", async () => {
     expect(EMPLOYMENT_STATUS_OPTIONS).toContain("Provisional");
     const { normalizeEmployeeFields } = await import("@/lib/employees/record");
     if (normalizeEmployeeFields) {
-      expect(normalizeEmployeeFields({ employee_type: "Non-Teaching", staff_group: "Maintenance" }).staff_group).toBe("Maintenance");
-      expect(normalizeEmployeeFields({ employee_type: "Teaching", staff_group: "Maintenance" }).staff_group).toBeNull();
+      // An old "Group" value (a form or a CSV column) is ignored.
+      expect(normalizeEmployeeFields({ employee_type: "Non-Teaching", staff_group: "Maintenance" })).not.toHaveProperty("staff_group");
+      expect(normalizeEmployeeFields({ employee_type: "Non-Teaching", position: "Maintenance" }).position).toBe("Maintenance");
     }
+    expect(readFileSync("supabase/migrations/20261124200000_leave_pool_maintenance_awol_card.sql", "utf8")).toMatch(/SELECT 'Maintenance', 'System' WHERE NOT EXISTS/);
     const sql = readFileSync("supabase/migrations/20261124110000_provisional_maintenance_leave_defaults.sql", "utf8");
     expect(sql).toMatch(/'Regular', 'Probationary', 'Provisional', 'Contractual'/);
     expect(sql).toMatch(/staff_group IN \('Maintenance'\)/);

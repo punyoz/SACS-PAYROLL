@@ -140,7 +140,7 @@ export async function GET(request) {
             email: normalizeText(u.email),
             role: normalizeText(meta.role, "employee"),
             employee_type: normalizeText(meta.employee_type, "Teaching"),
-            staff_group: normalizeText(meta.staff_group) || null,
+            position: normalizeText(meta.position) || null,
             employment_status: normalizeText(meta.employment_status),
             employment_type: normalizeText(meta.employment_type),
             position: normalizeText(meta.position, "Employee"),
@@ -156,7 +156,7 @@ export async function GET(request) {
         const branchFilter = url.searchParams.get("branch_id");
         const employment = url.searchParams.get("employment");
         const inBranch = sortByBranch(employees, "full_name").filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter)
-          .filter((r) => !employment || employment === "all" || r.employment_status === employment || r.staff_group === employment);
+          .filter((r) => !employment || employment === "all" || r.employment_status === employment || (employment === "Maintenance" && String(r.position || "").toLowerCase() === "maintenance"));
         const { rows: shown, q } = tableQuery(url, inBranch, { fields: hrReportSearchFields });
         return await reportResponse({
           format: wantsFile(url), fileName: `employee-records-${to}`, title: "Employee records",
@@ -165,7 +165,7 @@ export async function GET(request) {
           filters: [["Search", q || "none"], ["Employment", employment && employment !== "all" ? employment : "any"], ["Sorted by", "Branch, then employee"]],
           empty: `No employees match${q ? `: Search = "${q}"` : " this branch"}.`,
           columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Employee ID" }, { header: "Category" }, { header: "Employment" }, { header: "Position" }, { header: "Status" }, { header: "Email" }],
-          rows: shown.map((r) => [r.branch_name || "Unassigned", r.full_name || "", r.employee_id || "", [r.employee_type, r.staff_group].filter(Boolean).join(" · "),
+          rows: shown.map((r) => [r.branch_name || "Unassigned", r.full_name || "", r.employee_id || "", r.employee_type || "",
             [r.employment_status].filter(Boolean).join(" · "), r.position || "", r.archived ? "Archived" : r.employee_status || "", r.email || ""]),
         });
       }
