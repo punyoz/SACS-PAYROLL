@@ -69,7 +69,7 @@ function ArrangeDialog({ open, initial, proposal = null, teachers, onClose, onSa
     setBusy(true);
     try {
       if (proposal) {
-        await fetchJson("/api/substitutions", jsonBody("PATCH", { id: proposal.id, action: "approve", substitute_id: f.substitute }));
+        await fetchJson("/api/substitutions", jsonBody("PATCH", { id: proposal.id, action: "approve", substitute_id: f.substitute, periods: Number(f.periods) }));
         notify("Substitution approved", "Payroll pays it when the substitute's taps cover the time.", "success");
       } else {
         await fetchJson("/api/substitutions", jsonBody("PATCH", {
@@ -102,6 +102,9 @@ function ArrangeDialog({ open, initial, proposal = null, teachers, onClose, onSa
             </Select>
           </div>
           )}
+          {proposal ? (
+            <div className="space-y-1.5"><Label htmlFor="sub-periods">Class periods covered</Label><Input id="sub-periods" type="number" min={1} max={proposal.periods} value={f.periods} onChange={set("periods")} /><p className="text-xs text-muted-foreground">Up to {proposal.periods}; the weekly cap counts these.</p></div>
+          ) : null}
           {proposal ? null : (<>
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="sub-absent">Absent teacher</Label>

@@ -10,7 +10,7 @@
  *                                       that day, not on leave, under the weekly cap)
  *   PATCH { action: "file_unplanned", unplanned_reason: no_show|sudden_illness|other, absent_employee_id,
  *           substitute_id, sub_date, start_time, end_time, periods, class_section?, subject? }   (HR: approved on filing)
- *   PATCH { id, action: "approve", substitute_id?, remark }   (HR; a proposal needs the picked teacher)
+ *   PATCH { id, action: "approve", substitute_id?, periods?, remark }   (HR; a proposal needs the picked teacher; periods covered)
  *   PATCH { id, action: "reject", remark }   (HR; a preset remark)
  *   PATCH { id, action: "cancel" }           (HR, while pending)
  *   POST  refused (the Admin no longer files)
@@ -256,10 +256,17 @@ export async function PATCH(request) {
     if (guard.role !== "hr" && guard.role !== "super_admin") return NextResponse.json({ error: "HR approves substitutions." }, { status: 403 });
     // A system proposal: HR picks the teacher from the suggestions (the same rules as Part C).
     let substituteId = row.substitute_id;
+    // The class periods the substitute really covers (1 up to the proposal's; the weekly cap counts these).
+    let periods = Number(row.periods);
     if (action === "approve" && !substituteId) {
       substituteId = String(body.substitute_id || "");
       if (!UUID.test(substituteId)) return NextResponse.json({ error: "Pick the substitute teacher." }, { status: 400 });
-      const out = await suggestions(supabase, guard, { absentId: row.absent_employee_id, date: row.sub_date, periods: Number(row.periods) });
+      if (body.periods !== undefined) {
+        const n = Number(body.periods);
+        if (!Number.isInteger(n) || n < 1 || n > Number(row.periods)) return NextResponse.json({ error: `The periods covered are 1 to ${row.periods}.` }, { status: 400 });
+        periods = n;
+      }
+      const out = await suggestions(supabase, guard, { absentId: row.absent_employee_id, date: row.sub_date, periods });
       if (out.denied) return out.denied;
       if (out.error) return NextResponse.json({ error: out.error }, { status: 404 });
       if (!out.suggestions.some((x) => x.id === substituteId)) {
@@ -271,7 +278,7 @@ export async function PATCH(request) {
     if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
     const decider = remarkClient(remark, { decision: action, entityType: "substitution", module: "payroll", table: "substitutions", ids: [id], actor: guard });
     const { data, error } = await decider.from("substitutions").update({
-      status: action === "approve" ? "approved" : "rejected", ...(action === "approve" ? { substitute_id: substituteId } : {}), decided_by: guard.userId, decided_by_name: by, decided_at: now, decision_note: remark.text || null, updated_at: now,
+      status: action === "approve" ? "approved" : "rejected", ...(action === "approve" ? { substitute_id: substituteId, periods } : {}), decided_by: guard.userId, decided_by_name: by, decided_at: now, decision_note: remark.text || null, updated_at: now,
     }).eq("id", id).eq("status", "pending").select(COLUMNS).maybeSingle();
     if (error) throw error;
     if (!data) return NextResponse.json({ error: "This substitution was decided at the same time. Refresh." }, { status: 409 });
