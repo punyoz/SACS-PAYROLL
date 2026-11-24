@@ -163,6 +163,7 @@ const API_MODULES = [
   ["/api/hr/reports", "hr_reports"],
   ["/api/hr/dashboard", "dashboard"],
   ["/api/accountant/payroll", "process_payroll"],
+  ["/api/accountant/pay-types", "process_payroll"],  // the Accountant's own Additional Pay types (2026-11-26)
   // Payslip schedule, loans, AWOL, licensed-teacher subsidy (20261009010000).
   ["/api/accountant/loans", "loans"],
   ["/api/accountant/final-pay", "process_payroll"],

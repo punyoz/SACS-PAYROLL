@@ -16,6 +16,7 @@
 import { refuseOwnItem } from "@/lib/rbac/routing";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
+import { itemKindLabel, withPayTypeNames } from "@/lib/payroll/pay-types";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -47,7 +48,7 @@ export async function GET(request) {
 
     const [incentives, loans, people, branches, ruleIncentives] = await Promise.all([
       fetchAllRows(() => scoped(supabase.from("payroll_monthly_incentives")
-        .select("id,employee_id,branch_id,item_date,kind,description,amount,hours,created_by_name,created_at,approval_status,decided_by_name,decided_at,decision_note,reason,non_taxable")
+        .select("id,employee_id,branch_id,item_date,kind,description,amount,hours,created_by_name,created_at,approval_status,decided_by_name,decided_at,decision_note,reason,non_taxable,pay_type_id")
         .eq("archived", false).order("created_at", { ascending: false }).order("id", { ascending: true }))),
       fetchAllRows(() => scoped(supabase.from("payroll_loans")
         .select("id,employee_id,branch_id,loan_type,description,date_granted,principal,interest_pct,total_payable,amortization,number_of_payrolls,start_period,created_by_name,created_at,approval_status,decided_by_name,decided_at,decision_note")
@@ -70,11 +71,12 @@ export async function GET(request) {
       filed_by: row.created_by_name || null, filed_at: row.created_at, ...approvalFields(row),
     });
     const items = [
-      ...(incentives.data || []).map((row) => ({
+      ...(await withPayTypeNames(supabase, incentives.data || [])).map((row) => ({
         ...base(row), kind: "incentive", item_kind: row.kind,
-        type_label: { overload: "Overload", honorarium: "Honorarium", bonus: "Bonus", adjustment: "Adjustment" }[row.kind] || "Incentive",
+        // A custom type (2026-11-26) shows its own name.
+        type_label: itemKindLabel(row),
         amount_label: row.kind === "overload" ? `${row.hours} h` : row.amount < 0 ? `−${money(-row.amount)}` : money(row.amount),
-        detail: `${row.description}${row.reason ? ` · Reason: ${row.reason}` : ""}${row.non_taxable ? " · Non-taxable correction" : ""} · dated ${String(row.item_date).slice(0, 10)}`,
+        detail: `${row.description}${row.reason ? ` · Reason: ${row.reason}` : ""}${row.non_taxable ? (row.kind === "custom" ? " · Not taxable" : " · Non-taxable correction") : ""} · dated ${String(row.item_date).slice(0, 10)}`,
       })),
       ...(ruleIncentives.error ? [] : ruleIncentives.data || []).map((row) => ({
         ...base({ ...row, created_by_name: "System (rule)", approval_status: row.status }), kind: "rule_incentive",

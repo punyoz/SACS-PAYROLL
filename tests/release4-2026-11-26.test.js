@@ -115,3 +115,43 @@ describe("3. payslip: paid leave in the Earnings (screen, PDF and print share th
     expect(route).toMatch(/withPayByType\[type\] = \(withPayByType\[type\] \|\| 0\) \+ share;/);
   });
 });
+
+describe("8. Additional Pay: own pay types, no new Adjustment, remove pending items together", () => {
+  it("a type's fields; an item's type in words", async () => {
+    const { payTypeProblem, itemKindLabel, NEW_ITEM_KINDS } = await import("@/lib/payroll/pay-types");
+    expect(payTypeProblem({ name: "x" })).toBe("Name the pay type (at least 2 characters).");
+    expect(payTypeProblem({ name: "y".repeat(61) })).toBe("The name can be at most 60 characters.");
+    expect(payTypeProblem({ name: "Club adviser", description: "d".repeat(301) })).toBe("The description can be at most 300 characters.");
+    expect(payTypeProblem({ name: "Club adviser", description: "ok" })).toBeNull();
+    expect(itemKindLabel({ kind: "custom", pay_type_name: "Club adviser" })).toBe("Club adviser");
+    expect(itemKindLabel({ kind: "adjustment" })).toBe("Adjustment"); // old items stay readable
+    expect(NEW_ITEM_KINDS).not.toContain("adjustment");
+    expect(NEW_ITEM_KINDS).toContain("custom");
+  });
+
+  it("the server: Adjustment refused for new items; a custom item needs an active type and copies its tax treatment", () => {
+    const route = src("src/app/api/accountant/payroll/route.js");
+    expect(route).toMatch(/if \(kind === "adjustment"\) return NextResponse\.json\(\{ error: "Adjustment is no longer offered\./);
+    expect(route).toMatch(/if \(!payType\.active\) return NextResponse\.json/);
+    expect(route).toMatch(/non_taxable: kind === "custom" \? payType\.taxable === false : false,/);
+    // Tax: a non-taxable custom item is in the non-taxable earnings; a taxable one only in the gross.
+    expect(route).toMatch(/const nonTaxable = toAmount\(subsidy\.non_taxable \+ \(bonuses\?\.exempt \|\| 0\) \+ adjustmentNonTaxable \+ customNonTaxable \+/);
+    expect(route).toMatch(/adjustmentTaxable \+ adjustmentNonTaxable \+ customTaxable \+ customNonTaxable\);/);
+  });
+
+  it("Remove selected: only pending items; all checked first; each logged", () => {
+    const route = src("src/app/api/accountant/payroll/route.js");
+    const handler = route.slice(route.indexOf("async function handleRemovePendingItems"), route.indexOf("/** PATCH { action: \"archive_monthly_item\""));
+    expect(handler).toMatch(/!== "pending"\) \{\n\s+return NextResponse\.json\(\{[^\n]*Nothing was removed\.`, code: "not_pending" \}, \{ status: 409 \}\);/);
+    expect(handler).toMatch(/\.eq\("approval_status", "pending"\)\.eq\("archived", false\)/);
+    expect(handler).toMatch(/action: "monthly_item_archive"/);
+  });
+
+  it("the migration: the types table (RLS, no client grants), kind custom with a type, additive", () => {
+    const sql = src("supabase/migrations/20261126040000_additional_pay_types.sql");
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS public\.additional_pay_types/);
+    expect(sql).toMatch(/ENABLE ROW LEVEL SECURITY;\nREVOKE ALL ON public\.additional_pay_types FROM anon, authenticated;/);
+    expect(sql).toMatch(/OR \(kind = 'custom' AND amount > 0 AND hours IS NULL AND pay_type_id IS NOT NULL\)/);
+    expect(sql).not.toMatch(/\bDROP (TABLE|COLUMN)\b|\bDELETE FROM\b|\bUPDATE public\./);
+  });
+});
