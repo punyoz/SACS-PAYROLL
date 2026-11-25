@@ -202,7 +202,7 @@ export function SubstitutionsPanel({ role, refreshKey = 0 }) {
         <CardTitle>Substitute teaching</CardTitle>
         <CardDescription>
           {role === "hr"
-            ? "A teacher's approved leave or half day proposes a substitution for each school day: pick the teacher and approve. File one by hand only for an unplanned absence. Paid only when the substitute's taps cover the time: inside their shift ₱ per period, outside it as overtime, above the standard load at the overload rate."
+            ? "A teacher's approved leave or half day proposes a substitution for each school day: pick the teacher and approve. File one by hand only for an unplanned absence. Paid only when the substitute's taps cover the time, like overtime: periods × 1 hour × hourly rate × 125% (a holiday or rest day uses its rate from the rates table)."
             : "Substitutions HR approved; paid when the substitute's taps cover the time."}
         </CardDescription>
         <CardAction className="flex gap-2">
