@@ -1,6 +1,6 @@
 // Part E step 1 (2026-11-23): the automation framework's shared rules.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readSource } from "./helpers/read-source.js";
 import { summarizeAutomation, isWaiting, AUTOMATION_STATUSES } from "@/lib/automation/shared";
 import { canUndo, undoAutomation } from "@/lib/automation/undo";
 
@@ -45,7 +45,7 @@ describe("modules", () => {
       expect(AUTOMATION_SWITCHES).not.toContain(m);
       expect(AUTOMATION_MODULES[m]).toBeTruthy();
     }
-    const sql = readFileSync("supabase/migrations/20261124010000_automation_framework.sql", "utf8");
+    const sql = readSource("supabase/migrations/20261124010000_automation_framework.sql");
     expect(sql).toMatch(/\('paused', 'false'\)/);
     expect(sql).toMatch(/FUNCTION public\.automation_off\(p_module TEXT\)/);
   });
@@ -60,7 +60,7 @@ describe("undo", () => {
 });
 
 describe("the route never approves anything; roles are checked on the server", () => {
-  const route = readFileSync("src/app/api/automation/route.js", "utf8");
+  const route = readSource("src/app/api/automation/route.js");
   it("no Admin step (2026-11-24): note / object refused for everyone; HR: undo; HR / Super Admin: pause and the digests", () => {
     expect(route).toMatch(/if \(action === "note" \|\| action === "object"\) \{\n\s+return NextResponse\.json\(\{ error: "The system sends this straight to HR[^}]*\}, \{ status: 409 \}\);/);
     expect(route).not.toMatch(/admin_noted_by: guard\.userId/);
@@ -75,12 +75,12 @@ describe("the route never approves anything; roles are checked on the server", (
 
 describe("attendance flags (Part E step 2)", () => {
   it("the employee's list is pinned to the signed-in person, day-level flags only", () => {
-    const route = readFileSync("src/app/api/me/attendance-flags/route.js", "utf8");
+    const route = readSource("src/app/api/me/attendance-flags/route.js");
     expect(route).toMatch(/\.eq\("employee_id", guard\.userId\)/);
     expect(route).toMatch(/requirePermission\(request, "my_account", "read"\)/);
   });
   it("the nightly job skips Admin / Super Admin and device-problem branch-days, and does nothing while paused", () => {
-    const sql = readFileSync("supabase/migrations/20261124020000_attendance_flags.sql", "utf8");
+    const sql = readSource("supabase/migrations/20261124020000_attendance_flags.sql");
     // Paused when everything is paused or this module is (automation_off).
     expect(sql).toMatch(/IF public\.automation_off\('attendance_flags'\) THEN RETURN/);
     expect(sql).toMatch(/lower\(p\.role::TEXT\) IN \('employee', 'accountant', 'hr'\)/);
@@ -90,8 +90,7 @@ describe("attendance flags (Part E step 2)", () => {
 
 describe("backup column lists (Batch 3 fields)", () => {
   it("the CSV backup carries the new correction and transfer fields and the automation table", async () => {
-    const { readFileSync: read } = await import("node:fs");
-    const schema = read("src/lib/backup/schema.js", "utf8");
+    const schema = readSource("src/lib/backup/schema.js");
     const line = (t) => (schema.match(new RegExp(`\n  ${t}: "([^"]+)"`)) || [])[1] || "";
     for (const c of ["fix_type:text", "reason_code:text", "attachment_path:text", "pay_effect:json", "pay_correction_id:uuid"]) expect(line("attendance_corrections")).toContain(c);
     for (const c of ["effective_date:date", "applied_at:tstz"]) expect(line("transfer_requests")).toContain(c);
@@ -101,7 +100,7 @@ describe("backup column lists (Batch 3 fields)", () => {
 
 describe("RFID issues (Part E step 7)", () => {
   it("flags only (no automatic fixes), once per issue, paused with its module, nightly", () => {
-    const sql = readFileSync("supabase/migrations/20261124090000_rfid_issues.sql", "utf8");
+    const sql = readSource("supabase/migrations/20261124090000_rfid_issues.sql");
     expect(sql).toMatch(/IF public\.automation_off\('rfid_issues'\) THEN RETURN/);
     expect(sql).toMatch(/\('rfid_offline_cutoff', '09:00'\)/);
     expect(sql).not.toMatch(/UPDATE public\.rfid_cards/);
@@ -117,10 +116,10 @@ describe("incident tracking (Part E step 8)", () => {
     expect(trackingFor("rfid_issue", { issue_type_label: "Reader not working", device: "Main gate" }).summary).toMatch(/Reader not working \(Main gate\)/);
     expect(trackingFor("incident_report", {}, { routedElsewhere: true })).toBeNull();
     expect(trackingFor("schedule_request", {})).toBeNull();
-    expect(readFileSync("src/app/api/hr/branch-requests/route.js", "utf8")).toMatch(/closeBranchReport\(supabase, row\.id/);
+    expect(readSource("src/app/api/hr/branch-requests/route.js")).toMatch(/closeBranchReport\(supabase, row\.id/);
   });
   it("a lost-card report blocks the card at once (reversible deactivate, logged by System)", () => {
-    const route = readFileSync("src/app/api/admin/branch-oversight/route.js", "utf8");
+    const route = readSource("src/app/api/admin/branch-oversight/route.js");
     expect(route).toMatch(/details\.issue_type === "lost_card" && employeeId/);
     expect(route).toMatch(/p_action: "deactivate"/);
     expect(route).not.toMatch(/p_action: "mark_lost"/);

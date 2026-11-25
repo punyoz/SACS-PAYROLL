@@ -1,12 +1,12 @@
 // Release 4 (2026-11-26, the owner's full-system check): leave types, profile, payslip leave line,
 // bulk selections, Assign, Admin headings, additional pay types.
-import { readFileSync } from "node:fs";
+import { readSource } from "./helpers/read-source.js";
 import { describe, expect, it } from "vitest";
 import { BEREAVEMENT_LEAVE, BEREAVEMENT_RELATIONSHIPS, CREDIT_LEAVE_TYPES, bereavementRefusal, leavePoolText, statutoryRefusal } from "@/lib/employees/classification";
 import { recommendFrom } from "@/lib/automation/leave-recommendations";
 import { leaveWithPayText, payslipTables, payslipTotalsCheck } from "@/lib/payroll/payslip-tables";
 
-const src = (p) => readFileSync(p, "utf8");
+const src = (p) => readSource(p);
 
 describe("1. leave types: statutory and school policy, never the credits pool", () => {
   const bereavement = { leave_type: BEREAVEMENT_LEAVE, enabled: true, days: 3, basis: "event", eligibility: "any", max_events: null, source: "school" };
