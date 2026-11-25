@@ -70,13 +70,19 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
 
   async function decide(event) {
     event.preventDefault();
-    const problem = remarkProblem(remark, deciding.decision);
+    const problem = remarkProblem(remark, deciding.decision === "undo" ? "reject" : deciding.decision);
     if (problem) { setError(problem); return; }
     setBusy(true);
     try {
-      await fetchJson("/api/hr/adjustment-approvals", jsonBody("PATCH", { kind: deciding.item.kind, id: deciding.item.id, decision: deciding.decision, remark }));
-      notify(deciding.decision === "approve" ? "Approved" : "Rejected",
-        deciding.decision === "approve" ? (deciding.item.kind === "rule_incentive" ? "Paid once the Accountant recomputes the payslip." : "Payroll will include it.") : "It will not be paid or deducted. The Accountant is notified.", "success");
+      const result = await fetchJson("/api/hr/adjustment-approvals", jsonBody("PATCH", { kind: deciding.item.kind, id: deciding.item.id, decision: deciding.decision, remark }));
+      if (deciding.decision === "undo") {
+        notify("Undone", result?.adjustment_id
+          ? "The payslip was already processed: the next payslip takes it back as a labelled adjustment."
+          : "It will not be paid when the payslip is computed.", "success");
+      } else {
+        notify(deciding.decision === "approve" ? "Approved" : "Rejected",
+          deciding.decision === "approve" ? (deciding.item.kind === "rule_incentive" ? "Paid once the Accountant recomputes the payslip." : "Payroll will include it.") : "It will not be paid or deducted. The Accountant is notified.", "success");
+      }
       setDeciding(null);
       await load();
     } catch (err) {
@@ -111,6 +117,9 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
           <Button size="sm" onClick={() => open(i, "approve")} aria-label={`Approve ${i.type_label} for ${i.employee_name}`}><CheckIcon aria-hidden="true" />Approve</Button>
           <Button size="sm" variant="outline" className="text-destructive" onClick={() => open(i, "reject")} aria-label={`Reject ${i.type_label} for ${i.employee_name}`}><XIcon aria-hidden="true" />Reject</Button>
         </div>
+      ) : i.can_undo ? (
+        // Perfect Attendance paid automatically (2026-11-25): HR can take it back, with a reason.
+        <div className="flex justify-end"><Button size="sm" variant="outline" className="text-destructive" onClick={() => open(i, "undo")} aria-label={`Undo ${i.type_label} for ${i.employee_name}`} data-testid="undo-rule-incentive"><XIcon aria-hidden="true" />Undo</Button></div>
       ) : null),
     }] : []),
   ];
@@ -120,7 +129,7 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><ClipboardCheckIcon className="size-4 text-gold-text" aria-hidden="true" />Incentive & loan approvals</CardTitle>
         <CardDescription>
-          Incentives, overload, loans and cash advances the Accountant filed, and the Perfect Attendance and Early Bird incentives the system computed each cutoff (marked &ldquo;system&rdquo;). Payroll pays or deducts them only once HR approves; a rejected one is kept, never paid.
+          Incentives, overload and cash advances the Accountant filed, and the incentives the system computed each cutoff (marked &ldquo;system&rdquo;). Payroll pays or deducts them only once HR approves; a rejected one is kept, never paid. Perfect Attendance is paid automatically from attendance (under Decided): HR can undo it with a reason.
           {data && !canDecide ? " Read-only: HR decides." : ""}
         </CardDescription>
         <CardAction className="flex flex-wrap items-center justify-end gap-2">
@@ -142,15 +151,15 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
           {deciding ? (
             <form onSubmit={decide} className="contents">
               <DialogHeader>
-                <DialogTitle>{deciding.decision === "approve" ? "Approve" : "Reject"} {deciding.item.type_label.toLowerCase()} — {deciding.item.employee_name}</DialogTitle>
-                <DialogDescription>{deciding.item.amount_label} · {deciding.item.detail}</DialogDescription>
+                <DialogTitle>{deciding.decision === "approve" ? "Approve" : deciding.decision === "undo" ? "Undo" : "Reject"} {deciding.item.type_label.toLowerCase()} — {deciding.item.employee_name}</DialogTitle>
+                <DialogDescription>{deciding.item.amount_label} · {deciding.item.detail}{deciding.decision === "undo" ? " · Not yet processed: it is not paid. Already processed: that payslip stays as it is and the next payslip takes it back (a labelled adjustment)." : ""}</DialogDescription>
               </DialogHeader>
-              <RemarkField id="adj-remark" decision={deciding.decision} entityType="adjustment" value={remark}
+              <RemarkField id="adj-remark" decision={deciding.decision === "undo" ? "reject" : deciding.decision} entityType="adjustment" value={remark}
                 onChange={(v) => { setRemark(v); setError(""); }} error={error} disabled={busy} />
               <DialogFooter className="gap-2 sm:gap-2">
                 <Button type="button" variant="outline" onClick={() => setDeciding(null)} disabled={busy}>Cancel</Button>
-                <Button type="submit" disabled={busy} variant={deciding.decision === "reject" ? "destructive" : "default"}>
-                  {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}{deciding.decision === "approve" ? "Approve" : "Reject"}
+                <Button type="submit" disabled={busy} variant={deciding.decision === "approve" ? "default" : "destructive"}>
+                  {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}{deciding.decision === "approve" ? "Approve" : deciding.decision === "undo" ? "Undo" : "Reject"}
                 </Button>
               </DialogFooter>
             </form>

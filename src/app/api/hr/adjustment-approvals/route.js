@@ -84,7 +84,10 @@ export async function GET(request) {
         detail: `${row.description}${row.reason ? ` · Reason: ${row.reason}` : ""}${row.non_taxable ? (row.kind === "custom" ? " · Not taxable" : " · Non-taxable correction") : ""} · dated ${String(row.item_date).slice(0, 10)}`,
       })),
       ...(ruleIncentives.error ? [] : ruleIncentives.data || []).map((row) => ({
-        ...base({ ...row, created_by_name: "System (rule)", approval_status: row.status }), kind: "rule_incentive",
+        ...base({ ...row, created_by_name: "System (rule)", approval_status: row.status }), kind: "rule_incentive", rule_kind: row.kind,
+        // Paid automatically from attendance (2026-11-25): HR can undo it with a reason.
+        ...(row.status === "approved" && row.decided_by_name === "System (attendance)" ? { approval_label: "Paid automatically", approval_tone: "success" } : {}),
+        can_undo: row.kind === "perfect_attendance" && row.status === "approved",
         type_label: `${RULE_INCENTIVE_LABELS[row.kind] || "Incentive"} (system)`, amount_label: money(row.amount),
         detail: `${row.pay_period}${(row.reasons || []).length ? ` · ${row.reasons.join("; ")}` : ""}${row.needs_review ? ` · Check: ${row.needs_review}` : ""}`,
         needs_review: row.needs_review || null,
@@ -125,7 +128,8 @@ export async function PATCH(request) {
     const id = normalizeText(body.id);
     const decision = normalizeText(body.decision);
     if (!["incentive", "loan", "rule_incentive"].includes(kind) || !UUID.test(id)) return NextResponse.json({ error: "Not found." }, { status: 404 });
-    if (!["approve", "reject"].includes(decision)) return NextResponse.json({ error: "Approve or reject." }, { status: 400 });
+    // "undo" (2026-11-25): HR takes back a Perfect Attendance the system paid automatically, with a reason.
+    if (!["approve", "reject", ...(kind === "rule_incentive" ? ["undo"] : [])].includes(decision)) return NextResponse.json({ error: "Approve or reject." }, { status: 400 });
 
     const supabase = getAdminClient();
     // Nobody approves their own incentive, overload or loan (2026-11-23).
@@ -133,11 +137,28 @@ export async function PATCH(request) {
     const owner = (await supabase.from(table).select("employee_id").eq("id", id).maybeSingle()).data;
     if (owner && String(owner.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "payroll", entityType: kind, entityId: id, what: kind === "loan" ? "cash advance" : "incentive" });
     // Part H: a preset remark (required to reject), audited with the decision on the item's own table.
-    const remark = await resolveRemark(supabase, body.remark, { decision, entityType: "adjustment", fallbackText: body.note });
+    const remarkDecision = decision === "undo" ? "reject" : decision;   // an undo takes a reason, like a rejection
+    const remark = await resolveRemark(supabase, body.remark, { decision: remarkDecision, entityType: "adjustment", fallbackText: body.note });
     if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
     const note = normalizeText(remark.text).slice(0, 500);
-    if (decision === "reject" && note.length < 5) return NextResponse.json({ error: "Give the reason for rejecting it (at least 5 characters)." }, { status: 400 });
-    const decider = remarkClient(remark, { decision, entityType: "adjustment", module: "payroll", table, ids: [id], actor: guard });
+    if (decision !== "approve" && note.length < 5) return NextResponse.json({ error: `Give the reason for ${decision === "undo" ? "undoing" : "rejecting"} it (at least 5 characters).` }, { status: 400 });
+    const decider = remarkClient(remark, { decision: remarkDecision, entityType: "adjustment", module: "payroll", table, ids: [id], actor: guard });
+    if (decision === "undo") {
+      const undone = await decider.rpc("incentive_recommendation_undo", { p_actor: guard.userId, p_id: id, p_note: note });
+      if (undone.error) {
+        const failure = describeDecisionError(undone.error);
+        return NextResponse.json({ error: failure.error, code: failure.code }, { status: failure.status });
+      }
+      const u = Array.isArray(undone.data) ? undone.data[0] : undone.data;
+      const who = u?.employee_id ? (await supabase.from("profiles").select("full_name").eq("id", u.employee_id).maybeSingle()).data : null;
+      const taken = u?.adjustment_id ? ` The payslip was already processed: the next payslip takes back ${money(-Number(u.adjustment_amount))} (a labelled adjustment).` : " Not paid when the payslip is computed.";
+      await appendAuditLog({
+        actor: guard, module: "payroll", action: "adjustment_undone", entity_type: "incentive_recommendation", entity_id: id, status: "success", source: "api",
+        description: `HR undid the automatic Perfect Attendance for ${who?.full_name || "an employee"}: ${note}.${taken}`,
+        metadata: { id, note, adjustment_id: u?.adjustment_id || null, adjustment_amount: u?.adjustment_amount ?? null, employee_id: u?.employee_id || null },
+      });
+      return NextResponse.json({ success: true, approval_status: "rejected", adjustment_id: u?.adjustment_id || null, adjustment_amount: u?.adjustment_amount ?? 0 });
+    }
     const result = kind === "rule_incentive"
       ? await decider.rpc("incentive_recommendation_decide", { p_actor: guard.userId, p_id: id, p_decision: decision, p_note: note || null })
       : await decider.rpc("payroll_adjustment_decide", { p_actor: guard.userId, p_kind: kind, p_id: id, p_decision: decision, p_note: note || null });

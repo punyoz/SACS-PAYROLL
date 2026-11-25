@@ -1,0 +1,17 @@
+[
+  {
+    "kind": "bonus",
+    "amount": 500,
+    "paid_on": "2026-12-15"
+  },
+  {
+    "kind": "bonus",
+    "amount": 500,
+    "paid_on": "2026-12-31"
+  },
+  {
+    "kind": "bonus",
+    "amount": -500,
+    "paid_on": "2026-12-16"
+  }
+]

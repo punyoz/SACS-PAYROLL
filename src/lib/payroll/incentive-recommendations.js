@@ -11,6 +11,17 @@
  */
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 
+/*
+ * Perfect Attendance paid automatically (owner decision 2026-11-25, 20261126080000): from the pay period in
+ * automation.perfect_attendance_auto_from, it is computed from attendance on both halves and PAID without
+ * waiting for HR (recorded as approved by "System (attendance)"). HR sees it and can undo it with a reason
+ * (incentive_recommendation_undo): before the payslip is processed it is simply not paid; after, the
+ * processed payslip stays as it is and the next payslip takes it back as a labelled adjustment. Early Bird
+ * keeps HR's approval.
+ */
+export const AUTO_KIND = "perfect_attendance";
+export const SYSTEM_DECIDER = "System (attendance)";
+
 export const RULE_INCENTIVE_KINDS = Object.freeze(["perfect_attendance", "early_bird"]);
 export const RULE_INCENTIVE_LABELS = Object.freeze({ perfect_attendance: "Perfect Attendance", early_bird: "Early Bird" });
 const OFF = Object.freeze({ on: false, from: null, recs: new Map() });
@@ -19,14 +30,17 @@ const key = (employeeId, kind) => `${employeeId}|${kind}`;
 /** The gate for a pay period: on when the period starts on or after the setting. Off on any read problem (the table not applied yet). */
 export async function loadIncentiveGate(supabase, period) {
   try {
-    const { data: cfg, error: cfgError } = await supabase.from("system_config").select("value")
-      .eq("section", "automation").eq("key", "incentive_approval_from").maybeSingle();
-    const from = String(cfg?.value || "").slice(0, 10);
+    const { data: cfgRows, error: cfgError } = await supabase.from("system_config").select("key,value")
+      .eq("section", "automation").in("key", ["incentive_approval_from", "perfect_attendance_auto_from"]);
+    const value = (k) => String((cfgRows || []).find((r) => r.key === k)?.value || "").slice(0, 10);
+    const from = value("incentive_approval_from");
     if (cfgError || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !period?.start_key || period.start_key < from) return OFF;
+    const autoFrom = value("perfect_attendance_auto_from");
+    const auto = /^\d{4}-\d{2}-\d{2}$/.test(autoFrom) && period.start_key >= autoFrom;
     const result = await fetchAllRows(() => supabase.from("incentive_recommendations").select("id,employee_id,kind,status,amount")
       .eq("period_start", period.start_key).order("id", { ascending: true }));
     if (result.error) return OFF;
-    return { on: true, from, recs: new Map((result.data || []).map((r) => [key(r.employee_id, r.kind), r])) };
+    return { on: true, from, auto, recs: new Map((result.data || []).map((r) => [key(r.employee_id, r.kind), r])) };
   } catch {
     return OFF;
   }
@@ -49,8 +63,10 @@ export function gateRuleIncentives(gate, employeeId, computed, { closed = true }
       items.push({ kind, amount, status: "on_track", paid: false, reasons: computed[kind]?.reasons || [] });
       continue;
     }
-    const status = gate.recs.get(key(employeeId, kind))?.status || "pending";
-    const paid = status === "approved";
+    const recStatus = gate.recs.get(key(employeeId, kind))?.status || "pending";
+    // Perfect Attendance from the automatic period: paid unless HR undid it ("rejected").
+    const status = gate.auto && kind === AUTO_KIND ? (recStatus === "rejected" ? "rejected" : "auto") : recStatus;
+    const paid = status === "approved" || status === "auto";
     if (!paid) pay[kind] = 0;
     items.push({ kind, amount, status: status === "withdrawn" ? "pending" : status, paid, reasons: computed[kind]?.reasons || [] });
   }
@@ -75,7 +91,7 @@ export async function syncIncentiveRecommendations(supabase, entries) {
     }
     for (const [periodStart, list] of byPeriod) {
       const ids = list.map((e) => e.employee_id);
-      const existing = await fetchAllIn(() => supabase.from("incentive_recommendations").select("id,employee_id,kind,status,amount")
+      const existing = await fetchAllIn(() => supabase.from("incentive_recommendations").select("id,employee_id,kind,status,amount,decided_by_name")
         .eq("period_start", periodStart).order("id", { ascending: true }), "employee_id", ids);
       const have = new Map((existing.data || []).map((r) => [key(r.employee_id, r.kind), r]));
       const now = new Date().toISOString();
@@ -86,9 +102,19 @@ export async function syncIncentiveRecommendations(supabase, entries) {
         for (const kind of RULE_INCENTIVE_KINDS) {
           const row = have.get(key(e.employee_id, kind));
           const item = wanted.get(kind);
+          const auto = Boolean(ri.auto) && kind === AUTO_KIND;
           if (item && !row) {
             inserts.push({ employee_id: e.employee_id, branch_id: ri.branch_id || null, pay_period: e.pay_period, period_start: ri.period_start,
-              period_end: ri.period_end, window_start: ri.window_start || null, window_end: ri.window_end || null, kind, amount: item.amount, reasons: item.reasons, status: "pending" });
+              period_end: ri.period_end, window_start: ri.window_start || null, window_end: ri.window_end || null, kind, amount: item.amount, reasons: item.reasons,
+              ...(auto ? { status: "approved", decided_by_name: SYSTEM_DECIDER, decided_at: now, decision_note: "Paid automatically from attendance; HR can undo it with a reason." } : { status: "pending" }) });
+          } else if (auto && item && row && (row.status === "withdrawn" || row.status === "pending"
+            || (row.status === "approved" && row.decided_by_name === SYSTEM_DECIDER && Number(row.amount) !== Number(item.amount)))) {
+            // The system's own record follows the attendance (never one HR decided or undid).
+            await supabase.from("incentive_recommendations").update({ status: "approved", amount: item.amount, reasons: item.reasons, decided_by_name: SYSTEM_DECIDER,
+              decided_at: now, decision_note: "Paid automatically from attendance; HR can undo it with a reason.", window_start: ri.window_start || null, window_end: ri.window_end || null, updated_at: now })
+              .eq("id", row.id).in("status", ["pending", "withdrawn", "approved"]);
+          } else if (auto && !item && row?.status === "approved" && row.decided_by_name === SYSTEM_DECIDER) {
+            await supabase.from("incentive_recommendations").update({ status: "withdrawn", updated_at: now }).eq("id", row.id).eq("status", "approved");
           } else if (item && row && (row.status === "withdrawn" || (row.status === "pending" && Number(row.amount) !== Number(item.amount)))) {
             await supabase.from("incentive_recommendations").update({ status: "pending", amount: item.amount, reasons: item.reasons,
               window_start: ri.window_start || null, window_end: ri.window_end || null, updated_at: now }).eq("id", row.id).in("status", ["pending", "withdrawn"]);
@@ -143,6 +169,7 @@ export function ruleIncentiveNote(ruleIncentives, kind) {
   if (!item) return null;
   return {
     on_track: "on track so far: decided when the cutoff closes",
+    auto: "paid automatically from attendance (HR can undo it)",
     pending: "waiting for HR's approval (not paid yet)",
     approved: "approved by HR",
     rejected: "rejected by HR: not paid",

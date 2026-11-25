@@ -2688,6 +2688,8 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   if (context.incentive_gate?.on) {
     const span = context.attendance_span || { start_key: period.start_key, end_key: period.end_key };
     payroll.rule_incentives = { period_start: period.start_key, period_end: period.end_key, window_start: span.start_key, window_end: span.end_key, closed: attendanceClosed,
+      // Perfect Attendance paid automatically from this period (2026-11-25): recorded as the system's approval on save.
+      auto: Boolean(context.incentive_gate?.auto),
       branch_id: employee.branch_id || null, items: ruleGate.items };
   }
 
@@ -3067,7 +3069,12 @@ function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = fal
   earn(EARLY_BIRD_LABEL, t.early_bird_winner_incentive,
     payroll.early_bird ? `${plural(payroll.early_bird.early_count, "early time-in")}, the most in ${payroll.early_bird.period_label}` : null);
   earn("Perfect attendance", t.perfect_attendance_incentive);
-  earn("Incentives", t.other_incentive);
+  // A negative item (a take-back, e.g. "Perfect attendance undone (December 1-15, 2026)", 2026-11-25) is a
+  // deduction line of its own; "Incentives" is the rest. Before, a net-negative total was left out of the
+  // lines and the Gross while the net counted it, so the payslip did not add up.
+  const negatives = (payroll.audit?.lines?.incentives || payroll.lines?.incentives || []).filter((l) => l.type === "incentive" && toAmount(l.amount) < 0);
+  const negativeTotal = toAmount(negatives.reduce((s, l) => s + toAmount(l.amount), 0));
+  earn("Incentives", toAmount(toAmount(t.other_incentive) - negativeTotal));
   earn(m.overload_hours ? `Overload pay (${m.overload_hours} h)` : "Overload pay", t.overload_pay);
   earn("Licensed teacher subsidy", t.subsidy_pay);
   // 2026-11-25: substitute teaching and extra working days are in the month's totals and net pay but
@@ -3083,6 +3090,11 @@ function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = fal
   own("special_working_day", t.special_day_pay, "Special working day");
   earn("Leave conversion", t.leave_conversion_pay);
 
+  negatives.forEach((l) => {
+    const text = String(l.note || "").replace(/^Adjustment:\s*/, "");
+    const [label, ...rest] = text.split(". ");
+    deduct(label || "Adjustment", -toAmount(l.amount), rest.join(". ") || null);
+  });
   deduct(`Absences (${plural(d.absences_days || 0, "day")})`, t.absence_deduction);
   deduct(`Leave without pay (${plural(d.leave_without_pay_days || 0, "day")})`, t.leave_without_pay_deduction);
   deduct(`Late (${plural(d.late_days || 0, "day")})`, t.late_deduction);

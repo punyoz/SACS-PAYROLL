@@ -1,0 +1,72 @@
+[
+  {
+    "what": "December 1-15, 2026: nothing waits for HR before submitting",
+    "expected": 0,
+    "actual": 0,
+    "result": "PASS",
+    "working": "Perfect Attendance is paid automatically"
+  },
+  {
+    "what": "Dec 1-15: Perfect Attendance on the payslip",
+    "expected": 500,
+    "actual": 500,
+    "result": "PASS",
+    "working": "full attendance, rate ₱500"
+  },
+  {
+    "what": "Dec 1-15: recorded as paid by the system",
+    "expected": "approved / System (attendance)",
+    "actual": "approved / System (attendance)",
+    "result": "PASS",
+    "working": "no HR approval needed"
+  },
+  {
+    "what": "Undo after processing: a labelled adjustment for the next payslip",
+    "expected": "Perfect attendance undone (December 1-15, 2026) / -500 / non-taxable / approved",
+    "actual": "Perfect attendance undone (December 1-15, 2026) / -500 / non-taxable / approved",
+    "result": "PASS",
+    "working": ""
+  },
+  {
+    "what": "The processed Dec 1-15 payslip is unchanged",
+    "expected": 500,
+    "actual": 500,
+    "result": "PASS",
+    "working": "never alter a processed payslip"
+  },
+  {
+    "what": "December 16-31, 2026: nothing waits for HR before submitting",
+    "expected": 0,
+    "actual": 0,
+    "result": "PASS",
+    "working": "Perfect Attendance is paid automatically"
+  },
+  {
+    "what": "Dec 16-31: its own Perfect Attendance on the payslip",
+    "expected": 500,
+    "actual": 500,
+    "result": "PASS",
+    "working": "paid automatically"
+  },
+  {
+    "what": "Dec 16-31: the undone Dec 1-15 amount taken back",
+    "expected": -500,
+    "actual": -500,
+    "result": "PASS",
+    "working": "the approved adjustment"
+  },
+  {
+    "what": "Dec taxable income leaves out both Perfect Attendance and the take-back",
+    "expected": 27550,
+    "actual": 27550,
+    "result": "PASS",
+    "working": "₱30,000 − contributions (other benefits are tax-free under the ₱90,000 ceiling)"
+  },
+  {
+    "what": "₱90,000 ledger: Perfect Attendance kept for December",
+    "expected": 500,
+    "actual": 500,
+    "result": "PASS",
+    "working": "₱500 + ₱500 paid − ₱500 taken back"
+  }
+]

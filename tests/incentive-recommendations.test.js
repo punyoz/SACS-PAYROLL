@@ -75,3 +75,36 @@ describe("timing: only once the cutoff's attendance is complete (2026-11-23)", (
     expect(src).toMatch(/e\.payroll\.rule_incentives\.closed !== false/);
   });
 });
+
+describe("Perfect Attendance paid automatically (owner decision 2026-11-25)", () => {
+  const auto = (list = []) => ({ on: true, auto: true, recs: recs(list) });
+  it("both halves: paid from attendance without waiting for HR; Early Bird still waits for HR", () => {
+    for (const half of ["1st", "2nd"]) {
+      const g = gateRuleIncentives(auto(), `e-${half}`, computed);
+      expect(g.pay).toEqual({ perfect_attendance: 500, early_bird: 0 });
+      expect(g.items.map((i) => [i.kind, i.status, i.paid])).toEqual([["perfect_attendance", "auto", true], ["early_bird", "pending", false]]);
+    }
+  });
+  it("HR undid it (rejected): not paid; a recompute keeps it unpaid", () => {
+    const g = gateRuleIncentives(auto([["e1", "perfect_attendance", "rejected"]]), "e1", computed);
+    expect(g.pay.perfect_attendance).toBe(0);
+    expect(g.items[0]).toMatchObject({ kind: "perfect_attendance", status: "rejected", paid: false });
+  });
+  it("not earned (a late, an absence…): nothing paid, nothing recorded", () => {
+    const g = gateRuleIncentives(auto(), "e1", { perfect_attendance: { amount: 0 }, early_bird: { amount: 0 } });
+    expect(g.items).toEqual([]);
+  });
+  it("still waits while the cutoff is open (attendance not complete)", () => {
+    const g = gateRuleIncentives(auto(), "e1", computed, { closed: false });
+    expect(g.pay.perfect_attendance).toBe(0);
+    expect(g.items[0].status).toBe("on_track");
+  });
+  it("never blocks the run (HR does not decide it first)", () => {
+    const entry = { employee_id: "e1", employee_name: "Ana", payroll: { rule_incentives: { auto: true, items: [{ kind: "perfect_attendance", amount: 500, paid: true, status: "auto" }] } } };
+    expect(ruleIncentiveBlockers([entry], new Map())).toEqual({ waiting: [], recompute: [] });
+    expect(ruleIncentiveBlockers([entry], recs([["e1", "perfect_attendance", "approved"]]))).toEqual({ waiting: [], recompute: [] });
+  });
+  it("periods before the setting keep HR's approval (no auto flag)", () => {
+    expect(gateRuleIncentives({ on: true, auto: false, recs: new Map() }, "e1", computed).pay.perfect_attendance).toBe(0);
+  });
+});
