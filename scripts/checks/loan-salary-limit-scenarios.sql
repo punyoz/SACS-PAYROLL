@@ -1,4 +1,4 @@
--- Loan limit (20261126050000) scenarios. LOCAL DATABASE ONLY; everything is rolled back.
+-- Cash advance limit + government loans (20261126050000 + 20261126060000). LOCAL DATABASE ONLY; all rolled back.
 --   docker exec -i supabase_db_SACS-PAYROLL psql -U postgres -d postgres -v ON_ERROR_STOP=1 < scripts/checks/loan-salary-limit-scenarios.sql
 -- Prints PASS lines; any failure raises and stops.
 BEGIN;
@@ -8,23 +8,40 @@ SELECT
   (SELECT p.id FROM profiles p WHERE p.role = 'employee' AND NOT COALESCE(p.archived, false)
      AND NOT EXISTS (SELECT 1 FROM employee_salary_changes c WHERE c.employee_id = p.id)
    ORDER BY p.id LIMIT 1) AS emp,
-  (SELECT p.id FROM profiles p WHERE p.role = 'hr' AND NOT COALESCE(p.archived, false) ORDER BY p.id LIMIT 1) AS hr;
+  (SELECT p.id FROM profiles p WHERE p.role = 'hr' AND NOT COALESCE(p.archived, false) ORDER BY p.id LIMIT 1) AS hr,
+  (SELECT p.id FROM profiles p WHERE p.role = 'accountant' AND NOT COALESCE(p.archived, false) ORDER BY p.id LIMIT 1) AS acct;
 GRANT SELECT ON t_ctx TO service_role;
 
--- A clean slate for the test employee: salary 20,000, no loans counted.
 UPDATE profiles SET basic_salary = 20000 WHERE id = (SELECT emp FROM t_ctx);
-SET LOCAL session_replication_role = replica;   -- leave existing loans out without triggers
+SET LOCAL session_replication_role = replica;   -- the employee's existing loans set aside (test only)
 UPDATE payroll_loans SET approval_status = 'rejected' WHERE employee_id = (SELECT emp FROM t_ctx);
 SET LOCAL session_replication_role = origin;
 
-CREATE OR REPLACE FUNCTION pg_temp.file_loan(p_amount NUMERIC, p_type TEXT DEFAULT 'salary_loan', p_interest NUMERIC DEFAULT 0)
+-- A cash advance filed by the app (pending, like the Accountant's form).
+CREATE OR REPLACE FUNCTION pg_temp.advance(p_amount NUMERIC, p_type TEXT DEFAULT 'cash_advance')
 RETURNS UUID LANGUAGE plpgsql AS $$
 DECLARE v UUID;
 BEGIN
   SET LOCAL ROLE service_role;
-  INSERT INTO payroll_loans (employee_id, loan_type, date_granted, principal, interest_pct, number_of_payrolls, amortization, start_period, approval_status, created_by_name)
-  VALUES ((SELECT emp FROM t_ctx), p_type, CURRENT_DATE, p_amount, p_interest, 6, ceil(p_amount * (1 + p_interest / 100) / 6 * 100) / 100,
-          (date_trunc('month', CURRENT_DATE)::DATE + 15), 'pending', 'Scenario')
+  INSERT INTO payroll_loans (employee_id, loan_type, date_granted, principal, interest_pct, number_of_payrolls, amortization, start_period, approval_status, created_by, created_by_name)
+  VALUES ((SELECT emp FROM t_ctx), p_type, CURRENT_DATE, p_amount, 0, 6, ceil(p_amount / 6 * 100) / 100,
+          (date_trunc('month', CURRENT_DATE)::DATE + 15), 'pending', (SELECT acct FROM t_ctx), 'Scenario')
+  RETURNING id INTO v;
+  RESET ROLE;
+  RETURN v;
+END $$;
+
+-- A government loan encoded by HR (approved at once).
+CREATE OR REPLACE FUNCTION pg_temp.gov(p_type TEXT, p_amount NUMERIC, p_ref TEXT, p_by UUID DEFAULT NULL)
+RETURNS UUID LANGUAGE plpgsql AS $$
+DECLARE v UUID;
+BEGIN
+  SET LOCAL ROLE service_role;
+  INSERT INTO payroll_loans (employee_id, loan_type, agency, loan_kind, reference_no, date_granted, principal, interest_pct, number_of_payrolls, amortization, start_period, approval_status, final_pay_authorized, created_by, created_by_name)
+  VALUES ((SELECT emp FROM t_ctx), p_type, CASE WHEN p_type = 'sss_loan' THEN 'SSS' ELSE 'Pag-IBIG' END,
+          CASE WHEN p_type = 'sss_loan' THEN 'Salary loan' ELSE 'Multi-purpose loan' END, p_ref, CURRENT_DATE, p_amount, 0, 24,
+          ceil(p_amount / 24 * 100) / 100, (date_trunc('month', CURRENT_DATE)::DATE + 15), 'approved', false,
+          COALESCE(p_by, (SELECT hr FROM t_ctx)), 'HR (scenario)')
   RETURNING id INTO v;
   RESET ROLE;
   RETURN v;
@@ -34,14 +51,14 @@ CREATE OR REPLACE FUNCTION pg_temp.refused(p_sql TEXT) RETURNS TEXT LANGUAGE plp
 BEGIN
   EXECUTE p_sql;
   RETURN NULL;
-EXCEPTION WHEN check_violation THEN
+EXCEPTION WHEN check_violation OR insufficient_privilege OR unique_violation THEN
   RESET ROLE;
   RETURN SQLERRM;
 END $$;
 
 DO $$
 DECLARE
-  a UUID; b UUID; c UUID; msg TEXT; v RECORD;
+  a UUID; b UUID; g UUID; msg TEXT; v RECORD;
   emp UUID := (SELECT emp FROM t_ctx);
   hr UUID := (SELECT hr FROM t_ctx);
 BEGIN
@@ -51,75 +68,83 @@ BEGIN
   IF v.loan_limit <> 20000 OR v.owed <> 0 THEN RAISE EXCEPTION 'overview: % %', v.loan_limit, v.owed; END IF;
   RAISE NOTICE 'PASS limit = 1.0 x monthly basic (20,000), owed 0';
 
-  a := pg_temp.file_loan(5000);
-  RAISE NOTICE 'PASS below the limit allowed (5,000)';
-  b := pg_temp.file_loan(15000);
-  RAISE NOTICE 'PASS exactly at the limit allowed (5,000 pending + 15,000 = 20,000): a pending loan counts';
-  SET LOCAL session_replication_role = replica;   -- set it aside (no hard delete on loans)
+  -- Government loans of any amount: never limited, never counted, no cap.
+  g := pg_temp.gov('sss_loan', 900000, 'SSS-12345');
+  PERFORM pg_temp.gov('pagibig_loan', 60000, 'PAG-777');
+  SELECT * INTO v FROM loan_limit_overview(ARRAY[emp]);
+  IF v.owed <> 0 THEN RAISE EXCEPTION 'government loans counted: %', v.owed; END IF;
+  RAISE NOTICE 'PASS SSS ₱900,000 and Pag-IBIG ₱60,000 encoded: not limited, no cap, not counted (owed 0)';
+
+  msg := pg_temp.refused('SELECT pg_temp.gov(''sss_loan'', 1000, ''sss-12345'')');
+  IF msg IS NULL THEN RAISE EXCEPTION 'duplicate reference allowed'; END IF;
+  RAISE NOTICE 'PASS the same SSS reference number cannot be encoded twice (case ignored)';
+
+  msg := pg_temp.refused(format('SELECT pg_temp.gov(''sss_loan'', 1000, ''SELF-1'', %L)', emp));
+  IF msg IS NULL THEN RAISE EXCEPTION 'an employee encoded a government loan'; END IF;
+  RAISE NOTICE 'PASS an employee cannot encode a government loan: %', msg;
+  -- HR encoding a loan about themselves.
+  BEGIN
+    SET LOCAL ROLE service_role;
+    INSERT INTO payroll_loans (employee_id, loan_type, agency, loan_kind, reference_no, date_granted, principal, interest_pct, number_of_payrolls, amortization, start_period, approval_status, created_by, created_by_name)
+    VALUES (hr, 'sss_loan', 'SSS', 'Salary loan', 'OWN-1', CURRENT_DATE, 1000, 0, 2, 500, date_trunc('month', CURRENT_DATE)::DATE + 15, 'approved', hr, 'HR');
+    RAISE EXCEPTION 'HR encoded their own loan';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+    RAISE NOTICE 'PASS HR cannot encode their own government loan: %', SQLERRM;
+  END;
+
+  msg := pg_temp.refused('SELECT pg_temp.advance(5000, ''salary_loan'')');
+  IF msg IS NULL OR msg NOT LIKE 'loan_kind:%' THEN RAISE EXCEPTION 'school loan created'; END IF;
+  RAISE NOTICE 'PASS no new school loan (salary / emergency / other): %', msg;
+
+  -- Cash advance limit.
+  a := pg_temp.advance(5000);
+  RAISE NOTICE 'PASS cash advance below the limit allowed (5,000)';
+  b := pg_temp.advance(15000);
+  RAISE NOTICE 'PASS exactly at the limit allowed (5,000 pending + 15,000 = 20,000)';
+  SET LOCAL session_replication_role = replica;
   UPDATE payroll_loans SET approval_status = 'rejected' WHERE id = b;
   SET LOCAL session_replication_role = origin;
-
-  msg := pg_temp.refused('SELECT pg_temp.file_loan(15001)');
+  msg := pg_temp.refused('SELECT pg_temp.advance(15001)');
   IF msg IS NULL OR msg NOT LIKE 'loan_limit:%' THEN RAISE EXCEPTION 'one peso above was allowed'; END IF;
   RAISE NOTICE 'PASS one peso above refused: %', msg;
 
-  -- Only the amount borrowed counts, never interest (decision 2026-11-25).
-  c := pg_temp.file_loan(15000, 'salary_loan', 10);
-  RAISE NOTICE 'PASS interest not counted: 15,000 at 10%% (total payable 16,500) fits the room of 15,000';
-  SELECT * INTO v FROM loan_limit_overview(ARRAY[emp]);
-  IF v.owed <> 20000 THEN RAISE EXCEPTION 'owed should be principal only (20,000), got %', v.owed; END IF;
-  RAISE NOTICE 'PASS owed = 5,000 + 15,000 = 20,000 (the 1,500 interest is left out)';
-  -- Half repaid: 8,250 of 16,500 left -> 7,500 of principal still owed.
-  SET LOCAL session_replication_role = replica;
-  UPDATE payroll_loans SET remaining_balance = 8250 WHERE id = c;
-  SET LOCAL session_replication_role = origin;
-  SELECT * INTO v FROM loan_limit_overview(ARRAY[emp]);
-  IF v.owed <> 12500 THEN RAISE EXCEPTION 'remaining principal wrong: %', v.owed; END IF;
-  RAISE NOTICE 'PASS a half-repaid 10%% loan counts its remaining principal 7,500 (owed 12,500)';
-  SET LOCAL session_replication_role = replica;
-  UPDATE payroll_loans SET approval_status = 'rejected' WHERE id = c;
-  SET LOCAL session_replication_role = origin;
-
-  -- Cash advance: not counted, not checked (its own cap).
-  c := pg_temp.file_loan(16000, 'cash_advance');
-  RAISE NOTICE 'PASS cash advance not limited (16,000 filed with 5,000 owed)';
-
-  -- A paid loan no longer counts.
+  -- Paid no longer counts.
   SET LOCAL session_replication_role = replica;
   UPDATE payroll_loans SET status = 'paid', remaining_balance = 0 WHERE id = a;
   SET LOCAL session_replication_role = origin;
-  b := pg_temp.file_loan(20000);
-  RAISE NOTICE 'PASS a paid loan no longer counts (20,000 allowed after the 5,000 was paid)';
+  b := pg_temp.advance(19999);
+  RAISE NOTICE 'PASS a paid cash advance no longer counts (19,999 allowed after the 5,000 was paid)';
+  msg := pg_temp.refused('SELECT pg_temp.advance(2)');
+  IF msg IS NULL THEN RAISE EXCEPTION 'two together over the limit allowed'; END IF;
+  RAISE NOTICE 'PASS two together over the limit: the second refused';
 
-  -- Approval re-checks: salary lowered after filing -> refused at approval.
-  UPDATE profiles SET basic_salary = 19000 WHERE id = emp;
+  -- Approval re-check after a salary cut.
+  UPDATE profiles SET basic_salary = 15000 WHERE id = emp;
   msg := pg_temp.refused(format('SELECT * FROM payroll_adjustment_decide(%L, ''loan'', %L, ''approve'', NULL)', hr, b));
-  IF msg IS NULL OR msg NOT LIKE 'loan_limit:%' THEN RAISE EXCEPTION 'approval after a salary cut was allowed'; END IF;
-  IF (SELECT approval_status FROM payroll_loans WHERE id = b) <> 'pending' THEN RAISE EXCEPTION 'loan changed'; END IF;
-  RAISE NOTICE 'PASS approval refused when the loan no longer fits (salary now 19,000): %', msg;
-
+  IF msg IS NULL OR msg NOT LIKE 'loan_limit:%' THEN RAISE EXCEPTION 'approval after a salary cut allowed'; END IF;
+  RAISE NOTICE 'PASS approval refused when the cash advance no longer fits (salary now 15,000): %', msg;
   UPDATE profiles SET basic_salary = 20000 WHERE id = emp;
-  PERFORM * FROM payroll_adjustment_decide(hr, 'loan', b, 'approve', NULL);
-  RAISE NOTICE 'PASS approval allowed when it fits';
 
-  -- Two loans that together exceed: the second is refused.
-  msg := pg_temp.refused('SELECT pg_temp.file_loan(1)');
-  IF msg IS NULL THEN RAISE EXCEPTION 'second loan over the limit was allowed'; END IF;
-  RAISE NOTICE 'PASS second loan over the limit refused';
+  -- The ₱50,000 cash advance cap stays.
+  UPDATE profiles SET basic_salary = 200000 WHERE id = emp;
+  msg := pg_temp.refused('SELECT pg_temp.advance(50001)');
+  IF msg IS NULL THEN RAISE EXCEPTION 'cash advance cap gone'; END IF;
+  RAISE NOTICE 'PASS the ₱50,000 cash advance cap stays';
+  UPDATE profiles SET basic_salary = 20000 WHERE id = emp;
 
-  -- Upward edit refused; status change and balance moves are not checked.
-  msg := pg_temp.refused(format('UPDATE payroll_loans SET principal = 20001 WHERE id = %L', b));
-  IF msg IS NULL THEN RAISE EXCEPTION 'upward edit allowed'; END IF;
-  RAISE NOTICE 'PASS upward edit refused';
-  UPDATE profiles SET basic_salary = 1000 WHERE id = emp;   -- now far over: stored loans stay as they are
-  UPDATE payroll_loans SET status = 'suspended', status_reason = 'scenario' WHERE id = b;
-  UPDATE payroll_loans SET status = 'active' WHERE id = b;
-  RAISE NOTICE 'PASS existing loan over a lowered limit is untouched; suspend / resume not blocked';
-
-  -- An overpayment recovery (DB function, owner role) is not limited.
+  -- A recovery written by the database (owner) is not limited and not counted.
   INSERT INTO payroll_loans (employee_id, loan_type, description, date_granted, principal, interest_pct, number_of_payrolls, amortization, start_period, remaining_balance, status, created_by_name)
   VALUES (emp, 'other', 'Overpayment recovery (scenario)', CURRENT_DATE, 5000, 0, 1, 5000, date_trunc('month', CURRENT_DATE)::DATE + 15, 5000, 'active', 'System');
-  RAISE NOTICE 'PASS database-written recovery not limited';
+  RAISE NOTICE 'PASS database-written recovery still allowed and not limited';
+
+  -- Suspended cash advances still count.
+  SET LOCAL session_replication_role = replica;
+  UPDATE payroll_loans SET approval_status = 'approved', status = 'suspended' WHERE id = b;
+  SET LOCAL session_replication_role = origin;
+  SELECT * INTO v FROM loan_limit_overview(ARRAY[emp]);
+  IF v.owed <> 19999 THEN RAISE EXCEPTION 'suspended not counted: %', v.owed; END IF;
+  RAISE NOTICE 'PASS a suspended cash advance still counts (owed 19,999)';
 END $$;
 
 ROLLBACK;
