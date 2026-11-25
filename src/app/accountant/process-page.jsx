@@ -700,7 +700,7 @@ function BatchCard({ onNavigate, onEdit }) {
         </CardDescription>
         <CardAction className="flex flex-wrap gap-2">
           <Select value={period} onValueChange={setPeriod} disabled={!data?.period_options?.length}>
-            <SelectTrigger size="sm" className="w-44" aria-label="Pay period"><SelectValue placeholder="Current period" /></SelectTrigger>
+            <SelectTrigger size="sm" className="w-52" aria-label="Pay period"><SelectValue placeholder="Current period" /></SelectTrigger>
             <SelectContent>{(data?.period_options || []).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
           </Select>
           <Button variant="outline" size="sm" onClick={() => load({ period })} disabled={loading}><RefreshCwIcon className={cn(loading && "animate-spin")} aria-hidden="true" />Refresh</Button>

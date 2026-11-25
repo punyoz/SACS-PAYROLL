@@ -276,7 +276,7 @@ export function PayRecordPage() {
     <>
       <Card className="shadow-xs">
         <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="space-y-1.5 sm:w-80">
+          <div className="space-y-1.5 sm:w-[26rem]">
             <Label htmlFor="ac-payslip-select">Payslip</Label>
             <Select value={selected} onValueChange={(id) => { setSelected(id); load({ entryId: id }); }} disabled={!options.length}>
               <SelectTrigger id="ac-payslip-select" className="w-full"><SelectValue placeholder={options.length ? "Select a payslip" : "No payslips available"} /></SelectTrigger>
