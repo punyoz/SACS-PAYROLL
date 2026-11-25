@@ -127,7 +127,7 @@ export function LoansPage({ refreshKey }) {
 
   const total = totalOf(form.principal, form.interest);
   const suggested = perPayroll(total, form.payrolls);
-  // The salary limit (20261125010000): salary, emergency and other loans; cash advances keep their own cap.
+  // The salary limit (20261126050000): salary, emergency and other loans; cash advances keep their own cap.
   const limitInfo = isLimitedLoanType(form.type) ? people.find((p) => p.id === form.employee)?.loan_limit || null : null;
   // Only the amount lent counts (principal), never interest (decision 2026-11-25).
   const lent = round2(Number(form.principal) || 0);

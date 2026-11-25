@@ -7,7 +7,7 @@
  *   POST  { kind: "leave", effective_from, note?, rows: [{ leave_type, employee_type, employment_status, employment_type, days_per_year }] }
  *         { kind: "pay", effective_from, note?, rows: [{ employee_type, employment_status, employment_type, pay_basis, overtime_allowed, subsidy_eligible, incentive_eligible, loan_eligible }] }
  *         { kind: "settings", values: { probation_months, probation_reminder_days, contract_reminder_days } }
- *         { kind: "loan_limit", multiplier }   the loan salary limit (20261125010000; pending policy manual)
+ *         { kind: "loan_limit", multiplier }   the loan salary limit (20261126050000; pending policy manual)
  *   HR / Super Admin only; every save is a new version (history kept) and audited.
  */
 import { NextResponse } from "next/server";

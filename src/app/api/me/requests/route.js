@@ -51,7 +51,7 @@ export async function GET(request) {
     };
     // Cash advances are also kept as loans of type cash_advance (20261009020000).
     const allLoans = list(loans);
-    // The salary limit (20261125010000): only roles on payroll borrow (no Super Admin / Admin).
+    // The salary limit (20261126050000): only roles on payroll borrow (no Super Admin / Admin).
     const loanLimit = ["employee", "hr", "accountant"].includes(String(guard.role || ""))
       ? (await loadLoanLimits(supabase, [me])).byEmployee.get(me) || null
       : null;

@@ -427,7 +427,7 @@ describe("Loans export = the Loans table (2026-11-19)", () => {
   });
 });
 
-/* ── Loan limit (2026-11-25, 20261125010000) ───────────────────────────────── */
+/* ── Loan limit (2026-11-25, 20261126050000) ───────────────────────────────── */
 
 describe("Loan salary limit", () => {
   // The database's loan_limit_overview, mirrored: limit = salary × 1.0, owed = the remaining principal

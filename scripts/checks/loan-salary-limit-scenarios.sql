@@ -1,4 +1,4 @@
--- Loan limit (20261125010000) scenarios. LOCAL DATABASE ONLY; everything is rolled back.
+-- Loan limit (20261126050000) scenarios. LOCAL DATABASE ONLY; everything is rolled back.
 --   docker exec -i supabase_db_SACS-PAYROLL psql -U postgres -d postgres -v ON_ERROR_STOP=1 < scripts/checks/loan-salary-limit-scenarios.sql
 -- Prints PASS lines; any failure raises and stops.
 BEGIN;

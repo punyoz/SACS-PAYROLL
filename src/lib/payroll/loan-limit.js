@@ -1,5 +1,5 @@
 /**
- * Loan limit (2026-11-25, 20261125010000): an employee cannot owe more on
+ * Loan limit (2026-11-25, 20261126050000): an employee cannot owe more on
  * loans than their salary. There is no other limit.
  *
  *   limit = monthly basic salary in force today × multiplier (default 1.0)

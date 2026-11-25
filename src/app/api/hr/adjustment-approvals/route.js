@@ -65,7 +65,7 @@ export async function GET(request) {
       return NextResponse.json({ available: false, items: [], error: "Approvals are not set up yet: apply 20261027020000_adjustment_approvals.sql." });
     }
     const person = new Map((people.data || []).map((p) => [p.id, p]));
-    // The salary limit of each employee with a pending loan (20261125010000), for HR to see before approving.
+    // The salary limit of each employee with a pending loan (20261126050000), for HR to see before approving.
     const pendingLoanOwners = (loans.data || []).filter((row) => row.approval_status === "pending" && isLimitedLoanType(row.loan_type)).map((row) => row.employee_id);
     const limits = await loadLoanLimits(supabase, pendingLoanOwners);
     const branch = new Map((branches.data || []).map((b) => [b.id, b.name]));

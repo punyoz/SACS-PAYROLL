@@ -62,7 +62,7 @@ function dbError(error, fallback = "The loan was not saved.") {
 }
 
 /**
- * A loan the salary limit refuses (20261125010000): audited (who, amount, limit, owed), then a 400.
+ * A loan the salary limit refuses (20261126050000): audited (who, amount, limit, owed), then a 400.
  * `info` = the employee's limit numbers (or the database's, from its refusal).
  */
 async function limitRefused(guard, person, { message, amount, info, stage }) {
@@ -296,7 +296,7 @@ export async function POST(request) {
         return NextResponse.json({ error: `${person.full_name}'s ${startLabel} payslip is already Final. Start the deduction on a later pay period.` }, { status: 409 });
       }
 
-      // The salary limit (20261125010000): the amount still borrowed after this loan stays within the limit.
+      // The salary limit (20261126050000): the amount still borrowed after this loan stays within the limit.
       // The database checks again on insert and when HR approves.
       // Only the amount borrowed counts, never interest (decision 2026-11-25).
       const amount = peso(input.principal);

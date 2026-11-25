@@ -1,4 +1,4 @@
--- Rollback of 20261125010000_loan_salary_limit.sql (loan salary limit).
+-- Rollback of 20261126050000_loan_salary_limit.sql (loan salary limit).
 -- Removes the check (trigger + functions) and its two settings rows. Touches no
 -- stored loan, repayment or payslip. The app keeps working without it: the
 -- limit numbers are simply not shown and nothing is checked (loadLoanLimits
