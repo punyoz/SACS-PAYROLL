@@ -165,7 +165,7 @@ export function ReportsPage() {
         <CardContent>
           {/* One row of options (alpha test B3); they apply as soon as they change. */}
           <form onSubmit={generate} className="grid items-end gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap">
-            <div className="space-y-2 lg:w-52">
+            <div className="flex flex-col gap-2 lg:w-52">
               <Label htmlFor="hr-report-type">Report type</Label>
               <Select value={type} onValueChange={setType}>
                 <SelectTrigger id="hr-report-type" className="w-full"><SelectValue /></SelectTrigger>
@@ -178,18 +178,18 @@ export function ReportsPage() {
             </div>
             {type === "attendance" ? (
               <>
-                <div className="space-y-2 lg:w-44">
+                <div className="flex flex-col gap-2 lg:w-44">
                   <Label htmlFor="hr-report-from">From date</Label>
                   <DatePicker id="hr-report-from" value={from} onChange={setFrom} placeholder="Start of records" />
                 </div>
-                <div className="space-y-2 lg:w-44">
+                <div className="flex flex-col gap-2 lg:w-44">
                   <Label htmlFor="hr-report-to">To date</Label>
                   <DatePicker id="hr-report-to" value={to} onChange={setTo} />
                 </div>
               </>
             ) : null}
             {type !== "attendance" ? (
-              <div className="space-y-2 lg:w-44">
+              <div className="flex flex-col gap-2 lg:w-44">
                 <Label htmlFor="hr-report-employment">Employment</Label>
                 <Select value={employment} onValueChange={setEmployment}>
                   <SelectTrigger id="hr-report-employment" className="w-full"><SelectValue /></SelectTrigger>
@@ -200,7 +200,7 @@ export function ReportsPage() {
                 </Select>
               </div>
             ) : null}
-            <div className="space-y-2 lg:w-52">
+            <div className="flex flex-col gap-2 lg:w-52">
               <Label htmlFor="hr-report-branch">Branch</Label>
               <Select value={branch} onValueChange={setBranch}>
                 <SelectTrigger id="hr-report-branch" className="w-full"><SelectValue /></SelectTrigger>
