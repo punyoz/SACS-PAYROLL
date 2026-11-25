@@ -507,6 +507,11 @@ function computeTotals(payroll) {
   const undertimeMinutes = Math.max(0, toAmount(payroll.deductions?.undertime_minutes));
   const halfDays = Math.max(0, toAmount(payroll.deductions?.half_days));
   const leaveWithPayDays = Math.max(0, toAmount(payroll.deductions?.leave_with_pay_days));
+  // Paid leave by type (2026-11-25): kept through the totals, or the payslip lost "(Vacation 1, Sick 1)".
+  const byType = payroll.deductions?.leave_with_pay_by_type;
+  const leaveWithPayByType = byType && typeof byType === "object" && !Array.isArray(byType)
+    ? Object.fromEntries(Object.entries(byType).filter(([k, v]) => k && Number(v) > 0).map(([k, v]) => [String(k), Math.max(0, toAmount(v))]))
+    : null;
   const leaveWithoutPayDays = Math.max(0, toAmount(payroll.deductions?.leave_without_pay_days));
   const perfectAttendance = payroll.incentives?.perfect_attendance === true;
 
@@ -604,6 +609,7 @@ function computeTotals(payroll) {
       undertime_minutes: undertimeMinutes,
       half_days: halfDays,
       leave_with_pay_days: leaveWithPayDays,
+      ...(leaveWithPayByType && Object.keys(leaveWithPayByType).length ? { leave_with_pay_by_type: leaveWithPayByType } : {}),
       leave_without_pay_days: leaveWithoutPayDays,
       cash_advance: cashAdvance,
       loan: loanDeduction,
@@ -1300,9 +1306,14 @@ async function readHolidays(supabase, periodStart, periodEnd) {
  * rest day pays the rest-day rate (src/lib/payroll/attendance-pay.js). Read
  * from the employee's own schedule for that day (attendance_schedule_for).
  */
-async function restDayHolidaysFor(supabase, employee, logs, holidays) {
+/**
+ * The employee's own rest days among the days that need it: a worked holiday (holiday rate on a
+ * rest day) and a worked day with approved overtime (rest-day premium, 130 % / 169 %). 2026-11-25:
+ * only holidays were looked up, so overtime on a plain rest day (a Sunday) was paid at 125 %.
+ */
+async function restDaysFor(supabase, employee, logs, holidays, overtimeMinutes) {
   const days = [...new Set(logs
-    .filter((row) => row.time_in && row.time_out && holidays.has(row.log_date))
+    .filter((row) => row.time_in && row.time_out && (holidays.has(row.log_date) || (Number(overtimeMinutes?.get?.(String(row.id))) || 0) > 0))
     .map((row) => row.log_date))];
   const rest = new Set();
   await Promise.all(days.map(async (day) => {
@@ -1776,7 +1787,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
   const restDaysByEmployee = new Map(await Promise.all(employees.map(async (employee) => {
     const own = ownSpan(employee.id);
     const logs = (logsByEmployee.get(employee.id) || []).filter((row) => row.log_date >= own.start_key && row.log_date <= own.end_key);
-    return [employee.id, await restDayHolidaysFor(supabase, employee, logs, holidays.forBranch(employee.branch_id))];
+    return [employee.id, await restDaysFor(supabase, employee, logs, holidays.forBranch(employee.branch_id), overtimeResult.minutes)];
   })));
 
   // Pay basis per category / status / type (Part A, 20261121010000). Unknown = monthly.
@@ -3052,6 +3063,17 @@ function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = fal
   earn("Incentives", t.other_incentive);
   earn(m.overload_hours ? `Overload pay (${m.overload_hours} h)` : "Overload pay", t.overload_pay);
   earn("Licensed teacher subsidy", t.subsidy_pay);
+  // 2026-11-25: substitute teaching and extra working days are in the month's totals and net pay but
+  // were missing here, so the payslip did not list them and its Gross was short. One line each.
+  const lineItems = payroll.lines?.incentives || [];
+  const own = (type, total, label) => {
+    const items = lineItems.filter((l) => l.type === type && toAmount(l.amount) > 0);
+    const sum = toAmount(items.reduce((s, l) => s + toAmount(l.amount), 0));
+    if (items.length && sum === toAmount(total)) items.forEach((l) => earn(label, l.amount, l.note || null));
+    else earn(label, total);
+  };
+  own("substitution", t.substitution_pay, "Overtime (substitution)");
+  own("special_working_day", t.special_day_pay, "Special working day");
   earn("Leave conversion", t.leave_conversion_pay);
 
   deduct(`Absences (${plural(d.absences_days || 0, "day")})`, t.absence_deduction);
@@ -3097,6 +3119,8 @@ function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = fal
     net_pay: t.net_pay,
     carry_over_out: toAmount(m.carry_over_out || 0),
     leave_with_pay_days: toAmount(d.leave_with_pay_days || 0),
+    // "Leave with pay: 2 days (Vacation 1, Sick 1)" (2026-11-25: was never kept on the cutoff).
+    leave_with_pay_by_type: d.leave_with_pay_by_type && typeof d.leave_with_pay_by_type === "object" ? d.leave_with_pay_by_type : null,
   };
 }
 

@@ -38,12 +38,21 @@ export async function GET(request) {
     if (e1 || e2) throw new Error((e1 || e2).message);
 
     const people = [...new Set([...(otRows || []).map((r) => r.employee_id), ...(subRows || []).flatMap((r) => [r.substitute_id, r.absent_employee_id])].filter(Boolean))];
-    const [{ data: names }, { data: entries }, { data: lines }, { data: logs }] = await Promise.all([
+    const [{ data: names }, { data: entries }, { data: allLines }, { data: logs }] = await Promise.all([
       fetchAllIn(() => supabase.from("profiles").select("id,full_name"), "id", people),
       fetchAllIn(() => supabase.from("payroll_entries").select("id,employee_id,pay_period,status,run_id,payroll"), "employee_id", people),
-      fetchAllIn(() => supabase.from("payroll_incentives").select("employee_id,pay_period,type,amount,rate,quantity,note,source_log_id").in("type", ["overtime", "substitution"]), "employee_id", people),
+      fetchAllIn(() => supabase.from("payroll_incentives").select("employee_id,pay_period,type,amount,rate,quantity,note,source_log_id,payroll_record_id").in("type", ["overtime", "substitution"]), "employee_id", people),
       fetchAllIn(() => supabase.from("attendance_logs").select("id,employee_id,log_date").gte("log_date", from).lte("log_date", to), "employee_id", people),
     ]);
+    // Only the current payslips' lines (2026-11-25): a recomputed payslip archives its old record, and
+    // the old record's lines stay in payroll_incentives; counting them showed the pay twice.
+    const recordIds = [...new Set((allLines || []).map((l) => l.payroll_record_id).filter(Boolean))];
+    const { data: archivedRecords, error: e3 } = recordIds.length
+      ? await fetchAllIn(() => supabase.from("payroll_records").select("id").eq("archived", true), "id", recordIds)
+      : { data: [] };
+    if (e3) throw new Error(e3.message);
+    const archived = new Set((archivedRecords || []).map((r) => r.id));
+    const lines = (allLines || []).filter((l) => !l.payroll_record_id || !archived.has(l.payroll_record_id));
     const nameOf = new Map((names || []).map((p) => [p.id, p.full_name]));
     const logIdOf = new Map((logs || []).map((l) => [`${l.employee_id}|${String(l.log_date).slice(0, 10)}`, l.id]));
     // The payslip whose attendance window holds the date (its own audit span; else the label's half).
