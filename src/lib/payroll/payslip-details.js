@@ -13,7 +13,7 @@ import { employeePayslipView, payrollLineGroups } from "@/lib/payroll/line-tags"
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
 import { classificationLabel } from "@/lib/employees/classification";
 import { periodFromLabel } from "@/lib/payroll/periods";
-import { payslipTables } from "@/lib/payroll/payslip-tables";
+import { paidLeaveDailyRate, payslipTables } from "@/lib/payroll/payslip-tables";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 /**
@@ -125,6 +125,8 @@ export function buildPayslipDetails(entry, { taxRows = [], runStatus = null } = 
     entry_id: entry.id,
     payslip_no: entry.payslip_no || null,
     pay_period: entry.pay_period,
+    // The daily rate the payslip already uses: the peso amount of its paid leave days (display only).
+    leave_daily_rate: paidLeaveDailyRate(entry.payroll),
     issued_at: entry.submitted_at || entry.updated_at || entry.created_at,
     // Draft while the period is open; Final (locked) once processed.
     status: entry.status === "draft" ? "draft" : "final",

@@ -83,6 +83,28 @@ export function PayslipTables({ tables }) {
           {tables.notes.map((n) => <p key={n} data-testid={/2nd-half payslip/.test(n) ? "first-half-note" : undefined}>{n}</p>)}
         </div>
       ) : null}
+      <LeaveBalanceBox box={tables.leave_balance} />
     </div>
+  );
+}
+
+/** Leave balance at the payslip date (2026-11-25): for information only, never part of the pay. */
+export function LeaveBalanceBox({ box }) {
+  if (!box) return null;
+  return (
+    <section className="rounded-lg border border-brand-gold/50 print:break-inside-avoid" data-testid="payslip-leave-balance">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-brand-gold/40 bg-brand-green/5 px-3 py-1.5">
+        <h3 className="text-sm font-semibold text-brand-green">{box.title}</h3>
+        <p className="text-xs text-muted-foreground">{box.note}</p>
+      </div>
+      <div role="table" className="divide-y text-sm">
+        {box.rows.map((row) => (
+          <div role="row" key={row.key} className="flex justify-between gap-4 px-3 py-1">
+            <span role="cell" className={row.strong ? "font-semibold" : undefined}>{row.label}</span>
+            <span role="cell" className={`tabular-nums ${row.strong ? "font-semibold" : ""}`}>{row.value}</span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

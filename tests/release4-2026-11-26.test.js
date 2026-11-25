@@ -98,7 +98,8 @@ describe("3. payslip: paid leave in the Earnings (screen, PDF and print share th
     const t = payslipTables(groups());
     const keys = t.earnings.map((r) => r.key);
     expect(keys.slice(0, 3)).toEqual(["basic", "leave_with_pay", "leave_conversion"]);
-    expect(t.earnings[1]).toMatchObject({ label: "Leave with pay", text: "2 days (Vacation 1, Sick 1)", amount: 0 });
+    // 2026-11-25: "Paid leave (2 days: …)", inside the Basic pay (a text row, never summed).
+    expect(t.earnings[1]).toMatchObject({ label: "Paid leave (2 days: Vacation 1, Sick 1)", amount: 0 });
     expect(t.deductions.map((r) => r.key)).not.toContain("leave_with_pay");
     expect(t.deductions.find((r) => r.key === "lwop")).toMatchObject({ amount: 300 });
     expect(payslipTotalsCheck(t, 9700)).toEqual([]);

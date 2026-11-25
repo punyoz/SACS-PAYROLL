@@ -19,6 +19,7 @@ import { DEFAULT_BENEFITS_CEILING, loadSubsidyContext, subsidyForPayslip } from 
 import { buildAttendanceSummary, buildDeductionBasis, money } from "@/lib/payroll/payslip-summary";
 import { readRequestSettings } from "@/lib/overtime-requests/rules";
 import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
+import { withLeaveBalance } from "@/lib/payroll/payslip-leave";
 import { loadOrgName } from "@/lib/org-name";
 import { buildPayslipDetails, loadPayslipYtd, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
 import {
@@ -4354,6 +4355,7 @@ export async function GET(request) {
         : null;
       const details = buildPayslipDetails(await withBranchName(supabase, entry), { taxRows: await loadTaxBracketRows(supabase), runStatus });
       details.ytd = await loadPayslipYtd(supabase, entry, details);
+      await withLeaveBalance(supabase, details, entry.employee_id);   // for information only (payslip-leave.js)
       const pdf = await buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
       const fileName = payslipFileName(entry, details.status === "draft");
       return new NextResponse(pdf, {
@@ -4542,7 +4544,7 @@ export async function GET(request) {
         historyRecords.filter((record) => record.pay_period === (selectedPeriod || activeLabel) || record.id === requestedEntryId),
         generatedDrafts,
       ),
-      payslip: buildPayslipDetails(await withBranchName(supabase, payslipSource), { taxRows: payslipSource ? await loadTaxBracketRows(supabase) : [] }),
+      payslip: await withLeaveBalance(supabase, buildPayslipDetails(await withBranchName(supabase, payslipSource), { taxRows: payslipSource ? await loadTaxBracketRows(supabase) : [] }), payslipSource?.employee_id),
       generation_window: genWindow,
       // Super Admin only: change a Final payslip, with a reason.
       can_override: guard.scope === SCOPE_ALL,
