@@ -53,7 +53,8 @@ describe("final pay text (2026-11-20): pesos, dates and months in words", async 
     expect(salary.note).toBe("17 paid days × ₱827.59 (Oct 1–25, 2026)");
     expect(r.earnings.find((e) => e.kind === "thirteenth_month").note).toBe("₱14,069.03 ÷ 12");
     const loan = r.deductions.find((d) => d.kind === "loan");
-    expect(loan).toMatchObject({ label: "Salary loan balance", note: "Salary loan, granted Sep 1, 2026 · balance ₱3,000.00", amount: 3000 });
+    // A stored salary loan is labelled as legacy (decision 2026-11-25); amounts unchanged.
+    expect(loan).toMatchObject({ label: "Cash advance (legacy salary loan) balance", note: "Salary loan, granted Sep 1, 2026 · balance ₱3,000.00", amount: 3000 });
     expect(JSON.stringify(r.earnings.map((e) => e.note))).not.toMatch(/\d{4}-\d{2}-\d{2}/);
   });
 });

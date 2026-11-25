@@ -2831,6 +2831,8 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       loan_id: line.loan_id, loan_type: line.loan_type, description: line.description,
       due: line.due, amount: line.amount, shortfall: line.shortfall,
       balance_before: line.balance_before, balance_after: line.balance_after,
+      // A government loan (2026-11-25): its agency and HR's reference number, shown on the payslip line.
+      ...(line.agency ? { agency: line.agency, reference_no: line.reference_no || null } : {}),
     }));
     // Licensed-teacher subsidy, settled in the same commit (20261009020000):
     // the year's balance marked paid, its advances (and any approved
@@ -3101,8 +3103,10 @@ function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = fal
       ? `Monthly table on the whole month's taxable income, ${money(m.taxable_income)}`
       : null);
     const loanLines = (payroll.loans || []).filter((line) => toAmount(line.amount) > 0);
-    loanLines.forEach((line) => deduct(line.description || "Loan", line.amount,
-      `Balance ${money(line.balance_before)} → ${money(line.balance_after)}${line.shortfall > 0 ? ` (partial: ${money(line.shortfall)} stays on the balance)` : ""}`));
+    // One line per deduction in the payslip's words: "SSS loan (salary loan)", "Cash advance" (2026-11-25).
+    loanLines.forEach((line) => deduct(line.description || "Loan", line.amount, line.agency
+      ? `Remaining balance ${money(line.balance_after)}${line.reference_no ? ` · Ref. ${line.reference_no}` : ""}${line.shortfall > 0 ? ` (partial: ${money(line.shortfall)} stays on the balance)` : ""}`
+      : `Balance ${money(line.balance_before)} → ${money(line.balance_after)}${line.shortfall > 0 ? ` (partial: ${money(line.shortfall)} stays on the balance)` : ""}`));
     deduct("Subsidy advance offset", toAmount((d.loan || 0) - loanLines.reduce((sum, line) => sum + toAmount(line.amount), 0)));
     (payroll.cash_advances || []).forEach((line) => deduct(line.description ? `Cash advance: ${line.description}` : "Cash advance", line.amount));
     deduct(`Balance carried from ${m.carry_from || "last month"}`, m.carry_in);

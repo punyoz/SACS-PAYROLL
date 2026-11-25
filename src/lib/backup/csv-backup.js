@@ -119,7 +119,7 @@ const FRONT = ["payslip_no", "employee_code", "employee_name", "name", "code", "
 
 const ENTITY = {
   payroll_entries: "Payslip", profiles: "Employee profile", branches: "Branch", attendance_logs: "Attendance log", audit_logs: "Audit log",
-  leave_requests: "Leave request", overtime_requests: "Overtime request", payroll_runs: "Payroll run", payroll_records: "Payroll record", rfid_cards: "RFID card", payroll_loans: "Loan",
+  leave_requests: "Leave request", overtime_requests: "Overtime request", payroll_runs: "Payroll run", payroll_records: "Payroll record", rfid_cards: "RFID card", payroll_loans: "Cash advance / government loan",
 };
 
 /** Header and meaning overrides where the column name alone would mislead. */
@@ -299,7 +299,7 @@ export const PAYSLIP_COLUMNS = [
   M("pagibig", "Pag-IBIG employee share (PHP)", "Deducted from the employee.", "pagibig"),
   M("withholding_tax", "Withholding tax (PHP)", undefined, "withholding_tax"),
   M("cash_advance", "Cash advance deduction (PHP)", undefined, "cash_advance"),
-  M("loan_deduction", "Loan deduction (PHP)"),
+  M("loan_deduction", "Cash advance / government loan deduction (PHP)"),
   M("total_deductions", "Total deductions (PHP)", undefined, "total_deductions"),
   M("net_pay", "Net pay (PHP)", "Take-home pay (never below 0).", "net_pay"),
   M("er_sss", "SSS employer share (PHP)", "Paid by the school, not deducted (empty on older payslips)."),

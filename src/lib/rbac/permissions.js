@@ -251,9 +251,16 @@ export const MODULES = {
   // Payslip schedule, loans, AWOL and the licensed-teacher subsidy
   // (docs/payroll-schedule-loans-awol.md; 20261009010000 / 20261009020000).
   // Loans replace cash advances: deducted on the 2nd half, partial when pay is short.
+  // Cash advances (2026-11-25: the school does not lend; the module name stays "loans" for the stored rows).
   loans: {
-    order: 12.5, label: "Loans", section: "Payroll",
+    order: 12.5, label: "Cash advances", section: "Payroll",
     page: { accountant: "ac-loans" },
+  },
+  // SSS / Pag-IBIG loans (2026-11-25): HR encodes them from the agency's notice; the Super Admin only
+  // as the fallback for an HR officer's own loan; the Accountant reads them; the employee their own.
+  government_loans: {
+    order: 12.6, label: "Government loans", section: "Payroll",
+    page: { hr: "hr-gov-loans" },
   },
   // AWOL cases: HR confirms and sends the notices; the branch Admin decides
   // separation (on the Approvals page); the Accountant sees who is held.
@@ -360,6 +367,7 @@ export const ROLE_PERMISSIONS = {
     timesheet: none(),
     attendance_corrections: none(),
     loans: none(),
+    government_loans: full(SCOPE_ALL),
     awol_cases: none(),
     payroll_approvals: none(),
     teacher_license: none(),
@@ -426,6 +434,7 @@ export const ROLE_PERMISSIONS = {
     timesheet: none(),
     attendance_corrections: none(),
     loans: none(),
+    government_loans: none(),
     awol_cases: none(),
     payroll_approvals: none(),
     teacher_license: none(),
@@ -490,6 +499,7 @@ export const ROLE_PERMISSIONS = {
     // Own requests too (2026-11-23): filed with "create", decided by another HR (never their own).
     attendance_corrections: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
     loans: none(),
+    government_loans: full(SCOPE_ALL),
     awol_cases: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
     // The only approver of subsidy decisions: missed-month adjustments the
     // Accountant requests, and refused-consent excess subsidy advances.
@@ -553,6 +563,7 @@ export const ROLE_PERMISSIONS = {
     // Accountants tap in too: they may ask to correct their own records.
     attendance_corrections: { scope: SCOPE_SELF, actions: ["create", "read"] },
     loans: full(SCOPE_BRANCH),
+    government_loans: view(SCOPE_BRANCH),
     // Sees who is AWOL / separated (payroll hold, final pay).
     awol_cases: view(SCOPE_BRANCH),
     // Requests subsidy adjustments and records refused consent.
@@ -604,6 +615,7 @@ export const ROLE_PERMISSIONS = {
     // View own statuses; ask to correct an Incomplete / disputed record.
     attendance_corrections: { scope: SCOPE_SELF, actions: ["create", "read"] },
     loans: view(SCOPE_SELF),
+    government_loans: view(SCOPE_SELF),
     awol_cases: none(),
     payroll_approvals: none(),
     teacher_license: none(),

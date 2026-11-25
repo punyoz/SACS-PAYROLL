@@ -29,7 +29,7 @@
 
 import { roundPeso } from "@/lib/payroll/money";
 import { monthlyWithholdingTax } from "@/lib/payroll/semi-monthly";
-import { LOAN_TYPE_LABELS } from "@/lib/payroll/loans";
+import { LOAN_TYPE_LABELS, deductionLabel, isGovernmentLoan } from "@/lib/payroll/loans";
 import { dateText, pesoText, rangeText } from "@/lib/payroll/final-pay-text";
 
 const peso = (value) => roundPeso(value);
@@ -214,13 +214,20 @@ export function computeFinalPay(input) {
       if (isAdvance) excessLeft = peso(excessLeft - due);
       if (offset > 0) loanPayments.push({ loan_id: loan.id, kind: "subsidy_offset", amount: offset, amount_due: offset });
       if (due <= 0) return;
-      if (!loan.final_pay_authorized) { uncovered.push({ loan_id: loan.id, amount: due, reason: "No signed final-pay authority" }); return; }
+      // A government loan without the signed authority (decision 2026-11-25): the deduction stops, HR is told
+      // (the final pay's "for collection" list) and the employee pays the agency directly.
+      if (!loan.final_pay_authorized) {
+        uncovered.push({ loan_id: loan.id, amount: due, reason: isGovernmentLoan(loan)
+          ? `${deductionLabel(loan)}: no signed final-pay authority; the employee pays ${loan.agency || "the agency"} directly`
+          : "No signed final-pay authority" });
+        return;
+      }
       const amount = Math.min(due, Math.max(0, room));
       room = peso(room - amount);
       if (amount > 0) {
         loanPayments.push({ loan_id: loan.id, kind: "final_pay", amount, amount_due: due });
         // "Salary loan balance": the loan's own type and description (2026-11-20).
-        deductions.push({ kind: "loan", loan_id: loan.id, amount, label: `${LOAN_TYPE_LABELS[loan.loan_type] || "Loan"} balance`,
+        deductions.push({ kind: "loan", loan_id: loan.id, amount, label: `${isGovernmentLoan(loan) ? deductionLabel(loan) : LOAN_TYPE_LABELS[loan.loan_type] || "Loan"} balance`,
           note: `${loan.description || (isAdvance ? "Subsidy advance above what was earned" : "Loan")} · balance ${pesoText(loan.remaining_balance)}` });
       }
       if (amount < due) uncovered.push({ loan_id: loan.id, amount: peso(due - amount), reason: "Final pay too low" });

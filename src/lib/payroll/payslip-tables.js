@@ -118,7 +118,7 @@ function fromGroups(g, holidayLines, dailyRate) {
       ...withFixed(DEDUCTIONS, deductions, {
         deferred: first ? ["sss", "philhealth", "pagibig", "withholding_tax"] : [],
       }),
-      ...(loans ? [] : [{ key: "loans", label: "Loans / cash advance", amount: 0, ...(first ? { text: DEFERRED } : {}) }]),
+      ...(loans ? [] : [{ key: "loans", label: "Cash advance / government loans", amount: 0, ...(first ? { text: DEFERRED } : {}) }]),
     ],
     gross: num(g.gross),
     total_deductions: num(g.total_deductions),
@@ -157,7 +157,7 @@ function fromFinalPay(fp, overpayment) {
     holiday_lines: [],
     incentives: [],
     deductions: [...withFixed([["sss", "SSS"], ["philhealth", "PhilHealth"], ["pagibig", "Pag-IBIG"], ["withholding_tax", "Withholding tax"]], deductions),
-      ...(hasLoan ? [] : [{ key: "loans", label: "Loans / cash advance", amount: 0 }])],
+      ...(hasLoan ? [] : [{ key: "loans", label: "Cash advance / government loans", amount: 0 }])],
     gross: overpaid.length ? gross : num(fp.gross),
     total_deductions: overpaid.length ? totalDeductions : num(fp.total_deductions),
     overpayment_to_recover: recover > 0 ? recover : 0,

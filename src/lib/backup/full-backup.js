@@ -64,8 +64,8 @@ export const BACKUP_GROUPS = Object.freeze([
       "payroll_final_pay_submissions"],
   },
   {
-    key: "benefits", label: "Loans, advances, incentives, subsidy, 13th month",
-    description: "Loans and their payments, cash advances, incentives, deductions, contribution amounts, licensed-teacher subsidy and 13th month pay.",
+    key: "benefits", label: "Cash advances, government loans, incentives, subsidy, 13th month",
+    description: "Cash advances and SSS / Pag-IBIG loans (table payroll_loans) and their payments, older cash advances, incentives, deductions, contribution amounts, licensed-teacher subsidy and 13th month pay.",
     computed: [],
     tables: ["payroll_loans", "payroll_loan_payments", "payroll_cash_advances", "payroll_incentives", "payroll_monthly_incentives", "incentive_recommendations",
       "payroll_deductions", "payroll_contribution_amounts", "payroll_subsidy_requests", "payroll_subsidy_adjustments",

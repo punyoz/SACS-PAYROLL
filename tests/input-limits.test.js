@@ -79,11 +79,13 @@ describe("employee edit (PATCH)", () => {
 });
 
 describe("peso limits", () => {
-  const loan = { loan_type: "salary_loan", principal: LOAN_MAX, interest_pct: 0, number_of_payrolls: 10, amortization: LOAN_MAX / 10, date_granted: "2026-10-01", start_period: "2026-10-16" };
-  it("caps a loan at ₱500,000 and a cash-advance loan at ₱50,000", () => {
+  // 2026-11-25: the school files cash advances only (₱50,000 cap); LOAN_MAX stays for the stored legacy rows.
+  const loan = { loan_type: "cash_advance", principal: CASH_ADVANCE_MAX, interest_pct: 0, number_of_payrolls: 10, amortization: CASH_ADVANCE_MAX / 10, date_granted: "2026-10-01", start_period: "2026-10-16" };
+  it("caps a cash advance at ₱50,000; a school loan is not filed any more", () => {
     expect(validateLoanInput(loan)).toBeNull();
-    expect(validateLoanInput({ ...loan, principal: LOAN_MAX + 1 })).toMatch(/at most ₱500,000/);
-    expect(validateLoanInput({ ...loan, loan_type: "cash_advance", principal: CASH_ADVANCE_MAX + 1, amortization: 1000 })).toMatch(/at most ₱50,000/);
+    expect(validateLoanInput({ ...loan, principal: CASH_ADVANCE_MAX + 1, amortization: 1000 })).toMatch(/at most ₱50,000/);
+    expect(validateLoanInput({ ...loan, loan_type: "salary_loan", principal: 1000, amortization: 100 })).toMatch(/does not give loans/);
+    expect(LOAN_MAX).toBe(500000);
     expect(validateLoanInput({ ...loan, principal: "abc" })).toMatch(/more than 0/);
   });
   it("caps a cash advance at ₱50,000", () => {

@@ -15,6 +15,8 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient } from "@/lib/supabase/admin";
 import { compute13thMonthFromEntries } from "@/lib/payroll/thirteenth-month";
 import { manilaDateKey } from "@/lib/payroll/periods";
+import { loadLoanLimits } from "@/lib/payroll/loan-limit";
+import { deductionLabel, isGovernmentLoan } from "@/lib/payroll/loans";
 
 const LIMIT = 200;
 
@@ -25,7 +27,7 @@ export async function GET(request) {
     const me = guard.userId;
     const supabase = getServiceClient();
     const [loans, advances, incentives, subsidy, thirteenth] = await Promise.all([
-      supabase.from("payroll_loans").select("id,loan_type,description,date_granted,principal,interest_amount,total_payable,number_of_payrolls,amortization,start_period,remaining_balance,status,approval_status,decided_by_name,decided_at,decision_note,created_at")
+      supabase.from("payroll_loans").select("id,loan_type,description,date_granted,principal,interest_amount,total_payable,number_of_payrolls,amortization,start_period,remaining_balance,status,approval_status,decided_by_name,decided_at,decision_note,created_at,agency,loan_kind,reference_no")
         .eq("employee_id", me).order("created_at", { ascending: false }).limit(LIMIT),
       supabase.from("payroll_cash_advances").select("id,date_granted,principal,installment_amount,deduct_on,start_date,status,description,status_reason,created_at")
         .eq("employee_id", me).order("created_at", { ascending: false }).limit(LIMIT),
@@ -50,8 +52,18 @@ export async function GET(request) {
     };
     // Cash advances are also kept as loans of type cash_advance (20261009020000).
     const allLoans = list(loans);
+    // The salary limit (20261126050000): only roles on payroll borrow (no Super Admin / Admin).
+    const loanLimit = ["employee", "hr", "accountant"].includes(String(guard.role || ""))
+      ? (await loadLoanLimits(supabase, [me])).byEmployee.get(me) || null
+      : null;
     return NextResponse.json({
+      // "My deductions" (2026-11-25): cash advances and government loans (SSS / Pag-IBIG) in one list, in the payslip's words.
+      deductions: [
+        ...allLoans.filter((row) => row.loan_type !== "subsidy_advance").map((row) => ({ ...row, label: deductionLabel(row), government: isGovernmentLoan(row) })),
+        ...list(advances).map((row) => ({ ...row, legacy: true, label: "Cash advance (older record)", amortization: row.installment_amount })),
+      ],
       loans: allLoans.filter((row) => row.loan_type !== "cash_advance"),
+      loan_limit: loanLimit,
       cash_advances: [...allLoans.filter((row) => row.loan_type === "cash_advance"), ...list(advances).map((row) => ({ ...row, legacy: true }))],
       incentives: list(incentives),
       subsidy: list(subsidy),

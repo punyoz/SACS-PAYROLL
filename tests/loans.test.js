@@ -66,12 +66,13 @@ describe("Loan rules", () => {
     expect(loanAppliesToPeriod(loan(), OCT2)).toBe(true);
   });
 
-  it("validates a new loan", () => {
-    const ok = { loan_type: "salary_loan", principal: 12000, interest_pct: 5, number_of_payrolls: 6, amortization: 2100, date_granted: "2026-10-05", start_period: "2026-10-16" };
+  it("validates a new cash advance; the school no longer files loans (2026-11-25)", () => {
+    expect(validateLoanInput({ loan_type: "salary_loan", principal: 1000, number_of_payrolls: 2, amortization: 500, date_granted: "2026-10-05", start_period: "2026-10-16" })).toMatch(/does not give loans/);
+    const ok = { loan_type: "cash_advance", principal: 12000, interest_pct: 5, number_of_payrolls: 6, amortization: 2100, date_granted: "2026-10-05", start_period: "2026-10-16" };
     expect(validateLoanInput(ok)).toBe(null);
     expect(validateLoanInput({ ...ok, start_period: "2026-11-01" })).toMatch(/16–end/);
     expect(validateLoanInput({ ...ok, amortization: 13000 })).toMatch(/more than the total/);
-    expect(validateLoanInput({ ...ok, loan_type: "subsidy_advance" })).toMatch(/type/);
+    expect(validateLoanInput({ ...ok, loan_type: "subsidy_advance" })).toMatch(/does not give loans/);
     expect(validateLoanInput({ ...ok, number_of_payrolls: 0 })).toMatch(/payrolls/);
   });
 
@@ -211,6 +212,15 @@ describe("The 16–end payslip deducts loans", () => {
     expect(table("payroll_loans")[0].remaining_balance).toBe(8606.25);
   });
 
+  it("an SSS loan HR encoded: its own line with the agency, remaining balance and reference (2026-11-25)", async () => {
+    seedLoan({ id: "sss-nate", loan_type: "sss_loan", agency: "SSS", loan_kind: "salary loan", reference_no: "SSS-0451", description: null,
+      principal: 12000, interest_pct: 0, total_payable: 12000, amortization: 1000, remaining_balance: 12000 });
+    expect((await process2nd()).status).toBe(200);
+    const entry = table("payroll_entries").find((e) => e.employee_id === NATE && e.pay_period === SECOND);
+    expect(entry.payroll.loans[0]).toMatchObject({ loan_type: "sss_loan", description: "SSS loan (salary loan)", agency: "SSS", reference_no: "SSS-0451", amount: 1000, balance_after: 11000 });
+    // How it reads on the payslip (screen, print, PDF): e2e/proof/government-loans.spec.mjs on the real screens.
+  });
+
   it("a suspended loan is skipped", async () => {
     seedLoan({ status: "suspended" });
     expect((await process2nd()).status).toBe(200);
@@ -222,12 +232,14 @@ describe("The 16–end payslip deducts loans", () => {
 /* ── /api/accountant/loans ───────────────────────────────────────────────── */
 
 const createLoan = (body = {}, as = who.accountant) => loansApi.POST(request("/api/accountant/loans", "POST", {
-  action: "create_loan", employee_id: NATE, loan_type: "salary_loan", principal: 12000, interest_pct: 5,
+  action: "create_loan", employee_id: NATE, loan_type: "cash_advance", principal: 12000, interest_pct: 5,
   number_of_payrolls: 6, amortization: "", date_granted: "2026-11-02", start_period: "2026-11-16", ...body,
 }, as));
 
 describe("Loans API", () => {
-  it("the Accountant adds a loan; the amortization defaults to total ÷ payrolls", async () => {
+  it("the Accountant adds a cash advance; the amortization defaults to total ÷ payrolls; a school loan is refused", async () => {
+    expect((await createLoan({ loan_type: "salary_loan" })).status).toBe(400);
+    expect((await createLoan({ loan_type: "emergency_loan" })).status).toBe(400);
     const response = await createLoan();
     expect(response.status).toBe(200);
     expect(table("payroll_loans")[0]).toMatchObject({ employee_id: NATE, principal: 12000, interest_pct: 5, amortization: 2100, start_period: "2026-11-16", created_by: "u-acct" });
@@ -424,5 +436,105 @@ describe("Loans export = the Loans table (2026-11-19)", () => {
     expect(loanCanSuspend({ status: "paid", approval_status: "approved", loan_type: "salary_loan" })).toBe(false);
     expect((await patch("loan-nate")).status).toBe(200);
     expect(loanCanResume(table("payroll_loans").find((l) => l.id === "loan-nate"))).toBe(true);
+  });
+});
+
+/* ── Loan limit (2026-11-25, 20261126050000) ───────────────────────────────── */
+
+describe("Loan salary limit", () => {
+  // The database's loan_limit_overview, mirrored: limit = salary × 1.0, owed = the remaining principal
+  // (never interest) of unpaid counted loans: remaining balance × principal ÷ total payable.
+  const SALARY = { [NATE]: 10500 };
+  const fakeOverview = ({ p_employee_ids: ids, p_exclude: exclude }) => ({
+    data: ids.map((id) => {
+      const owed = table("payroll_loans").filter((l) => l.employee_id === id && l.id !== exclude
+        && l.loan_type === "cash_advance" && l.status !== "paid"
+        && ["pending", "approved", undefined].includes(l.approval_status))
+        .reduce((sum, l) => {
+          const principal = Number(l.principal) || 0;
+          const total = principal + Math.round(principal * (Number(l.interest_pct) || 0)) / 100;
+          const balance = Number(l.remaining_balance ?? total);
+          return sum + (total > 0 ? Math.round((balance * principal / total) * 100) / 100 : 0);
+        }, 0);
+      const limit = SALARY[id] || 0;
+      return { employee_id: id, monthly_basic: limit, multiplier: 1, loan_limit: limit, owed, room: limit - owed };
+    }),
+    error: null,
+  });
+  beforeEach(() => { rpc.results.loan_limit_overview = fakeOverview; });
+  const plain = (body) => createLoan({ interest_pct: 0, ...body });
+
+  it("messages: summary and refusal in plain words", async () => {
+    const { loanLimitSummary, loanLimitRefusal, checkLoanLimit } = await import("@/lib/payroll/loan-limit");
+    const info = { loan_limit: 10500, owed: 4000, multiplier: 1 };
+    expect(loanLimitSummary(info)).toBe("Salary limit ₱10,500.00, already owed on cash advances ₱4,000.00, you can take up to ₱6,500.00 more.");
+    expect(loanLimitRefusal(info, 7000)).toBe("This cash advance would make the total ₱11,000.00, which is more than the limit of ₱10,500.00 (1 month's salary). The most that can be added is ₱6,500.00.");
+    expect(checkLoanLimit({ ...info, amount: 6500 }).ok).toBe(true);
+    expect(checkLoanLimit({ ...info, amount: 6500.01 }).ok).toBe(false);
+  });
+
+  it("below the limit and exactly at it: allowed; one peso above: refused and audited", async () => {
+    expect((await plain({ principal: 10500 })).status).toBe(200);           // exactly at
+    table("payroll_loans").length = 0;
+    expect((await plain({ principal: 5000 })).status).toBe(200);            // below
+    table("payroll_loans").length = 0;
+    const over = await plain({ principal: 10501 });
+    expect(over.status).toBe(400);
+    const body = await over.json();
+    expect(body.code).toBe("loan_limit");
+    expect(body.error).toContain("The most that can be added is ₱10,500.00");
+    expect(table("payroll_loans")).toHaveLength(0);
+    const audit = table("audit_logs").find((a) => a.action === "loan_limit_refused");
+    expect(audit).toBeTruthy();
+    expect(JSON.stringify(audit)).toContain("10500");
+  });
+
+  it("two loans that together exceed: the second is refused; a pending one counts; a paid one does not", async () => {
+    expect((await plain({ principal: 6000 })).status).toBe(200);            // stays pending
+    expect((await plain({ principal: 5000 })).status).toBe(400);            // 6,000 pending + 5,000 > 10,500
+    table("payroll_loans")[0].status = "paid";
+    table("payroll_loans")[0].remaining_balance = 0;
+    expect((await plain({ principal: 5000 })).status).toBe(200);            // paid loan no longer counts
+  });
+
+  it("only the amount borrowed counts, never interest; the ₱50,000 cash advance cap stays", async () => {
+    // 10,500 at 10% (total payable 11,550) fits a limit of 10,500: interest is not counted (decision 2026-11-25).
+    expect((await createLoan({ principal: 10500, interest_pct: 10 })).status).toBe(200);
+    table("payroll_loans")[0].remaining_balance = 5775;   // half repaid: 5,250 of principal still borrowed
+    expect((await plain({ principal: 5251 })).status).toBe(400);
+    expect((await plain({ principal: 5250 })).status).toBe(200);
+    table("payroll_loans").length = 0;
+    expect((await plain({ principal: 10501 })).status).toBe(400);   // over the salary limit
+    SALARY[NATE] = 100000;
+    expect((await plain({ principal: 50001 })).status).toBe(400);   // the ₱50,000 cash advance cap
+    SALARY[NATE] = 10500;
+  });
+
+  it("the database's own refusal (e.g. two filed at once) is shown and audited the same way", async () => {
+    const { loanLimitDbRefusal } = await import("@/lib/payroll/loan-limit");
+    const refusal = loanLimitDbRefusal({ code: "23514", message: "loan_limit: This loan would make the total ₱11,000.00, which is more than the limit of ₱10,500.00 (1 month's salary). The most that can be added is ₱6,500.00.", details: "{\"loan_limit\":10500,\"owed\":4500}" });
+    expect(refusal.error.startsWith("This loan would make")).toBe(true);
+    expect(refusal.detail).toMatchObject({ loan_limit: 10500, owed: 4500 });
+    expect(loanLimitDbRefusal({ message: "other" })).toBeNull();
+  });
+
+  it("GET gives each person their limit, and the employee their own", async () => {
+    seedLoan({ loan_type: "cash_advance", principal: 4000, interest_pct: 0, total_payable: 4000, remaining_balance: 4000, approval_status: "approved" });
+    const data = await (await loansApi.GET(request("/api/accountant/loans", "GET"))).json();
+    expect(data.people.find((p) => p.id === NATE).loan_limit).toMatchObject({ loan_limit: 10500, owed: 4000, room: 6500 });
+    const own = await (await loansApi.GET(request("/api/accountant/loans", "GET", null, who.employee))).json();
+    expect(own.my_loan_limit).toMatchObject({ loan_limit: 10500, owed: 4000 });
+  });
+
+  it("HR approval refused by the database is a plain 400 with the reason", async () => {
+    const { describeDecisionError } = await import("@/lib/payroll/adjustment-approvals");
+    const failure = describeDecisionError({ message: "loan_limit: This loan would make the total ₱20,000.00, which is more than the limit of ₱19,000.00 (1 month's salary). The most that can be added is ₱19,000.00." });
+    expect(failure).toMatchObject({ status: 400, code: "loan_limit" });
+    expect(failure.error.startsWith("This loan would make the total")).toBe(true);
+  });
+
+  it("nobody files a loan for themselves (unchanged)", async () => {
+    users.push({ id: "u-acct", email: "u-acct@sacs.test", user_metadata: { role: "accountant", full_name: "Ana Accountant", branch_id: BRANCH } });
+    expect((await plain({ employee_id: "u-acct", principal: 100 })).status).toBe(403);
   });
 });

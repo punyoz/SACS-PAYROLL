@@ -447,7 +447,11 @@ export function lineInputFromPayroll(payroll, { taxTable = [] } = {}) {
       lwop: { amount: t.leave_without_pay_deduction, days: d.leave_without_pay_days, daily: num(firstOf(lines.deductions, "leave_without_pay")?.rate) || rate("daily") },
     },
     loans: second ? [
-      ...loanLines.map((l) => ({ kind: "loan", label: l.description || "Loan", amount: l.amount, how: `Installment ${pesoText(l.amortization || l.amount)}; balance ${pesoText(l.balance_before)} → ${pesoText(l.balance_after)}${num(l.shortfall) > 0 ? " (partial)" : ""}` })),
+      // A government loan (2026-11-25): "SSS loan (salary loan)", with the remaining balance and HR's reference
+      // number under it. Older stored lines keep their own words (no agency stored).
+      ...loanLines.map((l) => ({ kind: "loan", label: l.description || "Loan", amount: l.amount, how: l.agency
+        ? `Remaining balance ${pesoText(l.balance_after)}${l.reference_no ? ` · Ref. ${l.reference_no}` : ""}${num(l.shortfall) > 0 ? " (partial: the rest stays on the balance)" : ""}`
+        : `Installment ${pesoText(l.amortization || l.amount)}; balance ${pesoText(l.balance_before)} → ${pesoText(l.balance_after)}${num(l.shortfall) > 0 ? " (partial)" : ""}` })),
       ...(offset > 0 ? [{ kind: "offset", label: "Subsidy advance offset", amount: offset, how: "Prior-year subsidy advance recovered as approved" }] : []),
       ...(payroll.cash_advances || []).filter((l) => num(l.amount) > 0).map((l) => ({ kind: "cash_advance", label: l.description ? `Cash advance: ${l.description}` : "Cash advance", amount: l.amount, how: `Installment ${pesoText(l.amount)}; balance ${pesoText(l.balance_before)} → ${pesoText(l.balance_after)}` })),
       ...(num(m.carry_in) > 0 ? [{ kind: "carry", label: `Balance carried from ${m.carry_from || "last month"}`, amount: m.carry_in, how: "Last month's negative 2nd half, recovered here" }] : []),

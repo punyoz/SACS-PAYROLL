@@ -28,6 +28,7 @@ import { roundPeso } from "@/lib/payroll/money";
 import { approvalFields, describeDecisionError } from "@/lib/payroll/adjustment-approvals";
 import { LOAN_TYPE_LABELS } from "@/lib/payroll/loans";
 import { textLimitError } from "@/lib/input-limits";
+import { isLimitedLoanType, loadLoanLimits, loanLimitSummary } from "@/lib/payroll/loan-limit";
 import { RULE_INCENTIVE_LABELS } from "@/lib/payroll/incentive-recommendations";
 
 // The longest text each box takes; the form boxes match.
@@ -52,7 +53,8 @@ export async function GET(request) {
         .eq("archived", false).order("created_at", { ascending: false }).order("id", { ascending: true }))),
       fetchAllRows(() => scoped(supabase.from("payroll_loans")
         .select("id,employee_id,branch_id,loan_type,description,date_granted,principal,interest_pct,total_payable,amortization,number_of_payrolls,start_period,created_by_name,created_at,approval_status,decided_by_name,decided_at,decision_note")
-        .neq("loan_type", "subsidy_advance").order("created_at", { ascending: false }).order("id", { ascending: true }))),
+        // Cash advances (and legacy rows); SSS / Pag-IBIG loans are HR's own entries (approved when encoded), not decided here.
+        .not("loan_type", "in", "(subsidy_advance,sss_loan,pagibig_loan)").order("created_at", { ascending: false }).order("id", { ascending: true }))),
       supabase.from("profiles").select("id,full_name,employee_id"),
       supabase.from("branches").select("id,name"),
       // Part E step 6: the system's Perfect Attendance / Early Bird (none until 20261124080000).
@@ -64,6 +66,9 @@ export async function GET(request) {
       return NextResponse.json({ available: false, items: [], error: "Approvals are not set up yet: apply 20261027020000_adjustment_approvals.sql." });
     }
     const person = new Map((people.data || []).map((p) => [p.id, p]));
+    // The salary limit of each employee with a pending loan (20261126050000), for HR to see before approving.
+    const pendingLoanOwners = (loans.data || []).filter((row) => row.approval_status === "pending" && isLimitedLoanType(row.loan_type)).map((row) => row.employee_id);
+    const limits = await loadLoanLimits(supabase, pendingLoanOwners);
     const branch = new Map((branches.data || []).map((b) => [b.id, b.name]));
     const base = (row) => ({
       id: row.id, employee_id: row.employee_id, employee_name: person.get(row.employee_id)?.full_name || "—",
@@ -87,7 +92,11 @@ export async function GET(request) {
       ...(loans.data || []).map((row) => ({
         ...base(row), kind: "loan", type_label: LOAN_TYPE_LABELS[row.loan_type] || row.loan_type,
         amount_label: money(row.total_payable ?? row.principal),
-        detail: `${row.description ? `${row.description} · ` : ""}${money(row.amortization)} per 16–end payslip from ${row.start_period}, ${row.number_of_payrolls} payslips`,
+        detail: `${row.description ? `${row.description} · ` : ""}${money(row.amortization)} per 16–end payslip from ${row.start_period}, ${row.number_of_payrolls} payslips`
+          + (row.approval_status === "pending" && limits.byEmployee.get(row.employee_id)
+            ? ` · ${loanLimitSummary(limits.byEmployee.get(row.employee_id)).replace("already owed on cash advances", "owed on cash advances with this one").replace(/you can take up to (₱[\d,.]+) more/, "room left $1")}`
+            : ""),
+        loan_limit: row.approval_status === "pending" ? limits.byEmployee.get(row.employee_id) || null : null,
       })),
     ]
       .filter((item) => wanted === "all" || (wanted === "pending" ? item.approval_status === "pending" : item.approval_status !== "pending"))
@@ -106,7 +115,7 @@ export async function GET(request) {
 export async function PATCH(request) {
   const guard = await requirePermission(request, "payroll_approvals", "update");
   if (guard.denied) return guard.denied;
-  if (guard.role !== "hr") return NextResponse.json({ error: "Only HR approves or rejects incentives, overload and loans." }, { status: 403 });
+  if (guard.role !== "hr") return NextResponse.json({ error: "Only HR approves or rejects incentives, overload and cash advances." }, { status: 403 });
   try {
     const body = await request.json().catch(() => ({}));
     // Over-long text is refused, not cut short (input limits).
@@ -122,7 +131,7 @@ export async function PATCH(request) {
     // Nobody approves their own incentive, overload or loan (2026-11-23).
     const table = kind === "loan" ? "payroll_loans" : kind === "rule_incentive" ? "incentive_recommendations" : "payroll_monthly_incentives";
     const owner = (await supabase.from(table).select("employee_id").eq("id", id).maybeSingle()).data;
-    if (owner && String(owner.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "payroll", entityType: kind, entityId: id, what: kind === "loan" ? "loan" : "incentive" });
+    if (owner && String(owner.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "payroll", entityType: kind, entityId: id, what: kind === "loan" ? "cash advance" : "incentive" });
     // Part H: a preset remark (required to reject), audited with the decision on the item's own table.
     const remark = await resolveRemark(supabase, body.remark, { decision, entityType: "adjustment", fallbackText: body.note });
     if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
@@ -134,12 +143,21 @@ export async function PATCH(request) {
       : await decider.rpc("payroll_adjustment_decide", { p_actor: guard.userId, p_kind: kind, p_id: id, p_decision: decision, p_note: note || null });
     if (result.error) {
       const failure = describeDecisionError(result.error);
+      if (failure.code === "loan_limit") {
+        const loan = (await supabase.from("payroll_loans").select("employee_id,total_payable").eq("id", id).maybeSingle()).data;
+        const info = loan ? (await loadLoanLimits(supabase, [loan.employee_id], { exclude: id })).byEmployee.get(loan.employee_id) : null;
+        await appendAuditLog({
+          actor: guard, module: "payroll", action: "loan_limit_refused", entity_type: "payroll_loan", entity_id: id, status: "failed", source: "api",
+          description: `HR approval of a ${money(loan?.total_payable)} cash advance refused: limit ${money(info?.loan_limit)}, already owed ${money(info?.owed)}.`,
+          metadata: { stage: "approval", loan_id: id, employee_id: loan?.employee_id || null, amount: roundPeso(loan?.total_payable), loan_limit: info?.loan_limit ?? null, owed: info?.owed ?? null, room: info?.room ?? null },
+        });
+      }
       return NextResponse.json({ error: failure.error, code: failure.code }, { status: failure.status });
     }
     const row = Array.isArray(result.data) ? result.data[0] : result.data;
     const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
     const employee = row?.employee_id ? (await supabase.from("profiles").select("full_name").eq("id", row.employee_id).maybeSingle()).data : null;
-    const what = kind === "loan" ? "loan" : kind === "rule_incentive" ? "rule-based incentive" : "incentive / overload";
+    const what = kind === "loan" ? "cash advance" : kind === "rule_incentive" ? "rule-based incentive" : "incentive / overload";
     const verb = decision === "approve" ? "approved" : "rejected";
 
     await appendAuditLog({

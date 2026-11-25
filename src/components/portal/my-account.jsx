@@ -10,6 +10,7 @@
  * API answers 403.
  */
 import * as React from "react";
+import { loanLimitSummary } from "@/lib/payroll/loan-limit";
 import {
   HandCoinsIcon,
   CalendarCheckIcon,
@@ -41,8 +42,8 @@ export const MY_PAGE_IDS = {
 };
 
 export const MY_REQUEST_TABS = [
-  { value: "loans", label: "Loans" },
-  { value: "cash_advances", label: "Cash Advances" },
+  // 2026-11-25: cash advances and SSS / Pag-IBIG loans together, as the payslip shows them.
+  { value: "loans", label: "My deductions" },
   { value: "incentives", label: "Incentives" },
   { value: "subsidy", label: "Subsidy" },
   { value: "thirteenth_month", label: "13th month" },
@@ -53,7 +54,7 @@ export const MY_REQUEST_TABS = [
  * ?page=emp-loans opens My Requests on the Loans tab).
  */
 export const MY_REQUEST_ALIASES = {
-  "emp-loans": "loans", "emp-cash-advances": "cash_advances", "emp-incentives": "incentives", "emp-subsidy": "subsidy", "emp-13th": "thirteenth_month",
+  "emp-loans": "loans", "emp-cash-advances": "loans", "emp-incentives": "incentives", "emp-subsidy": "subsidy", "emp-13th": "thirteenth_month",
 };
 
 /** The sidebar group. Expanded by default for the Employee, collapsed for HR and the Accountant. */
@@ -127,10 +128,11 @@ const day = (value) => (value ? String(value).slice(0, 10) : "—");
 
 const REQUEST_COLUMNS = {
   loans: [
-    { key: "loan_type", header: "Loan", cell: (r) => String(r.loan_type || "").replace(/_/g, " ") || "Loan", sortable: true },
-    { key: "date_granted", header: "Granted", cell: (r) => day(r.date_granted), sortable: true },
+    { key: "label", header: "Deduction", sortable: true, cell: (r) => <div><p>{r.label || "Deduction"}</p>{r.reference_no ? <p className="text-xs text-muted-foreground">Ref. {r.reference_no}</p> : null}</div> },
+    { key: "date_granted", header: "From", cell: (r) => day(r.start_period || r.start_date || r.date_granted), sortable: true },
+    { key: "amortization", header: "Per 16–end payslip", cell: (r) => peso(r.amortization), align: "right" },
     { key: "total_payable", header: "Total", cell: (r) => peso(r.total_payable ?? r.principal), align: "right" },
-    { key: "remaining_balance", header: "Balance", cell: (r) => peso(r.remaining_balance), align: "right" },
+    { key: "remaining_balance", header: "Remaining", cell: (r) => peso(r.remaining_balance), align: "right" },
     { key: "status", header: "Status", cell: (r) => <RequestStatusBadge status={r.approval_status === "pending" ? "pending" : r.status} />, mobileBadge: true },
   ],
   cash_advances: [
@@ -178,7 +180,7 @@ export function MyRequestsPage({ refreshKey = 0, initialTab = "loans" }) {
   // The 13th month tab: this year's projection on top, then processed years.
   const rowsOf = (value) => (value === "thirteenth_month" && state.data?.thirteenth_projected
     ? [{ id: "projected", projected: true, ...state.data.thirteenth_projected }, ...(state.data.thirteenth_month || [])]
-    : state.data?.[value] || []);
+    : value === "loans" ? state.data?.deductions || state.data?.loans || [] : state.data?.[value] || []);
   const counts = Object.fromEntries(MY_REQUEST_TABS.map((t) => [t.value, rowsOf(t.value).length]));
   return (
     <Card data-testid="my-requests">
@@ -197,6 +199,9 @@ export function MyRequestsPage({ refreshKey = 0, initialTab = "loans" }) {
           </TabsList>
           {MY_REQUEST_TABS.map((t) => (
             <TabsContent key={t.value} value={t.value} className="mt-3">
+              {t.value === "loans" && state.data?.loan_limit ? (
+                <p className="mb-3 text-sm text-muted-foreground" data-testid="my-loan-limit">{loanLimitSummary(state.data.loan_limit)} SSS and Pag-IBIG loans are not limited (the agencies set them).</p>
+              ) : null}
               <DataTable
                 columns={REQUEST_COLUMNS[t.value]}
                 rows={rowsOf(t.value)}
