@@ -39,7 +39,6 @@ import { RecordsPage } from "./records-page";
 import { PayRecordPage } from "./pay-record-page";
 import { IncentivesPage } from "./incentives-page";
 import { PayTypesPage } from "./pay-types-page";
-import { CashAdvancesPage } from "./cash-advances-page";
 import { LoansPage } from "./loans-page";
 import { ApprovalsPage } from "@/components/portal/approvals-page";
 import { FinalPayPage } from "./final-pay-page";
@@ -74,7 +73,7 @@ const NAV = [
       // 2026-11-25: the school does not lend. Cash advances (filed here) and subsidies; SSS / Pag-IBIG loans are HR's.
       { id: "ac-loans", label: "Cash Advances & Subsidies", icon: HandCoinsIcon, tabs: [
         { id: "ac-loans", label: "Cash advances", module: "loans" },
-        { id: "ac-cash-advances", label: "All cash advances", module: "process_payroll" },
+        // 2026-11-25: "All cash advances" removed: the old records table is empty and the Cash advances tab keeps the history.
         { id: "ac-approvals", label: "Subsidies", module: "payroll_approvals" },
       ] },
       { id: "ac-incentives", label: "Additional Pay", icon: StarIcon, tabs: [
@@ -109,7 +108,7 @@ const PAGE_IDS = NAV_ITEMS.map((item) => item.id);
 const TITLES = {
   ...Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item.label])),
   "ac-dashboard": "Dashboard", "ac-announcements": "Announcements", "ac-records": "Payroll Records", "ac-payslips": "Pay Record",
-  "ac-loans": "Cash Advances", "ac-cash-advances": "All Cash Advances", "ac-approvals": "Subsidies", "ac-13th": "13th month pay", "ac-final-pay": "Final Pay",
+  "ac-loans": "Cash Advances", "ac-approvals": "Subsidies", "ac-13th": "13th month pay", "ac-final-pay": "Final Pay",
   "ac-attendance": "Attendance Records", "ac-holidays": "Holidays & Duty", "ac-monitoring": "Payroll Monitoring", "ac-reports": "Payroll Reports",
   "ac-gov-rates": "Government Rates", "ac-pay-types": "Additional Pay Types", "ac-my-attendance": "My Attendance", "ac-my-timesheet": "My Timesheet", "ac-my-payslips": "My Payslips",
   "ac-my-leave": "My Requests", "ac-my-requests": "Deductions & Other Pay", "ac-profile": "My Profile",
@@ -123,7 +122,6 @@ const DESCRIPTIONS = {
   "ac-incentives": "Added to the 2nd half payroll of the month they are counted in.",
   "ac-pay-types": "Settings: your own additional pay types (name, taxable or not). HR still approves each item.",
   "ac-loans": "Cash advances (limited to one month's salary) and licensed-teacher subsidy advances. Deducted on the 16–end payslip until repaid. SSS and Pag-IBIG loans are encoded by HR.",
-  "ac-cash-advances": "All cash advances, including the older records.",
   "ac-final-pay": "Final pay for separated employees: unpaid salary, pro-rated 13th month, subsidy, less contributions, tax, cash advance and government loan balances. Release within 30 days.",
   "ac-approvals": "Process licensed-teacher subsidies (missed-month adjustments, advances, excess-advance settlements). HR approves or rejects; rejected ones come back here to fix and resubmit.",
   "ac-13th": "Total basic salary earned in the year ÷ 12 — a separate payout in December.",
@@ -167,7 +165,6 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
       {current === "ac-incentives" ? <IncentivesPage refreshKey={refreshKey} /> : null}
       {current === "ac-pay-types" ? <PayTypesPage refreshKey={refreshKey} /> : null}
       {current === "ac-loans" ? <LoansPage refreshKey={refreshKey} /> : null}
-      {current === "ac-cash-advances" ? <CashAdvancesPage refreshKey={refreshKey} onNavigate={navigate} /> : null}
       {current === "ac-13th" ? <ThirteenthMonthPage refreshKey={refreshKey} /> : null}
       {current === "ac-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
       {current === "ac-final-pay" ? <FinalPayPage refreshKey={refreshKey} /> : null}
