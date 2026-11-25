@@ -3,9 +3,13 @@
 -- salary. No other limit.
 --
 --   limit = monthly basic salary in force today × multiplier (default 1.0)
---   owed  = remaining balance of every loan not paid, pending or approved
---           (rejected ones do not count)
---   room  = limit − owed;  a new loan's total payable must fit in the room.
+--   owed  = the amount still borrowed (remaining PRINCIPAL, never interest) of
+--           every loan not paid, pending or approved (rejected ones do not count)
+--   room  = limit − owed;  a new loan's amount borrowed (principal) must fit.
+--
+-- Remaining principal (decision 2026-11-25): a flat-interest loan repays
+-- principal and interest pro-rata, so remaining principal = remaining balance
+-- × principal ÷ total payable (= the remaining balance at 0% interest).
 --
 -- Counted and checked: salary loans, emergency loans and "other" loans the
 -- Accountant files. Not counted, not checked: cash advances (their own
@@ -72,6 +76,17 @@ BEGIN
 END;
 $$;
 
+-- The amount still borrowed on a loan: its remaining balance without the interest share.
+CREATE OR REPLACE FUNCTION public.loan_limit_remaining_principal(p_principal NUMERIC, p_interest_pct NUMERIC, p_remaining NUMERIC)
+RETURNS NUMERIC
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT CASE WHEN COALESCE(p_principal, 0) <= 0 THEN 0
+              ELSE round(COALESCE(p_remaining, 0) * p_principal / (p_principal + round(p_principal * COALESCE(p_interest_pct, 0) / 100, 2)), 2) END;
+$$;
+
 -- Whether a loan type counts toward the limit (and is checked against it).
 CREATE OR REPLACE FUNCTION public.loan_limit_counted_type(p_type TEXT)
 RETURNS BOOLEAN
@@ -94,7 +109,7 @@ AS $$
     SELECT i.id,
            round(public.loan_limit_monthly_basis(i.id, (NOW() AT TIME ZONE 'Asia/Manila')::DATE), 2) AS monthly,
            public.loan_limit_multiplier() AS mult,
-           COALESCE((SELECT SUM(l.remaining_balance) FROM public.payroll_loans l
+           COALESCE((SELECT SUM(public.loan_limit_remaining_principal(l.principal, l.interest_pct, l.remaining_balance)) FROM public.payroll_loans l
                       WHERE l.employee_id = i.id
                         AND public.loan_limit_counted_type(l.loan_type)
                         AND l.status <> 'paid'
@@ -108,6 +123,8 @@ AS $$
 $$;
 
 REVOKE ALL ON FUNCTION public.loan_limit_monthly_basis(UUID, DATE) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.loan_limit_remaining_principal(NUMERIC, NUMERIC, NUMERIC) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.loan_limit_remaining_principal(NUMERIC, NUMERIC, NUMERIC) TO service_role;
 REVOKE ALL ON FUNCTION public.loan_limit_multiplier() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.loan_limit_overview(UUID[], UUID) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.loan_limit_monthly_basis(UUID, DATE) TO service_role;
@@ -137,9 +154,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_app      BOOLEAN := current_user IN ('service_role', 'authenticated', 'anon');
-  v_new_tot  NUMERIC;
-  v_old_tot  NUMERIC;
-  v_amount   NUMERIC;   -- what this loan adds to "owed"
+  v_amount   NUMERIC;   -- what this loan adds to "owed": its amount borrowed (principal), never interest
   v_check    BOOLEAN := FALSE;
   v          RECORD;
   v_months   TEXT;
@@ -151,19 +166,16 @@ BEGIN
   IF TG_OP = 'UPDATE' AND public.loan_limit_is_recovery(NEW.id) THEN
     RETURN NEW;   -- an overpayment recovery
   END IF;
-  v_new_tot := NEW.principal + round(NEW.principal * NEW.interest_pct / 100, 2);
-
   IF TG_OP = 'INSERT' THEN
     -- Loans the app files. Recoveries are written by the database's own functions (owner role).
     v_check := v_app;
-    v_amount := v_new_tot;
+    v_amount := NEW.principal;
   ELSE
-    v_old_tot := OLD.principal + round(OLD.principal * OLD.interest_pct / 100, 2);
-    -- Already repaid stays repaid: the loan adds its new total less what was paid on it.
-    v_amount := GREATEST(0, v_new_tot - GREATEST(0, v_old_tot - OLD.remaining_balance));
+    -- Already repaid stays repaid: the loan adds its new principal less the principal already paid back.
+    v_amount := GREATEST(0, NEW.principal - (OLD.principal - public.loan_limit_remaining_principal(OLD.principal, OLD.interest_pct, OLD.remaining_balance)));
     v_check := (OLD.approval_status = 'pending' AND NEW.approval_status = 'approved')
             OR (OLD.approval_status = 'rejected')
-            OR v_new_tot > v_old_tot
+            OR NEW.principal > OLD.principal
             OR NOT public.loan_limit_counted_type(OLD.loan_type);
     -- Not checked: status changes (suspend / resume, paid ↔ active when a payslip's
     -- repayment is reversed) and balance moves -- they add nothing new to owe.

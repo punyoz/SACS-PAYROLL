@@ -296,9 +296,10 @@ export async function POST(request) {
         return NextResponse.json({ error: `${person.full_name}'s ${startLabel} payslip is already Final. Start the deduction on a later pay period.` }, { status: 409 });
       }
 
-      // The salary limit (20261125010000): the total owed after this loan stays within the limit.
+      // The salary limit (20261125010000): the amount still borrowed after this loan stays within the limit.
       // The database checks again on insert and when HR approves.
-      const amount = totalPayable(input.principal, input.interest_pct);
+      // Only the amount borrowed counts, never interest (decision 2026-11-25).
+      const amount = peso(input.principal);
       if (isLimitedLoanType(input.loan_type)) {
         const limits = await loadLoanLimits(supabase, [person.id]);
         const info = limits.byEmployee.get(person.id);

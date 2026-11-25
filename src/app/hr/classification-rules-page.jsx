@@ -265,7 +265,7 @@ export function ClassificationRulesPage({ refreshKey }) {
           <CardHeader>
             <CardTitle>Loan limit <StatusBadge tone="gold" className="ml-2" dot={false}>Pending policy manual</StatusBadge></CardTitle>
             <CardDescription>
-              An employee cannot owe more on loans than this. Counted: the remaining balance of every unpaid loan (pending or approved) plus the new one.
+              An employee cannot owe more on loans than this. Counted: the amount still borrowed on every unpaid loan (pending or approved, interest not counted) plus the amount lent on the new loan.
               Cash advances keep their own limit. Checked when a loan is filed, increased and approved; loans already given are not changed.
             </CardDescription>
             {canEdit ? (

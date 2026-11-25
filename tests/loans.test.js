@@ -430,14 +430,20 @@ describe("Loans export = the Loans table (2026-11-19)", () => {
 /* ── Loan limit (2026-11-25, 20261125010000) ───────────────────────────────── */
 
 describe("Loan salary limit", () => {
-  // The database's loan_limit_overview, mirrored: limit = salary × 1.0, owed = unpaid counted loans.
+  // The database's loan_limit_overview, mirrored: limit = salary × 1.0, owed = the remaining principal
+  // (never interest) of unpaid counted loans: remaining balance × principal ÷ total payable.
   const SALARY = { [NATE]: 10500 };
   const fakeOverview = ({ p_employee_ids: ids, p_exclude: exclude }) => ({
     data: ids.map((id) => {
       const owed = table("payroll_loans").filter((l) => l.employee_id === id && l.id !== exclude
         && ["salary_loan", "emergency_loan", "other"].includes(l.loan_type) && l.status !== "paid"
         && ["pending", "approved", undefined].includes(l.approval_status))
-        .reduce((sum, l) => sum + Number(l.remaining_balance ?? l.total_payable ?? l.principal), 0);
+        .reduce((sum, l) => {
+          const principal = Number(l.principal) || 0;
+          const total = principal + Math.round(principal * (Number(l.interest_pct) || 0)) / 100;
+          const balance = Number(l.remaining_balance ?? total);
+          return sum + (total > 0 ? Math.round((balance * principal / total) * 100) / 100 : 0);
+        }, 0);
       const limit = SALARY[id] || 0;
       return { employee_id: id, monthly_basic: limit, multiplier: 1, loan_limit: limit, owed, room: limit - owed };
     }),
@@ -479,8 +485,13 @@ describe("Loan salary limit", () => {
     expect((await plain({ principal: 5000 })).status).toBe(200);            // paid loan no longer counts
   });
 
-  it("interest counts (total payable); cash advances are not limited here", async () => {
-    expect((await createLoan({ principal: 10000, interest_pct: 10 })).status).toBe(400);  // 11,000 > 10,500
+  it("only the amount borrowed counts, never interest; cash advances are not limited here", async () => {
+    // 10,500 at 10% (total payable 11,550) fits a limit of 10,500: interest is not counted (decision 2026-11-25).
+    expect((await createLoan({ principal: 10500, interest_pct: 10 })).status).toBe(200);
+    table("payroll_loans")[0].remaining_balance = 5775;   // half repaid: 5,250 of principal still borrowed
+    expect((await plain({ principal: 5251 })).status).toBe(400);
+    expect((await plain({ principal: 5250 })).status).toBe(200);
+    table("payroll_loans").length = 0;
     expect((await plain({ loan_type: "cash_advance", principal: 20000 })).status).toBe(200);
   });
 
@@ -493,7 +504,7 @@ describe("Loan salary limit", () => {
   });
 
   it("GET gives each person their limit, and the employee their own", async () => {
-    seedLoan({ remaining_balance: 4000, approval_status: "approved" });
+    seedLoan({ principal: 4000, interest_pct: 0, total_payable: 4000, remaining_balance: 4000, approval_status: "approved" });
     const data = await (await loansApi.GET(request("/api/accountant/loans", "GET"))).json();
     expect(data.people.find((p) => p.id === NATE).loan_limit).toMatchObject({ loan_limit: 10500, owed: 4000, room: 6500 });
     const own = await (await loansApi.GET(request("/api/accountant/loans", "GET", null, who.employee))).json();

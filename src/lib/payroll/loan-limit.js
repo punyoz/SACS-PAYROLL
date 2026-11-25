@@ -3,8 +3,11 @@
  * loans than their salary. There is no other limit.
  *
  *   limit = monthly basic salary in force today × multiplier (default 1.0)
- *   owed  = remaining balance of every unpaid loan, pending or approved
- *   room  = limit − owed; a new loan's total payable (with interest) must fit.
+ *   owed  = the amount still borrowed (remaining principal, never interest) of
+ *           every unpaid loan, pending or approved
+ *   room  = limit − owed; a new loan's amount borrowed (principal) must fit.
+ *   (Decision 2026-11-25: interest never counts. Remaining principal =
+ *   remaining balance × principal ÷ total payable: flat interest is repaid pro-rata.)
  *
  * Counted and checked: salary, emergency and "other" loans. Not counted:
  * cash advances (own cap), subsidy advances, overpayment recoveries.

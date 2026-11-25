@@ -63,9 +63,22 @@ BEGIN
   IF msg IS NULL OR msg NOT LIKE 'loan_limit:%' THEN RAISE EXCEPTION 'one peso above was allowed'; END IF;
   RAISE NOTICE 'PASS one peso above refused: %', msg;
 
-  msg := pg_temp.refused('SELECT pg_temp.file_loan(14000, ''salary_loan'', 10)');
-  IF msg IS NULL THEN RAISE EXCEPTION 'interest not counted'; END IF;
-  RAISE NOTICE 'PASS interest counts (14,000 + 10%% = 15,400 > room 15,000)';
+  -- Only the amount borrowed counts, never interest (decision 2026-11-25).
+  c := pg_temp.file_loan(15000, 'salary_loan', 10);
+  RAISE NOTICE 'PASS interest not counted: 15,000 at 10%% (total payable 16,500) fits the room of 15,000';
+  SELECT * INTO v FROM loan_limit_overview(ARRAY[emp]);
+  IF v.owed <> 20000 THEN RAISE EXCEPTION 'owed should be principal only (20,000), got %', v.owed; END IF;
+  RAISE NOTICE 'PASS owed = 5,000 + 15,000 = 20,000 (the 1,500 interest is left out)';
+  -- Half repaid: 8,250 of 16,500 left -> 7,500 of principal still owed.
+  SET LOCAL session_replication_role = replica;
+  UPDATE payroll_loans SET remaining_balance = 8250 WHERE id = c;
+  SET LOCAL session_replication_role = origin;
+  SELECT * INTO v FROM loan_limit_overview(ARRAY[emp]);
+  IF v.owed <> 12500 THEN RAISE EXCEPTION 'remaining principal wrong: %', v.owed; END IF;
+  RAISE NOTICE 'PASS a half-repaid 10%% loan counts its remaining principal 7,500 (owed 12,500)';
+  SET LOCAL session_replication_role = replica;
+  UPDATE payroll_loans SET approval_status = 'rejected' WHERE id = c;
+  SET LOCAL session_replication_role = origin;
 
   -- Cash advance: not counted, not checked (its own cap).
   c := pg_temp.file_loan(16000, 'cash_advance');

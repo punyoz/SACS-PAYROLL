@@ -129,14 +129,16 @@ export function LoansPage({ refreshKey }) {
   const suggested = perPayroll(total, form.payrolls);
   // The salary limit (20261125010000): salary, emergency and other loans; cash advances keep their own cap.
   const limitInfo = isLimitedLoanType(form.type) ? people.find((p) => p.id === form.employee)?.loan_limit || null : null;
-  const overLimit = limitInfo && total > 0 && !checkLoanLimit({ ...limitInfo, amount: total }).ok;
+  // Only the amount lent counts (principal), never interest (decision 2026-11-25).
+  const lent = round2(Number(form.principal) || 0);
+  const overLimit = limitInfo && lent > 0 && !checkLoanLimit({ ...limitInfo, amount: lent }).ok;
 
   async function submitLoan(event) {
     event.preventDefault();
     const amort = form.amortization === "" ? suggested : Number(form.amortization);
     const next = {
       employee: !form.employee ? "Select an employee." : "",
-      principal: !(Number(form.principal) > 0) ? "Enter the amount lent." : overLimit ? loanLimitRefusal(limitInfo, total) : "",
+      principal: !(Number(form.principal) > 0) ? "Enter the amount lent." : overLimit ? loanLimitRefusal(limitInfo, lent) : "",
       interest: !(Number(form.interest) >= 0 && Number(form.interest) <= 100) ? "0 to 100%." : "",
       payrolls: !(Number.isInteger(Number(form.payrolls)) && Number(form.payrolls) >= 1 && Number(form.payrolls) <= 120) ? "1 to 120 payrolls." : "",
       amortization: !(amort > 0) ? "Enter the amount per payroll." : amort > total ? "It cannot be more than the total payable." : "",
