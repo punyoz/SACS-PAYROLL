@@ -51,6 +51,8 @@ function secondHalf({ name, basic = 14750, monthly = 29500 } = {}) {
     additions: {
       basic: { label: "Basic pay (2nd cutoff)", amount: basic, formula: `${pesoPdf(monthly).replace(".00", "")} ÷ 2` },
       overtime: { amount: overtime, premium_pct: 25, hourly: 184.38, minutes: 300 },
+      // A STORED payslip from before the 2026-11-26 policy (₱150 a period): old lines stay readable as they were.
+      // Payslips computed now carry "Overtime (substitution): 2 h × ₱183.91 × 125%, …" (tests/substitutions-2026-11-22.test.js).
       incentives: { label: "Substitute teaching (2 periods × ₱150)", amount: substitution, how: "2 periods × ₱150 = ₱300.00" },
     },
     attendance: { absent: { days: 1, amount: absent, unit: absent } },

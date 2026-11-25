@@ -1,0 +1,157 @@
+{
+  "results": [
+    {
+      "what": "Substitution line (Nov 5, 1st half)",
+      "expected": 459.78,
+      "actual": 459.78,
+      "difference": 0,
+      "result": "PASS",
+      "working": "2 periods × 1 h × ₱183.91 (₱32,000 × 12 ÷ 261 = ₱1471.2644 a day ÷ 8) × 125% = ₱459.7750"
+    },
+    {
+      "what": "1st half basic pay",
+      "expected": 16000,
+      "actual": 16000,
+      "difference": 0,
+      "result": "PASS",
+      "working": "₱32,000 ÷ 2"
+    },
+    {
+      "what": "Perfect attendance (system rule, 1st half; not substitution)",
+      "expected": 500,
+      "actual": 500,
+      "difference": 0,
+      "result": "PASS",
+      "working": "full attendance Oct 26 - Nov 13 on these rates"
+    },
+    {
+      "what": "1st half gross (as the payslip shows it)",
+      "expected": 16959.78,
+      "actual": 16959.78,
+      "difference": 0,
+      "result": "PASS",
+      "working": "₱16,000 + substitution + ₱500 perfect attendance"
+    },
+    {
+      "what": "1st half deductions",
+      "expected": 0,
+      "actual": 0,
+      "difference": 0,
+      "result": "PASS",
+      "working": "contributions and tax are on the 2nd half"
+    },
+    {
+      "what": "1st half net",
+      "expected": 16959.78,
+      "actual": 16959.78,
+      "difference": 0,
+      "result": "PASS",
+      "working": "gross − 0"
+    },
+    {
+      "what": "Month gross",
+      "expected": 32959.78,
+      "actual": 32959.78,
+      "difference": 0,
+      "result": "PASS",
+      "working": "₱32,000 + substitution + ₱500 perfect attendance"
+    },
+    {
+      "what": "SSS",
+      "expected": 1600,
+      "actual": 1600,
+      "difference": 0,
+      "result": "PASS",
+      "working": "5% × MSC ₱32,000"
+    },
+    {
+      "what": "PhilHealth",
+      "expected": 800,
+      "actual": 800,
+      "difference": 0,
+      "result": "PASS",
+      "working": "2.5% × ₱32,000"
+    },
+    {
+      "what": "Pag-IBIG",
+      "expected": 200,
+      "actual": 200,
+      "difference": 0,
+      "result": "PASS",
+      "working": "2% × ₱10,000 (cap)"
+    },
+    {
+      "what": "Monthly taxable income",
+      "expected": 29859.78,
+      "actual": 29859.78,
+      "difference": 0,
+      "result": "PASS",
+      "working": "₱32,000 + substitution − ₱2,600 contributions (perfect attendance not taxable)"
+    },
+    {
+      "what": "Withholding tax (2nd half)",
+      "expected": 1354.02,
+      "actual": 1354.02,
+      "difference": 0,
+      "result": "PASS",
+      "working": "(taxable − ₱20,833) × 15%"
+    },
+    {
+      "what": "2nd half has no substitution line",
+      "expected": 0,
+      "actual": 0,
+      "difference": 0,
+      "result": "PASS",
+      "working": "Nov 5 is in the 1st half"
+    },
+    {
+      "what": "Basic earned for the 13th month (1st half)",
+      "expected": 16000,
+      "actual": 16000,
+      "difference": 0,
+      "result": "PASS",
+      "working": "basic only, substitution not included"
+    },
+    {
+      "what": "Basic earned for the 13th month (2nd half)",
+      "expected": 16000,
+      "actual": 16000,
+      "difference": 0,
+      "result": "PASS",
+      "working": "basic only"
+    },
+    {
+      "what": "13th month from November (basic ÷ 12)",
+      "expected": 2666.67,
+      "actual": 2666.67,
+      "difference": 0,
+      "result": "PASS",
+      "working": "₱32,000 ÷ 12; with the substitution it would be ₱2704.98"
+    },
+    {
+      "what": "T. Reyes 1st half basic (paid leave Nov 5, no deduction)",
+      "expected": 15000,
+      "actual": 15000,
+      "difference": 0,
+      "result": "PASS",
+      "working": "₱30,000 ÷ 2"
+    },
+    {
+      "what": "T. Reyes 1st half gross",
+      "expected": 15500,
+      "actual": 15500,
+      "difference": 0,
+      "result": "PASS",
+      "working": "₱15,000 + ₱500 perfect attendance; the substitution changes nothing"
+    },
+    {
+      "what": "T. Reyes has no substitution line",
+      "expected": 0,
+      "actual": 0,
+      "difference": 0,
+      "result": "PASS",
+      "working": ""
+    }
+  ],
+  "line_note": "Overtime (substitution): 2 h × ₱183.91 × 125%, covering T. Reyes, Grade 5 (Nov 5)"
+}
