@@ -10,10 +10,12 @@ import { periodFromLabel } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { employeePayslipView } from "@/lib/payroll/line-tags";
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
-import { buildPayslipDetails, formatManilaDate, loadPayslipYtd, loadTaxBracketRows, payslipSeal, payslipStatus, withBranchName } from "@/lib/payroll/payslip-details";
+import { buildPayslipDetails, formatManilaDate, payslipCategory, loadPayslipYtd, loadTaxBracketRows, payslipSeal, payslipStatus, withBranchName } from "@/lib/payroll/payslip-details";
 import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
+import { attachLeaveBalances, withLeaveBalance } from "@/lib/payroll/payslip-leave";
 import { loadOrgName } from "@/lib/org-name";
 import { formatIssued } from "@/lib/portal/format";
+import { paidLeaveDailyRate } from "@/lib/payroll/payslip-tables";
 
 function toAmount(value) {
   const n = Number(value || 0);
@@ -115,7 +117,8 @@ function mapEntryToPayslip(row, taxRows = []) {
     employee: {
       name: row.employee_name || null,
       id: row.employee_code || null,
-      type: row.employee_type || null,
+      // The same Category · Status as HR and the Accountant see (payslipCategory).
+      type: payslipCategory(payroll, row.employee_type),
       position: payroll.generation?.position_title || payroll.payslip_meta?.position_title || row.position || null,
       branch: payroll.generation?.branch_name || payroll.payslip_meta?.branch_name || null,
       branch_days: payroll.generation?.branch_days || payroll.payslip_meta?.branch_days || null,
@@ -126,6 +129,8 @@ function mapEntryToPayslip(row, taxRows = []) {
     // A final pay's status, release date and approver (20261120010000).
     ...(payroll.final_pay ? (({ label, pay_date_label, approval_line }) => ({ status_label: label, pay_date_label, approval_line }))(payslipStatus({ status: "paid", payroll })) : {}),
     line_groups: employeePayslipView(payroll, { taxTable: taxTableFor(taxRows, payroll) }),
+    // The daily rate the payslip already uses: the peso amount of its paid leave days (display only).
+    leave_daily_rate: paidLeaveDailyRate(payroll),
   };
 }
 
@@ -309,6 +314,7 @@ export async function GET(request) {
       // Only released (Paid) payslips reach here: paid on the day HR approved the run.
       const details = { ...buildPayslipDetails(await withBranchName(supabase, entry), { taxRows }), employee_view: shown.line_groups, status_label: shown.status_label || "Paid", pay_date_label: shown.pay_date_label || formatManilaDate(shown.processed_at), net_pay: shown.net_pay };
       details.ytd = await loadPayslipYtd(supabase, entry, details);
+      await withLeaveBalance(supabase, details, user.id);   // for information only (payslip-leave.js)
       const pdf = await buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
       const fileName = payslipFileName(entry);
       return new NextResponse(pdf, {
@@ -318,6 +324,8 @@ export async function GET(request) {
     }
 
     const payslips = await fetchPayslipsForUser(supabase, user.id);
+    // Each payslip's Leave Balance box at its own date (for information only, payslip-leave.js).
+    await attachLeaveBalances(supabase, user.id, payslips);
 
     return NextResponse.json({ payslips });
   } catch (error) {

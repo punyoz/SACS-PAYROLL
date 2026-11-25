@@ -231,7 +231,9 @@ const sentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
 function panelsFor(t) {
   const earnings = [];
   t.earnings.forEach((r) => {
-    earnings.push({ label: r.label, formula: r.text || r.formula || "", amount: r.text ? "" : pesoPdf(r.amount) });
+    // Paid leave: its formula and amount in words (inside the Basic pay, never in the Amount column).
+    const formula = r.key === "leave_with_pay" && r.text && r.formula ? `${r.formula} = ${r.text}` : r.text || r.formula || "";
+    earnings.push({ label: r.label, formula, amount: r.text ? "" : pesoPdf(r.amount) });
     if (r.key === "holiday" && Number(r.amount) > 0) {
       (t.holiday_lines || []).forEach((line) => earnings.push({ label: describeHolidayLine(line), amount: pesoPdf(line.amount), indent: true }));
     }
@@ -264,6 +266,15 @@ function taxBox(box) {
       ["Withholding tax", pesoPdf(box.tax), true],
     ],
     note: [box.bracket ? `Bracket: ${box.bracket}` : null, box.formula, box.reason].filter(Boolean).join(" · ") || null,
+  };
+}
+
+/** The Leave Balance box (payslipTables leave_balance): days, for information only. */
+function leaveBox(box) {
+  return {
+    title: box.title,
+    rows: box.rows.map((r) => [r.label, r.value, Boolean(r.strong)]),
+    note: box.note,
   };
 }
 
@@ -330,7 +341,7 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
   const totalDeductions = Number(tables ? tables.total_deductions : view ? view.total_deductions : details?.deductions?.total_deductions ?? monthly?.cutoff?.total_deductions ?? 0);
   const netLabel = view ? view.net_label : monthly && !details?.final_pay ? `${monthly.half === "first" ? "1st" : "2nd"} half net pay` : "Net pay";
   const stamp = new Date().toLocaleString("en-US", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" });
-  const boxes = [extra.tax_box ? taxBox(extra.tax_box) : null, details?.ytd ? ytdBox(details.ytd) : null].filter(Boolean);
+  const boxes = [extra.tax_box ? taxBox(extra.tax_box) : null, details?.ytd ? ytdBox(details.ytd) : null, tables?.leave_balance ? leaveBox(tables.leave_balance) : null].filter(Boolean);
 
   return renderPayslipDocument({
     seal: sealUsable ? seal : null,

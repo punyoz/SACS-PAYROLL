@@ -59,8 +59,8 @@ describe("2nd-half (cutoff) payslip", () => {
     const t = payslipTables({ monthly: { cutoff }, gross_pay: 16103.45, total_deductions: 1400, net_pay: 14703.45 });
     const labels = t.earnings.map((r) => r.label);
     expect(labels).toContain("Overtime (substitution)");
-    const leave = t.earnings.find((r) => /Leave with pay/.test(r.label));
-    expect(`${leave.label} ${leave.text || leave.note || ""}`).toMatch(/2 days \(Vacation 1, Sick 1\)/);
+    const leave = t.earnings.find((r) => /^Paid leave/.test(r.label));   // 2026-11-25 wording
+    expect(`${leave.label} ${leave.text || leave.note || ""}`).toMatch(/2 days: Vacation 1, Sick 1/);
     expect(payslipTotalsCheck(t, 14703.45)).toEqual([]);
   });
 });

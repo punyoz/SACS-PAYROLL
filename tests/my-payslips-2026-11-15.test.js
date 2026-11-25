@@ -217,6 +217,18 @@ describe("My Payslips: full layout from the stored snapshot, for every role on p
   });
 });
 
+describe("the employee's payslip header matches HR's (2026-11-25)", () => {
+  beforeEach(() => { decide(FIRST, "approved"); decide(SECOND, "approved"); });
+  it("Category shows the stored category and status (Teaching · Regular), not N/A, the same as HR's payslip", async () => {
+    const { buildPayslipDetails } = await import("@/lib/payroll/payslip-details");
+    const row = entry(PEOPLE[0].id, FIRST);
+    row.payroll = { ...row.payroll, payslip_meta: { ...(row.payroll.payslip_meta || {}), classification: { employee_type: "Teaching", employment_status: "Regular" } } };
+    const mine = (await myPayslips(PEOPLE[0])).find((p) => p.period_label === FIRST);
+    expect(mine.employee.type).toBe("Teaching · Regular");
+    expect(mine.employee.type).toBe(buildPayslipDetails(row).employee.type);
+  });
+});
+
 describe("visibility and ownership, enforced on the server", () => {
   it("Pending, Rejected and not-submitted payslips are not shown, nor downloadable", async () => {
     expect(await myPayslips(PEOPLE[0])).toEqual([]);

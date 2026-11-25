@@ -21,6 +21,7 @@ import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { loadPayrollStaff } from "@/lib/payroll/staff";
 import { floorNetPay } from "@/lib/payroll/net-pay";
 import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
+import { withLeaveBalance } from "@/lib/payroll/payslip-leave";
 import { loadOrgName } from "@/lib/org-name";
 import { buildPayslipDetails, loadPayslipYtd, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
 
@@ -98,6 +99,7 @@ export async function GET(request) {
       // A Paid 2nd half computed with an old 1st half (2026-11-16): the same warning as the list row.
       const run = entry.run_id ? (await supabase.from("payroll_runs").select("status").eq("id", entry.run_id).maybeSingle()).data : null;
       const details = buildPayslipDetails(entry, { taxRows: await loadTaxBracketRows(supabase), runStatus: run?.status || null });
+      await withLeaveBalance(supabase, details, entry.employee_id);   // for information only (payslip-leave.js)
       const needsCorrection = (await correctionsDue(supabase, [{ ...entry, run_status: run?.status || null }])).get(String(entry.id)) || null;
       if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {
         details.ytd = await loadPayslipYtd(supabase, entry, details);

@@ -13,7 +13,7 @@ import { employeePayslipView, payrollLineGroups } from "@/lib/payroll/line-tags"
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
 import { classificationLabel } from "@/lib/employees/classification";
 import { periodFromLabel } from "@/lib/payroll/periods";
-import { payslipTables } from "@/lib/payroll/payslip-tables";
+import { paidLeaveDailyRate, payslipTables } from "@/lib/payroll/payslip-tables";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 /**
@@ -113,6 +113,14 @@ export function payslipStatus(entry, runStatus = null) {
   return { label: "Pending HR approval", pay_date_label: null };
 }
 
+/**
+ * The payslip's "Category" / "Type": the category and status stored with it ("Teaching · Regular"),
+ * else the row's employee type. One rule for every role (My Payslips showed "N/A", 2026-11-25).
+ */
+export function payslipCategory(payroll, fallback = null) {
+  return classificationLabel(payroll?.payslip_meta?.classification || {}) || fallback || null;
+}
+
 export function buildPayslipDetails(entry, { taxRows = [], runStatus = null } = {}) {
   if (!entry) return null;
   const generation = entry.payroll?.generation || null;
@@ -125,6 +133,8 @@ export function buildPayslipDetails(entry, { taxRows = [], runStatus = null } = 
     entry_id: entry.id,
     payslip_no: entry.payslip_no || null,
     pay_period: entry.pay_period,
+    // The daily rate the payslip already uses: the peso amount of its paid leave days (display only).
+    leave_daily_rate: paidLeaveDailyRate(entry.payroll),
     issued_at: entry.submitted_at || entry.updated_at || entry.created_at,
     // Draft while the period is open; Final (locked) once processed.
     status: entry.status === "draft" ? "draft" : "final",
@@ -151,7 +161,7 @@ export function buildPayslipDetails(entry, { taxRows = [], runStatus = null } = 
       id: entry.employee_code,
       name: entry.employee_name,
       // "Teaching · Regular · Full-time" when the payslip kept it (from 20261121010000).
-      type: classificationLabel(entry.payroll?.payslip_meta?.classification || {}) || entry.employee_type,
+      type: payslipCategory(entry.payroll, entry.employee_type),
       position: generation?.position_title || entry.payroll?.payslip_meta?.position_title || entry.position,
       branch: generation?.branch_name || entry.payroll?.payslip_meta?.branch_name || null,
       // Days worked in each branch when there was more than one (a transfer).
