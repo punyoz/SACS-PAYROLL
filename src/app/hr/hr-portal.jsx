@@ -21,6 +21,7 @@ import { EmployeeAttendanceRecord } from "@/components/portal/attendance/employe
 import { EmployeesPage } from "./employees-page";
 import { SubstitutionsReportCard } from "@/components/portal/substitutions";
 import { SubstitutionsPanel } from "@/components/portal/substitutions";
+import { GovernmentLoansPage } from "./government-loans-page";
 import { AutomationSettings } from "@/components/portal/automation-settings";
 import { DecisionReasonsCard, RemarkPresetsCard } from "@/components/portal/remark-presets-manager";
 import { ClassificationRulesPage } from "./classification-rules-page";
@@ -67,6 +68,8 @@ const NAV = [
         { id: "hr-employees", label: "Management", module: "user_management" },
         { id: "hr-tenure", label: "Tenure pay", module: "tenure_protection" },
         { id: "hr-awol", label: "AWOL cases", module: "awol_cases" },
+        // SSS / Pag-IBIG loans HR encodes from the agency's notice (2026-11-25).
+        { id: "hr-gov-loans", label: "Government loans", module: "government_loans" },
       ] },
       // ONE inbox: every page where HR decides something.
       { id: "hr-leaves", label: "Approvals", icon: InboxIcon, tabs: [
@@ -74,8 +77,8 @@ const NAV = [
         { id: "hr-transfers", label: "Transfers", module: "transfer_requests" },
         // What the branch Admins file (2026-11-24: incidents and incentive proposals; the Admin no longer endorses).
         { id: "hr-branch-requests", label: "From branch admins", module: "branch_oversight" },
-        // Incentives, overload and loans the Accountant filed, and the system's rule-based incentives.
-        { id: "hr-adjustment-approvals", label: "Incentives & loans", module: "payroll_approvals" },
+        // Incentives, overload and cash advances the Accountant filed, and the system's rule-based incentives.
+        { id: "hr-adjustment-approvals", label: "Incentives & cash advances", module: "payroll_approvals" },
         { id: "hr-subsidy-approvals", label: "Subsidies", module: "payroll_approvals" },
         { id: "hr-payroll-approval", label: "Payroll runs & final pay", module: "payroll_run_approval" },
       ] },
@@ -109,6 +112,7 @@ const PAGE_IDS = [...NAV_ITEMS.map((item) => item.id), EMPLOYEE_PAGE];
 const TITLES = {
   "hr-dashboard": "HR Dashboard",
   "hr-employees": "User Management",
+  "hr-gov-loans": "Government loans",
   "hr-transfers": "Transfer Requests",
   "hr-tenure": "Tenure Pay Protection",
   "hr-attendance": "Attendance Monitoring",
@@ -135,6 +139,7 @@ const TITLES = {
 const DESCRIPTIONS = {
   "hr-dashboard": "Attendance summaries, leave notifications, and quick HR access.",
   "hr-announcements": "Announcements for the whole school or for one branch.",
+  "hr-gov-loans": "SSS and Pag-IBIG loans from the agencies' deduction notices, deducted on 16–end payslips.",
   "hr-employees": "Create and maintain HR, Accountant and Employee accounts and their 201 records for every branch.",
   "hr-transfers": "See where every employee is assigned and move employees between branches. Each transfer applies immediately and is kept in Transfer History.",
   "hr-attendance": "Review employee attendance records, track absences and tardiness.",
@@ -229,6 +234,7 @@ function HrScreens() {
       >
         {current === "hr-dashboard" ? <DashboardPage refreshKey={refreshKey} onNavigate={navigate} onSummary={setSummary} /> : null}
         {current === "hr-employees" ? <EmployeesPage refreshKey={refreshKey} /> : null}
+        {current === "hr-gov-loans" ? <GovernmentLoansPage refreshKey={refreshKey} /> : null}
         {current === "hr-transfers" ? <TransfersPage refreshKey={refreshKey} /> : null}
         {current === "hr-tenure" ? <TenureProtectionPanel refreshKey={refreshKey} /> : null}
         {current === "hr-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}

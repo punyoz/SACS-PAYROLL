@@ -160,7 +160,7 @@ describe("a loan filed by the Accountant", () => {
   it("is pending until HR approves; payroll deducts approved loans only", async () => {
     const { POST } = await import("@/app/api/accountant/loans/route");
     const res = await POST(request("/api/accountant/loans", "POST", {
-      action: "create_loan", employee_id: ANA, loan_type: "salary_loan", principal: 2000, number_of_payrolls: 2, date_granted: "2026-11-10", start_period: "2026-11-16", description: "Emergency",
+      action: "create_loan", employee_id: ANA, loan_type: "cash_advance", principal: 2000, number_of_payrolls: 2, date_granted: "2026-11-10", start_period: "2026-11-16", description: "Emergency",
     }));
     expect(res.status).toBe(200);
     withUuid("payroll_loans");

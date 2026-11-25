@@ -30,18 +30,16 @@ import { ExportButtons } from "@/components/portal/export-buttons";
 import { LOAN_SORTS, LOAN_STATUS_LABELS, loanCanResume, loanCanSuspend, loanDecisionText, loanMatchesStatus, loanSearchText } from "@/lib/payroll/loan-status";
 
 /*
- * Loans (/api/accountant/loans; docs/payroll-schedule-loans-awol.md §4, §6):
- * salary loans, cash advances, emergency loans, and licensed-teacher subsidy
- * advances. Deducted on the 16–end payslip, partial when pay is short; a
+ * Cash advances (/api/accountant/loans; docs/payroll-schedule-loans-awol.md §4, §6):
+ * cash advances (limited to the salary, 2026-11-25) and licensed-teacher subsidy
+ * advances. Older salary / emergency loans are listed as "Cash advance (legacy …)". Deducted on the 16–end payslip, partial when pay is short; a
  * subsidy advance is never deducted from salary. Balances are kept by the
  * database from the Final payslips' repayments.
  */
 
+// 2026-11-25: the school does not lend; a cash advance is the only kind filed here.
 const TYPES = [
-  ["salary_loan", "Salary loan"],
   ["cash_advance", "Cash advance"],
-  ["emergency_loan", "Emergency loan"],
-  ["other", "Other"],
 ];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -86,8 +84,8 @@ export function LoansPage({ refreshKey }) {
   const starts = React.useMemo(startOptions, []);
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [filter, setFilter] = useUrlParam("loan_status", "open");
-  // ?ln_type=cash_advance (Cash Advances → New cash advance) presets the Type, once.
-  const [presetType] = React.useState(() => {
+  // ?ln_type=cash_advance (Cash Advances → New cash advance): the only type now; the parameter is just cleared.
+  React.useState(() => {
     try {
       const params = new URLSearchParams(window.location.search);
       const type = params.get("ln_type");
@@ -97,7 +95,7 @@ export function LoansPage({ refreshKey }) {
       return TYPES.some(([v]) => v === type) ? type : null;
     } catch { return null; }
   });
-  const [form, setForm] = React.useState({ employee: "", type: presetType || "salary_loan", principal: "", interest: "0", payrolls: "6", amortization: "", granted: manilaDateKey(), start: starts[0].value, description: "", authority: true });
+  const [form, setForm] = React.useState({ employee: "", type: "cash_advance", principal: "", interest: "0", payrolls: "6", amortization: "", granted: manilaDateKey(), start: starts[0].value, description: "", authority: true });
   const [advance, setAdvance] = React.useState({ balance: "", amount: "", granted: manilaDateKey(), description: "" });
   const [errors, setErrors] = React.useState({});
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
@@ -110,10 +108,10 @@ export function LoansPage({ refreshKey }) {
     setState((c) => ({ ...c, loading: true, error: null }));
     try {
       const data = await fetchJson("/api/accountant/loans");
-      if (!data.available) throw new Error(data.error || "Loans are not set up yet.");
+      if (!data.available) throw new Error(data.error || "Cash advances are not set up yet.");
       setState({ loading: false, error: null, data });
     } catch (error) {
-      setState((c) => ({ loading: false, error: error.message || "Unable to load loans.", data: c.data }));
+      setState((c) => ({ loading: false, error: error.message || "Unable to load the cash advances.", data: c.data }));
     }
   }, []);
   React.useEffect(() => { load(); }, [load, refreshKey]);
@@ -138,7 +136,7 @@ export function LoansPage({ refreshKey }) {
     const amort = form.amortization === "" ? suggested : Number(form.amortization);
     const next = {
       employee: !form.employee ? "Select an employee." : "",
-      principal: !(Number(form.principal) > 0) ? "Enter the amount lent." : overLimit ? loanLimitRefusal(limitInfo, lent) : "",
+      principal: !(Number(form.principal) > 0) ? "Enter the amount." : overLimit ? loanLimitRefusal(limitInfo, lent) : "",
       interest: !(Number(form.interest) >= 0 && Number(form.interest) <= 100) ? "0 to 100%." : "",
       payrolls: !(Number.isInteger(Number(form.payrolls)) && Number(form.payrolls) >= 1 && Number(form.payrolls) <= 120) ? "1 to 120 payrolls." : "",
       amortization: !(amort > 0) ? "Enter the amount per payroll." : amort > total ? "It cannot be more than the total payable." : "",
@@ -157,13 +155,13 @@ export function LoansPage({ refreshKey }) {
       }));
       const startLabel = starts.find((s) => s.value === form.start)?.label || form.start;
       // Nothing is deducted before HR approves it (payroll reads approved loans only, src/lib/payroll/loans.js).
-      setFeedback({ text: `Loan added. Waiting for HR approval. Once approved, ${money(amort)} is deducted from each 16–end payslip starting ${startLabel}.`, ok: true });
+      setFeedback({ text: `Cash advance added. Waiting for HR approval. Once approved, ${money(amort)} is deducted from each 16–end payslip starting ${startLabel}.`, ok: true });
       notify("Sent for HR Approval", `Deducted on 16–end payslips from ${startLabel} once HR approves it.`, "success");
       setForm((c) => ({ ...c, principal: "", amortization: "", description: "" }));
       await load();
       reloadPayroll();
     } catch (error) {
-      setFeedback({ text: error.message || "Unable to add the loan.", ok: false });
+      setFeedback({ text: error.message || "Unable to add the cash advance.", ok: false });
     } finally {
       setBusy(false);
     }
@@ -209,7 +207,7 @@ export function LoansPage({ refreshKey }) {
       if (kind === "suspend") {
         if (dialogInput.reason.trim().length < 5) { setDialogError("Give a reason (at least 5 characters)."); return; }
         await fetchJson("/api/accountant/loans", jsonBody("PATCH", { action: "set_status", loan_id: loan.id, status: "suspended", reason: dialogInput.reason.trim() }));
-        notify("Loan Suspended", "Payroll skips it until resumed.", "info");
+        notify("Cash Advance Suspended", "Payroll skips it until resumed.", "info");
       } else if (kind === "refusal") {
         if (dialogInput.reason.trim().length < 10) { setDialogError("Record what the teacher said (at least 10 characters)."); return; }
         await fetchJson("/api/accountant/loans", jsonBody("PATCH", { action: "record_refusal", loan_id: loan.id, reason: dialogInput.reason.trim(), option: dialogInput.option }));
@@ -230,7 +228,7 @@ export function LoansPage({ refreshKey }) {
   async function resume(loan) {
     try {
       await fetchJson("/api/accountant/loans", jsonBody("PATCH", { action: "set_status", loan_id: loan.id, status: "active" }));
-      notify("Loan Resumed", "Deducted again from the next 16–end payslip.", "info");
+      notify("Cash Advance Resumed", "Deducted again from the next 16–end payslip.", "info");
       await load();
       reloadPayroll();
     } catch (error) {
@@ -287,7 +285,7 @@ export function LoansPage({ refreshKey }) {
   return (
     <>
       <section aria-label="Summary" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Open loans" value={summary.open_count || 0} hint="Active, suspended or awaiting a decision" icon={HandCoinsIcon} tone="info" loading={first} href={currentPageHref({ loan_status: "open" })} onClick={() => setFilter("open")} scrollTo="loans-table" actionLabel="Show open loans" />
+        <StatCard label="Open cash advances" value={summary.open_count || 0} hint="Active, suspended or awaiting a decision" icon={HandCoinsIcon} tone="info" loading={first} href={currentPageHref({ loan_status: "open" })} onClick={() => setFilter("open")} scrollTo="loans-table" actionLabel="Show open cash advances" />
         <StatCard label="Outstanding balance" value={moneyCompact(summary.outstanding || 0)} hint="Still to be repaid" icon={WalletIcon} tone="danger" loading={first} />
         <StatCard label="Repaid" value={moneyCompact(summary.repaid || 0)} hint="From Final payslips and final pay" icon={CoinsIcon} tone="success" loading={first} />
         <StatCard label="Awaiting decision" value={summary.awaiting_decision || 0} hint="Excess subsidy advances (HR decides)" icon={HourglassIcon} tone="gold" loading={first} />
@@ -299,7 +297,7 @@ export function LoansPage({ refreshKey }) {
             <CardHeader><CardTitle>Record</CardTitle></CardHeader>
             <CardContent>
               <Tabs defaultValue="loan" onValueChange={() => { setErrors({}); setFeedback({ text: "", ok: false }); }}>
-                <TabsList className="mb-4"><TabsTrigger value="loan">Loan / cash advance</TabsTrigger><TabsTrigger value="advance">Subsidy advance</TabsTrigger></TabsList>
+                <TabsList className="mb-4"><TabsTrigger value="loan">Cash advance</TabsTrigger><TabsTrigger value="advance">Subsidy advance</TabsTrigger></TabsList>
                 <TabsContent value="loan">
                   <form onSubmit={submitLoan} noValidate className="grid items-start gap-4 sm:grid-cols-2">
                     <div className="sm:col-span-2">{field("employee", "Employee", <EmployeeSelect id="ac-ln-employee" value={form.employee} onChange={(v) => setForm((c) => ({ ...c, employee: v }))} employees={people} invalid={Boolean(errors.employee)} />, "Employees on AWOL / separation hold are not listed.")}</div>
@@ -310,7 +308,7 @@ export function LoansPage({ refreshKey }) {
                       </Select>
                     ))}
                     {field("granted", "Date given", <DatePicker id="ac-ln-granted" value={form.granted} onChange={(v) => setForm((c) => ({ ...c, granted: v }))} aria-invalid={Boolean(errors.granted) || undefined} />)}
-                    {field("principal", "Amount lent (₱)", <Input id="ac-ln-principal" type="number" min="0" max={form.type === "cash_advance" ? CASH_ADVANCE_MAX : LOAN_MAX} step="0.01" inputMode="decimal" value={form.principal} onChange={(e) => setForm((c) => ({ ...c, principal: e.target.value }))} aria-invalid={Boolean(errors.principal) || undefined} />, limitInfo ? <span data-testid="loan-limit-summary">{loanLimitSummary(limitInfo)}</span> : null)}
+                    {field("principal", "Amount (₱)", <Input id="ac-ln-principal" type="number" min="0" max={form.type === "cash_advance" ? CASH_ADVANCE_MAX : LOAN_MAX} step="0.01" inputMode="decimal" value={form.principal} onChange={(e) => setForm((c) => ({ ...c, principal: e.target.value }))} aria-invalid={Boolean(errors.principal) || undefined} />, limitInfo ? <span data-testid="loan-limit-summary">{loanLimitSummary(limitInfo)}</span> : null)}
                     {field("interest", "Interest (%, flat)", <Input id="ac-ln-interest" type="number" min="0" max="100" step="0.01" inputMode="decimal" value={form.interest} onChange={(e) => setForm((c) => ({ ...c, interest: e.target.value }))} aria-invalid={Boolean(errors.interest) || undefined} />, total ? `Total payable ${money(total)}` : null)}
                     {field("payrolls", "Number of payrolls", <Input id="ac-ln-payrolls" type="number" min="1" max="120" step="1" inputMode="numeric" value={form.payrolls} onChange={(e) => setForm((c) => ({ ...c, payrolls: e.target.value }))} aria-invalid={Boolean(errors.payrolls) || undefined} />, "16–end payslips")}
                     {field("amortization", "Per payroll (₱)", <Input id="ac-ln-amortization" type="number" min="0" max={LOAN_MAX * 2} step="0.01" inputMode="decimal" placeholder={suggested ? suggested.toFixed(2) : ""} value={form.amortization} onChange={(e) => setForm((c) => ({ ...c, amortization: e.target.value }))} aria-invalid={Boolean(errors.amortization) || undefined} />, suggested ? `Blank = ${money(suggested)}` : null)}
@@ -320,12 +318,12 @@ export function LoansPage({ refreshKey }) {
                         <SelectContent>{starts.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
                       </Select>
                     ))}</div>
-                    <div className="sm:col-span-2">{field("description", <>Description <span className="font-normal text-muted-foreground">(optional)</span></>, <Input id="ac-ln-description" maxLength={200} placeholder="e.g. Salary loan — tuition" value={form.description} onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))} />)}</div>
+                    <div className="sm:col-span-2">{field("description", <>Description <span className="font-normal text-muted-foreground">(optional)</span></>, <Input id="ac-ln-description" maxLength={200} placeholder="e.g. Tuition" value={form.description} onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))} />)}</div>
                     <label className="flex items-start gap-2 text-sm sm:col-span-2">
                       <Checkbox checked={form.authority} onCheckedChange={(v) => setForm((c) => ({ ...c, authority: v === true }))} className="mt-0.5" />
                       <span>The employee signed authority to deduct any balance from final pay.</span>
                     </label>
-                    <Button type="submit" className="sm:col-span-2" disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Add loan →</Button>
+                    <Button type="submit" className="sm:col-span-2" disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Add cash advance →</Button>
                     {feedback.text ? <p role="status" className={cn("text-sm sm:col-span-2", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
                   </form>
                 </TabsContent>
@@ -351,14 +349,14 @@ export function LoansPage({ refreshKey }) {
           <HowItWorks
             title="How it is deducted"
             rows={[["1–15 payslip", "Nothing deducted"], ["16–end payslip", "− amount per payroll"], ["Last payroll", "Only the balance left"], ["Net pay too low", "Deducts what fits; the rest stays"], ["Suspended", "Skipped until resumed"], ["Subsidy advance", "Never from salary"], ["Separated", "Balance from final pay (with authority)"]]}
-            note="Loans are repaid in the same database transaction as the Final payslip, and a regenerated payslip reverses its earlier repayment first. Old cash advances stay under Cash Advances as history."
+            note="Cash advances are repaid in the same database transaction as the Final payslip, and a regenerated payslip reverses its earlier repayment first. Old cash advances stay under Cash Advances as history."
           />
         </div>
       ) : null}
 
       <Card id="loans-table" className="min-w-0 scroll-mt-20 shadow-xs">
         <CardHeader>
-          <CardTitle>Loans</CardTitle>
+          <CardTitle>Cash advances</CardTitle>
           <CardAction className="flex gap-2">
             <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
           </CardAction>
@@ -377,7 +375,7 @@ export function LoansPage({ refreshKey }) {
                 <ExportButtons href={`/api/accountant/loans?status=${filter}`} params={{ q: query, sort: sort ? `${sort.key}:${sort.dir}` : "" }} label={`loans (${LOAN_STATUS_LABELS[filter] || "All"})`} disabled={!shown.length} />
               </>
             )}
-            searchPlaceholder="Search employee, type or description…" empty={{ title: "No loans here", icon: HandCoinsIcon }} caption="Loans" minWidth={1150} />
+            searchPlaceholder="Search employee, type or description…" empty={{ title: "No cash advances here", icon: HandCoinsIcon }} caption="Cash advances" minWidth={1150} />
         </CardContent>
       </Card>
 
@@ -402,7 +400,7 @@ export function LoansPage({ refreshKey }) {
           ) : dialog ? (
             <>
               <DialogHeader>
-                <DialogTitle>{dialog.kind === "suspend" ? "Suspend this loan?" : dialog.kind === "refusal" ? "Teacher refused to sign" : "Convert the excess to a cash advance"}</DialogTitle>
+                <DialogTitle>{dialog.kind === "suspend" ? "Suspend this cash advance?" : dialog.kind === "refusal" ? "Teacher refused to sign" : "Convert the excess to a cash advance"}</DialogTitle>
                 <DialogDescription>
                   {dialog.kind === "suspend" ? "Payroll skips it until resumed. The balance stays." : dialog.kind === "refusal"
                     ? "Propose what happens to the excess. HR approves or rejects it. Nothing is deducted from salary meanwhile."

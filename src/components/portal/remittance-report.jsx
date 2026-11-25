@@ -76,6 +76,9 @@ export function RemittanceCard({ refreshKey = 0 }) {
     { ...amount("pagibig_ee"), header: "Pag-IBIG EE" },
     { ...amount("pagibig_er"), header: "Pag-IBIG ER" },
     { ...amount("pagibig_total", true), header: "Pag-IBIG remit" },
+    // SSS / Pag-IBIG loan payments deducted from pay (2026-11-25), separate from the contributions.
+    { ...amount("sss_loan"), header: "SSS loan" },
+    { ...amount("pagibig_loan"), header: "Pag-IBIG loan" },
     { ...amount("withholding_tax", true), header: "Tax (BIR)" },
     // Year-end tax adjustment (+ collected / − refunded), 2026-10-29.
     { ...amount("year_end_tax", true), header: "Year-end tax adj." },
@@ -88,7 +91,7 @@ export function RemittanceCard({ refreshKey = 0 }) {
       <CardHeader>
         <CardTitle>Government remittance</CardTitle>
         <CardDescription>
-          What the school remits for the month: each contribution&apos;s employee share (EE, deducted from pay) plus the employer share (ER, the school&apos;s own cost) and SSS EC (employer only), and the withholding tax (employee only).
+          What the school remits for the month: each contribution&apos;s employee share (EE, deducted from pay) plus the employer share (ER, the school&apos;s own cost) and SSS EC (employer only), the SSS and Pag-IBIG loan payments deducted from pay, and the withholding tax (employee only).
           Employees see only their own deductions.
         </CardDescription>
         <CardAction className="flex flex-wrap gap-2">
@@ -112,7 +115,8 @@ export function RemittanceCard({ refreshKey = 0 }) {
         ) : null}
         {data && data.rows.length ? (
           <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-            {[["SSS", t.sss_total], ["PhilHealth", t.philhealth_total], ["Pag-IBIG", t.pagibig_total], [t.year_end_tax ? "BIR (tax withheld + year-end adj.)" : "BIR (tax withheld)", (t.withholding_tax || 0) + (t.year_end_tax || 0)]].map(([label, value]) => (
+            {[["SSS", t.sss_total], ["PhilHealth", t.philhealth_total], ["Pag-IBIG", t.pagibig_total],
+              ...(t.sss_loan ? [["SSS loan payments", t.sss_loan]] : []), ...(t.pagibig_loan ? [["Pag-IBIG loan payments", t.pagibig_loan]] : []), [t.year_end_tax ? "BIR (tax withheld + year-end adj.)" : "BIR (tax withheld)", (t.withholding_tax || 0) + (t.year_end_tax || 0)]].map(([label, value]) => (
               <div key={label} className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="text-lg font-semibold tabular-nums">{moneyCompact(value)}</p></div>
             ))}
           </div>

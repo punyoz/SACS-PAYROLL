@@ -263,10 +263,10 @@ export function ClassificationRulesPage({ refreshKey }) {
       {data.loan_limit ? (
         <Card className="min-w-0 shadow-xs" data-testid="loan-limit-settings">
           <CardHeader>
-            <CardTitle>Loan limit <StatusBadge tone="gold" className="ml-2" dot={false}>Pending policy manual</StatusBadge></CardTitle>
+            <CardTitle>Cash advance limit <StatusBadge tone="gold" className="ml-2" dot={false}>Pending policy manual</StatusBadge></CardTitle>
             <CardDescription>
-              An employee cannot owe more on loans than this. Counted: the amount still borrowed on every unpaid loan (pending or approved, interest not counted) plus the amount lent on the new loan.
-              Cash advances keep their own limit. Checked when a loan is filed, increased and approved; loans already given are not changed.
+              An employee cannot owe more on cash advances than this. Counted: the amount still owed on every unpaid cash advance (pending, approved or suspended; interest not counted) plus the new one.
+              The ₱50,000 cash advance cap stays. SSS and Pag-IBIG loans are never limited. Checked when a cash advance is filed, increased and approved; those already given are not changed.
             </CardDescription>
             {canEdit ? (
               <CardAction>

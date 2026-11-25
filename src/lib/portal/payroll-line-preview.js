@@ -62,7 +62,9 @@ export function previewLineGroups(data, employee, form, summary, computedForm) {
   const overloadPay = toAmount(d.overload_pay || 0);
   const otherIncentive = settling ? toAmount(d.other_incentive || 0) : toAmount(extras.other || 0);
   const loanLines = [
-    ...(d.loans || []).filter((l) => toAmount(l.amount) > 0).map((l) => ({ kind: "loan", label: l.description || "Loan", amount: l.amount, how: `Installment ${pesoText(l.amortization || l.amount)}; balance ${pesoText(l.balance_before)} → ${pesoText(l.balance_after)}` })),
+    ...(d.loans || []).filter((l) => toAmount(l.amount) > 0).map((l) => ({ kind: "loan", label: l.description || "Loan", amount: l.amount, how: l.agency
+      ? `Remaining balance ${pesoText(l.balance_after)}${l.reference_no ? ` · Ref. ${l.reference_no}` : ""}`
+      : `Installment ${pesoText(l.amortization || l.amount)}; balance ${pesoText(l.balance_before)} → ${pesoText(l.balance_after)}` })),
     ...(d.cash_advances || []).filter((l) => toAmount(l.amount) > 0).map((l) => ({ kind: "cash_advance", label: l.description ? `Cash advance: ${l.description}` : "Cash advance", amount: l.amount, how: `Installment ${pesoText(l.amount)}; balance ${pesoText(l.balance_before)} → ${pesoText(l.balance_after)}` })),
   ];
   const listed = toAmount(loanLines.reduce((s, l) => s + toAmount(l.amount), 0));

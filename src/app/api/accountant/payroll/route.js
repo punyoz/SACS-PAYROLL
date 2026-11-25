@@ -3101,8 +3101,10 @@ function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = fal
       ? `Monthly table on the whole month's taxable income, ${money(m.taxable_income)}`
       : null);
     const loanLines = (payroll.loans || []).filter((line) => toAmount(line.amount) > 0);
-    loanLines.forEach((line) => deduct(line.description || "Loan", line.amount,
-      `Balance ${money(line.balance_before)} → ${money(line.balance_after)}${line.shortfall > 0 ? ` (partial: ${money(line.shortfall)} stays on the balance)` : ""}`));
+    // One line per deduction in the payslip's words: "SSS loan (salary loan)", "Cash advance" (2026-11-25).
+    loanLines.forEach((line) => deduct(line.description || "Loan", line.amount, line.agency
+      ? `Remaining balance ${money(line.balance_after)}${line.reference_no ? ` · Ref. ${line.reference_no}` : ""}${line.shortfall > 0 ? ` (partial: ${money(line.shortfall)} stays on the balance)` : ""}`
+      : `Balance ${money(line.balance_before)} → ${money(line.balance_after)}${line.shortfall > 0 ? ` (partial: ${money(line.shortfall)} stays on the balance)` : ""}`));
     deduct("Subsidy advance offset", toAmount((d.loan || 0) - loanLines.reduce((sum, line) => sum + toAmount(line.amount), 0)));
     (payroll.cash_advances || []).forEach((line) => deduct(line.description ? `Cash advance: ${line.description}` : "Cash advance", line.amount));
     deduct(`Balance carried from ${m.carry_from || "last month"}`, m.carry_in);

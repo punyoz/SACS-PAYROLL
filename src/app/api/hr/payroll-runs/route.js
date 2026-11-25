@@ -278,7 +278,7 @@ const COLUMNS = [
   { header: "SSS", key: "sss", width: 44, align: "right", money: true },
   { header: "PhilHealth", key: "philhealth", width: 48, align: "right", money: true },
   { header: "Pag-IBIG", key: "pagibig", width: 44, align: "right", money: true },
-  { header: "Loans", key: "loans", width: 48, align: "right", money: true },
+  { header: "Cash adv. / gov. loans", key: "loans", width: 48, align: "right", money: true },
   { header: "Other ded.", key: "other_deductions", width: 48, align: "right", money: true },
   { header: "Early Bird", key: "early_bird_incentive", width: 48, align: "right", money: true },
   { header: "Net pay", key: "net_pay", width: 62, align: "right", money: true },

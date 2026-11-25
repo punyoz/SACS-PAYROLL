@@ -331,7 +331,7 @@ function RunDetail({ runId, onBack, onChanged }) {
       ["SSS", (i) => money(i.sss), true, "sss"],
       ["PhilHealth", (i) => money(i.philhealth), true, "philhealth"],
       ["Pag-IBIG", (i) => money(i.pagibig), true, "pagibig"],
-      ["Loans", (i) => money(i.loans), true, "loans"],
+      ["Cash adv. / gov. loans", (i) => money(i.loans), true, "loans"],
       ["Other ded.", (i) => money(i.other_deductions), true, "other_deductions"],
     ]),
     ["Early Bird", (i) => (i.early_bird_incentive ? money(i.early_bird_incentive) : "—"), true, "early_bird_incentive"],

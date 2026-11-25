@@ -24,7 +24,7 @@ describe("payslip loan line", () => {
     });
     const loan = lines.find((line) => line.type === "loan");
     expect(loan.amount).toBe(1500);
-    expect(loan.basis).toBe("Loans: 1,000.00 (Salary loan), balance 4,000.00; 500.00 (Emergency loan), balance 0.00, partial = 1,500.00");
+    expect(loan.basis).toBe("Cash advance / government loans: 1,000.00 (Salary loan), balance 4,000.00; 500.00 (Emergency loan), balance 0.00, partial = 1,500.00");
   });
 
   it("adds no line when nothing is deducted", () => {

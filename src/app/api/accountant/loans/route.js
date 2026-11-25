@@ -1,7 +1,11 @@
 /**
- * Loans (docs/payroll-schedule-loans-awol.md §4, §6): the one loan system.
+ * Cash advances & subsidies (docs/payroll-schedule-loans-awol.md §4, §6). The school does not lend
+ * (2026-11-25): the Accountant records CASH ADVANCES (create_loan accepts loan_type "cash_advance" only;
+ * the database refuses any other kind from the app). SSS / Pag-IBIG loans are HR's
+ * (/api/hr/government-loans) and are not listed here. Rows of the old school kinds stay listed as
+ * "Cash advance (legacy …)" until paid.
  *
- *   GET    loans in the caller's reach with their repayments, the people who
+ *   GET    cash advances in the caller's reach with their repayments, the people who
  *          can borrow, and open licensed-teacher subsidy balances (for advances)
  *   POST   { action: "create_loan", employee_id, loan_type, principal,
  *            interest_pct, number_of_payrolls, amortization, date_granted,
@@ -32,6 +36,7 @@ import { manilaDateKey, periodForDateKey } from "@/lib/payroll/periods";
 import { roundPeso } from "@/lib/payroll/money";
 import {
   LOAN_TYPE_LABELS,
+  isGovernmentLoan,
   nextSecondHalf,
   suggestedAmortization,
   totalPayable,
@@ -69,7 +74,7 @@ async function limitRefused(guard, person, { message, amount, info, stage }) {
   await appendAuditLog({
     actor: guard, module: "payroll", action: "loan_limit_refused", entity_type: "payroll_loan",
     entity_id: person.id, status: "failed", source: "api",
-    description: `Loan of ${money(amount)} for ${personLabel(person)} refused (${stage}): limit ${money(info?.loan_limit)}, already owed ${money(info?.owed)}.`,
+    description: `Cash advance of ${money(amount)} for ${personLabel(person)} refused (${stage}): limit ${money(info?.loan_limit)}, already owed ${money(info?.owed)}.`,
     metadata: { employee_id: person.id, amount: peso(amount), loan_limit: peso(info?.loan_limit), owed: peso(info?.owed), room: peso(info?.room), monthly_basic: peso(info?.monthly_basic), multiplier: info?.multiplier ?? null, stage },
   });
   return NextResponse.json({ error: message, code: "loan_limit", limit: info || null }, { status: 400 });
@@ -117,7 +122,9 @@ export async function GET(request) {
         : Promise.resolve({ data: [], error: null }),
     ]);
     if (loanResult.error) return NextResponse.json({ available: false, error: NOT_READY, loans: [] });
-    const loanRows = loanResult.data || [];
+    // Government loans (SSS / Pag-IBIG) are HR's (decision 2026-11-25): the Accountant sees them read-only in the
+    // payroll deduction lines and the Remittances report, not here. The employee's own view lists everything.
+    const loanRows = (loanResult.data || []).filter((loan) => guard.scope === "self" || !isGovernmentLoan(loan));
 
     const paymentResult = loanRows.length
       ? await fetchAllIn(() => supabase.from("payroll_loan_payments")
@@ -266,7 +273,7 @@ export async function POST(request) {
 
     const person = await findPerson(supabase, guard, body.employee_id);
     if (!person) return NextResponse.json({ error: "Employee not found in your branch." }, { status: 404 });
-    if (person.id === guard.userId) return NextResponse.json({ error: "You cannot record a loan for yourself." }, { status: 403 });
+    if (person.id === guard.userId) return NextResponse.json({ error: "You cannot record a cash advance for yourself." }, { status: 403 });
 
     if (action === "create_loan") {
       const input = {
@@ -406,22 +413,24 @@ export async function PATCH(request) {
     const found = await supabase.from("payroll_loans").select("*").eq("id", normalizeText(body.loan_id)).maybeSingle();
     if (found.error) return NextResponse.json({ error: NOT_READY }, { status: 503 });
     const loan = found.data;
-    if (!loan) return NextResponse.json({ error: "Loan not found." }, { status: 404 });
+    if (!loan) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    // SSS / Pag-IBIG loans are HR's (Employees → Government loans), read-only here (2026-11-25).
+    if (isGovernmentLoan(loan)) return NextResponse.json({ error: "Government loans are managed by HR." }, { status: 403 });
     const person = await findPerson(supabase, guard, loan.employee_id);
-    if (!person) return NextResponse.json({ error: "That loan belongs to another branch." }, { status: 403 });
-    if (person.id === guard.userId) return NextResponse.json({ error: "You cannot change your own loan." }, { status: 403 });
+    if (!person) return NextResponse.json({ error: "That cash advance belongs to another branch." }, { status: 403 });
+    if (person.id === guard.userId) return NextResponse.json({ error: "You cannot change your own cash advance." }, { status: 403 });
     const reason = normalizeText(body.reason).slice(0, 300);
     const now = new Date().toISOString();
 
     if (action === "set_status") {
       const status = normalizeText(body.status).toLowerCase();
       if (!["active", "suspended"].includes(status)) return NextResponse.json({ error: "Status must be active or suspended." }, { status: 400 });
-      if (loan.status === "paid") return NextResponse.json({ error: "A paid loan cannot be changed." }, { status: 409 });
+      if (loan.status === "paid") return NextResponse.json({ error: "A paid cash advance cannot be changed." }, { status: 409 });
       if (loan.awaiting_decision) return NextResponse.json({ error: "This advance waits for HR's decision (Subsidies)." }, { status: 409 });
       // Only an approved, active loan is suspended and only a suspended one resumed (2026-11-19): a pending or
       // rejected loan was never deducted, so there is nothing to pause.
-      if (status === "suspended" && !loanCanSuspend(loan)) return NextResponse.json({ error: "Only an active loan HR approved can be suspended." }, { status: 409 });
-      if (status === "active" && !loanCanResume(loan)) return NextResponse.json({ error: "Only a suspended loan can be resumed." }, { status: 409 });
+      if (status === "suspended" && !loanCanSuspend(loan)) return NextResponse.json({ error: "Only an active cash advance HR approved can be suspended." }, { status: 409 });
+      if (status === "active" && !loanCanResume(loan)) return NextResponse.json({ error: "Only a suspended cash advance can be resumed." }, { status: 409 });
       if (status === "suspended" && reason.length < 5) return NextResponse.json({ error: "Give a reason for suspending (at least 5 characters)." }, { status: 400 });
       const result = await supabase.from("payroll_loans").update({
         status, status_reason: reason || null, status_changed_by: guard.userId || null,
@@ -431,7 +440,7 @@ export async function PATCH(request) {
       await appendAuditLog({
         actor: guard, module: "payroll", action: "loan_status", entity_type: "payroll_loan", entity_id: loan.id,
         status: "success", source: "api",
-        description: `Loan ${money(loan.principal)} for ${personLabel(person)} ${status === "suspended" ? "suspended" : "resumed"}${reason ? `: ${reason}` : ""}.`,
+        description: `${LOAN_TYPE_LABELS[loan.loan_type] || "Cash advance"} ${money(loan.principal)} for ${personLabel(person)} ${status === "suspended" ? "suspended" : "resumed"}${reason ? `: ${reason}` : ""}.`,
         metadata: { from: loan.status, to: status, reason: reason || null },
       });
       return NextResponse.json({ success: true });

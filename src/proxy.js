@@ -166,6 +166,8 @@ const API_MODULES = [
   ["/api/accountant/pay-types", "process_payroll"],  // the Accountant's own Additional Pay types (2026-11-26)
   // Payslip schedule, loans, AWOL, licensed-teacher subsidy (20261009010000).
   ["/api/accountant/loans", "loans"],
+  // SSS / Pag-IBIG loans HR encodes (2026-11-25).
+  ["/api/hr/government-loans", "government_loans"],
   ["/api/accountant/final-pay", "process_payroll"],
   ["/api/accountant/approved-overtime", "process_payroll"],  // read-only: HR-approved overtime & substitutions (2026-11-26)
   ["/api/hr/awol-cases", "awol_cases"],

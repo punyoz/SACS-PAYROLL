@@ -7,7 +7,7 @@
  *   POST  { kind: "leave", effective_from, note?, rows: [{ leave_type, employee_type, employment_status, employment_type, days_per_year }] }
  *         { kind: "pay", effective_from, note?, rows: [{ employee_type, employment_status, employment_type, pay_basis, overtime_allowed, subsidy_eligible, incentive_eligible, loan_eligible }] }
  *         { kind: "settings", values: { probation_months, probation_reminder_days, contract_reminder_days } }
- *         { kind: "loan_limit", multiplier }   the loan salary limit (20261126050000; pending policy manual)
+ *         { kind: "loan_limit", multiplier }   the cash advance salary limit (20261126050000; pending policy manual)
  *   HR / Super Admin only; every save is a new version (history kept) and audited.
  */
 import { NextResponse } from "next/server";
@@ -122,13 +122,13 @@ export async function POST(request) {
       const m = Number(body.multiplier);
       const { min, max } = LOAN_LIMIT_MULTIPLIER_RANGE;
       if (!Number.isFinite(m) || m < min || m > max || Math.abs(Math.round(m * 100) - m * 100) > 1e-9) {
-        return NextResponse.json({ error: `Loan limit: a number of months' salary from ${min} to ${max} (up to 2 decimals).` }, { status: 400 });
+        return NextResponse.json({ error: `Cash advance limit: a number of months' salary from ${min} to ${max} (up to 2 decimals).` }, { status: 400 });
       }
       const before = await loadLoanLimitSettings(supabase);
       const saved = await supabase.from("system_config").upsert({ section: "payroll", key: "loan_limit_multiplier", value: String(m), updated_by: by, updated_at: new Date().toISOString() }, { onConflict: "section,key" });
       if (saved.error) return NextResponse.json({ error: sanitizeError(saved.error) }, { status: 400 });
       await appendAuditLog({ actor: guard, module: "payroll", action: "loan_limit_setting_change", entity_type: "system_config", entity_id: "payroll.loan_limit_multiplier", status: "success", source: "api",
-        description: `Loan limit set by ${by}: ${multiplierText(m)} (was ${multiplierText(before.multiplier)}). Applies to new and changed loans only.`, metadata: { from: before.multiplier, to: m } });
+        description: `Cash advance limit set by ${by}: ${multiplierText(m)} (was ${multiplierText(before.multiplier)}). Applies to new and changed cash advances only.`, metadata: { from: before.multiplier, to: m } });
       return NextResponse.json({ success: true });
     }
 

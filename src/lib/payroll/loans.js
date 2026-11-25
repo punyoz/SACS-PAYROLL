@@ -27,15 +27,43 @@ import { CASH_ADVANCE_MAX, LOAN_MAX, pesoLimit } from "@/lib/input-limits";
 
 const peso = (value) => roundPeso(value);
 
-export const LOAN_TYPES = Object.freeze(["salary_loan", "cash_advance", "emergency_loan", "other", "subsidy_advance"]);
-export const SALARY_LOAN_TYPES = Object.freeze(["salary_loan", "cash_advance", "emergency_loan", "other"]);
+// 2026-11-25 (owner): the school does not lend. What the school gives is a cash advance; the only
+// loans are GOVERNMENT loans (SSS, Pag-IBIG), encoded by HR from the agency's notice. The old school
+// kinds stay readable for the rows already stored ("legacy"); nothing new of those kinds is created.
+export const LOAN_TYPES = Object.freeze(["salary_loan", "cash_advance", "emergency_loan", "other", "subsidy_advance", "sss_loan", "pagibig_loan"]);
+/** Deducted from salary on 16–end payslips (stored legacy kinds keep deducting until paid). */
+export const SALARY_LOAN_TYPES = Object.freeze(["salary_loan", "cash_advance", "emergency_loan", "other", "sss_loan", "pagibig_loan"]);
+export const GOVERNMENT_LOAN_TYPES = Object.freeze(["sss_loan", "pagibig_loan"]);
+export const LEGACY_LOAN_TYPES = Object.freeze(["salary_loan", "emergency_loan", "other"]);
 export const LOAN_TYPE_LABELS = Object.freeze({
-  salary_loan: "Salary loan",
+  salary_loan: "Cash advance (legacy salary loan)",
   cash_advance: "Cash advance",
-  emergency_loan: "Emergency loan",
-  other: "Other",
+  emergency_loan: "Cash advance (legacy emergency loan)",
+  other: "Other deduction (legacy)",
   subsidy_advance: "Subsidy advance",
+  sss_loan: "Government loan (SSS)",
+  pagibig_loan: "Government loan (Pag-IBIG)",
 });
+export const AGENCY_OF = Object.freeze({ sss_loan: "SSS", pagibig_loan: "Pag-IBIG" });
+/** The kinds HR picks from (the agency's own names); "Other" takes HR's words. Stored as the short text shown on the payslip. */
+export const GOVERNMENT_LOAN_KINDS = Object.freeze({
+  sss_loan: [["salary loan", "SSS salary loan"], ["calamity loan", "SSS calamity loan"]],
+  pagibig_loan: [["multi-purpose", "Pag-IBIG multi-purpose loan"], ["calamity", "Pag-IBIG calamity loan"], ["housing", "Pag-IBIG housing loan"]],
+});
+export const isGovernmentLoan = (loan) => GOVERNMENT_LOAN_TYPES.includes(String(loan?.loan_type || ""));
+
+/**
+ * The payslip's words for a deduction: "SSS loan (salary loan)", "Pag-IBIG loan (multi-purpose)",
+ * "Cash advance", a legacy row by its stored description or kind.
+ */
+export function deductionLabel(loan) {
+  if (isGovernmentLoan(loan)) {
+    const agency = loan.agency || AGENCY_OF[loan.loan_type];
+    return `${agency} loan${loan.loan_kind ? ` (${loan.loan_kind})` : ""}`;
+  }
+  if (loan?.loan_type === "cash_advance") return loan.description ? `Cash advance: ${loan.description}` : "Cash advance";
+  return loan?.description || LOAN_TYPE_LABELS[loan?.loan_type] || "Deduction";
+}
 export const LOAN_STATUSES = Object.freeze(["active", "paid", "suspended"]);
 
 /** Flat interest on the whole loan. */
@@ -61,10 +89,13 @@ export function nextSecondHalf(dateKey) {
   return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-16`;
 }
 
-/** Validation for a new salary-deducted loan. Returns an error message, or null. */
+/**
+ * Validation for a new cash advance (the only thing the school gives, 2026-11-25). Returns an error
+ * message, or null. A government loan is HR's (validateGovernmentLoanInput).
+ */
 export function validateLoanInput(input) {
   const type = String(input?.loan_type || "");
-  if (!SALARY_LOAN_TYPES.includes(type)) return "Choose the loan type.";
+  if (type !== "cash_advance") return "The school does not give loans: record a cash advance. SSS and Pag-IBIG loans are encoded by HR.";
   const principal = Number(input.principal);
   // A loan of the "cash advance" type keeps to the cash advance limit.
   const max = type === "cash_advance" ? CASH_ADVANCE_MAX : LOAN_MAX;
@@ -79,6 +110,29 @@ export function validateLoanInput(input) {
   if (amortization > totalPayable(principal, pct)) return "The amount per payroll cannot be more than the total payable.";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.date_granted || ""))) return "Choose the date the loan was given.";
   if (!/^\d{4}-\d{2}-16$/.test(String(input.start_period || ""))) return "Loans are deducted on the 16–end payslip: choose a 2nd-half period to start.";
+  return null;
+}
+
+/**
+ * HR's government loan (SSS / Pag-IBIG, 2026-11-25): the agency's own figures, so no amount cap and no
+ * salary limit. Returns an error message, or null.
+ */
+export function validateGovernmentLoanInput(input) {
+  const type = String(input?.loan_type || "");
+  if (!GOVERNMENT_LOAN_TYPES.includes(type)) return "Choose the agency: SSS or Pag-IBIG.";
+  const kind = String(input?.loan_kind || "").trim();
+  if (kind.length < 2 || kind.length > 80) return "Choose the loan kind (or write it, 2 to 80 characters).";
+  const ref = String(input?.reference_no || "").trim();
+  if (ref && !/^[A-Za-z0-9][A-Za-z0-9 ./-]{0,39}$/.test(ref)) return "The reference number takes letters, numbers, spaces, dots, dashes and slashes (up to 40).";
+  const total = Number(input?.principal);
+  if (!(Number.isFinite(total) && total > 0)) return "Enter the total amount of the loan (more than 0).";
+  const amortization = Number(input?.amortization);
+  if (!(Number.isFinite(amortization) && amortization > 0)) return "Enter the amount per payroll from the agency's notice (more than 0).";
+  if (amortization > total) return "The amount per payroll cannot be more than the total.";
+  const payrolls = Number(input?.number_of_payrolls);
+  if (!(Number.isInteger(payrolls) && payrolls >= 1 && payrolls <= 120)) return "The number of payrolls is 1 to 120.";
+  if (!/^\d{4}-\d{2}-16$/.test(String(input?.start_period || ""))) return "Loans are deducted on the 16–end payslip: choose a 2nd-half period to start.";
+  if (String(input?.notes || "").length > 500) return "The notes can be at most 500 characters.";
   return null;
 }
 
@@ -124,7 +178,9 @@ export function scheduleLoans({ loans, period, available }) {
       lines.push({
         loan_id: String(loan.id),
         loan_type: loan.loan_type,
-        description: loan.description || LOAN_TYPE_LABELS[loan.loan_type] || "Loan",
+        // The payslip's words: "SSS loan (salary loan)", "Cash advance", … (2026-11-25).
+        description: deductionLabel(loan),
+        ...(isGovernmentLoan(loan) ? { agency: loan.agency || AGENCY_OF[loan.loan_type], reference_no: loan.reference_no || null } : {}),
         amortization: peso(loan.amortization),
         due: peso(due),
         amount,
@@ -153,7 +209,7 @@ export async function loadLoanContext(supabase, employeeIds, period) {
   if (!employeeIds.length || String(period?.start_key || "").slice(8, 10) !== "16") return { ready: true, byEmployee };
 
   const loanResult = await fetchAllIn(() => supabase.from("payroll_loans")
-    .select("id,employee_id,loan_type,description,date_granted,principal,interest_pct,total_payable,amortization,number_of_payrolls,start_period,remaining_balance,status,created_at,approval_status")
+    .select("id,employee_id,loan_type,description,date_granted,principal,interest_pct,total_payable,amortization,number_of_payrolls,start_period,remaining_balance,status,created_at,approval_status,agency,loan_kind,reference_no")
     .eq("status", "active")
     .lte("start_period", period.start_key)
     .order("id", { ascending: true }), "employee_id", employeeIds);

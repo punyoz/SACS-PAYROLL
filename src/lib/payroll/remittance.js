@@ -27,6 +27,8 @@ export const REMITTANCE_COLUMNS = [
   ["sss_ee", "SSS employee"], ["sss_er", "SSS employer"], ["sss_ec", "SSS EC"], ["sss_total", "SSS remit"],
   ["philhealth_ee", "PhilHealth employee"], ["philhealth_er", "PhilHealth employer"], ["philhealth_total", "PhilHealth remit"],
   ["pagibig_ee", "Pag-IBIG employee"], ["pagibig_er", "Pag-IBIG employer"], ["pagibig_total", "Pag-IBIG remit"],
+  // SSS / Pag-IBIG loan amortizations the payslips deducted (2026-11-25), separate from the contributions.
+  ["sss_loan", "SSS loan payments"], ["pagibig_loan", "Pag-IBIG loan payments"],
   ["withholding_tax", "Withholding tax (BIR)"], ["year_end_tax", "Year-end tax adjustment (BIR, + collected / - refunded)"],
   ["total_remit", "Total remit"],
 ];
@@ -45,6 +47,7 @@ export function buildRemittance(entries, branchNames = new Map()) {
       employee_id: entry.employee_id, employee_name: entry.employee_name || "—", employee_code: entry.employee_code || "",
       branch_name: branchNames.get(entry.branch_id) || "—", statuses: [], payslips: [],
       sss_ee: 0, sss_er: 0, sss_ec: 0, philhealth_ee: 0, philhealth_er: 0, pagibig_ee: 0, pagibig_er: 0, withholding_tax: 0, year_end_tax: 0,
+      sss_loan: 0, pagibig_loan: 0,
       employer_recorded: true, has_contributions: false,
     };
     row.year_end_tax = peso(row.year_end_tax + num(payroll.year_end_tax?.signed));
@@ -59,6 +62,11 @@ export function buildRemittance(entries, branchNames = new Map()) {
     row.philhealth_ee = peso(row.philhealth_ee + num(d.philhealth));
     row.pagibig_ee = peso(row.pagibig_ee + num(d.pagibig));
     row.withholding_tax = peso(row.withholding_tax + num(d.withholding_tax));
+    // Government loan payments: the payslip's own loan lines (src/lib/payroll/loans.js scheduleLoans).
+    (Array.isArray(payroll.loans) ? payroll.loans : []).forEach((l) => {
+      if (l.loan_type === "sss_loan") row.sss_loan = peso(row.sss_loan + num(l.amount));
+      if (l.loan_type === "pagibig_loan") row.pagibig_loan = peso(row.pagibig_loan + num(l.amount));
+    });
     const contributes = num(d.sss) + num(d.philhealth) + num(d.pagibig) > 0;
     if (contributes) row.has_contributions = true;
     const er = payroll.employer_contributions?.employer;
@@ -84,7 +92,7 @@ export function buildRemittance(entries, branchNames = new Map()) {
       sss_total: sssTotal,
       philhealth_total: philhealthTotal,
       pagibig_total: pagibigTotal,
-      total_remit: peso(sssTotal + philhealthTotal + pagibigTotal + row.withholding_tax + row.year_end_tax),
+      total_remit: peso(sssTotal + philhealthTotal + pagibigTotal + row.sss_loan + row.pagibig_loan + row.withholding_tax + row.year_end_tax),
       status: [...new Set(row.statuses)].join(" / "),
     };
   }).sort((a, b) => String(a.employee_name).localeCompare(String(b.employee_name)));
