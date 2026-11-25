@@ -115,6 +115,7 @@ import { eligibilityRefusal } from "@/lib/employees/classification-server";
 import { loadClassificationContext } from "@/lib/employees/classification-server";
 import { classificationOn } from "@/lib/employees/classification";
 import { cutoffClosed, gateRuleIncentives, loadIncentiveGate, syncIncentiveRecommendations } from "@/lib/payroll/incentive-recommendations";
+import { splitNegativeIncentives } from "@/lib/payroll/negative-items";
 import { extraDayLines } from "@/lib/attendance/special-days";
 import { NEW_ITEM_KINDS, withPayTypeNames } from "@/lib/payroll/pay-types";
 
@@ -3067,7 +3068,11 @@ function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = fal
   earn(EARLY_BIRD_LABEL, t.early_bird_winner_incentive,
     payroll.early_bird ? `${plural(payroll.early_bird.early_count, "early time-in")}, the most in ${payroll.early_bird.period_label}` : null);
   earn("Perfect attendance", t.perfect_attendance_incentive);
-  earn("Incentives", t.other_incentive);
+  // A negative item (a take-back or an Adjustment below zero) is its own deduction line; "Incentives" is the
+  // rest (2026-11-25). Before, a net-negative total was left out of the lines and the Gross while the net
+  // counted it, so the payslip did not add up (src/lib/payroll/negative-items.js).
+  const negativeItems = splitNegativeIncentives(payroll, t.other_incentive);
+  earn("Incentives", negativeItems.incentives);
   earn(m.overload_hours ? `Overload pay (${m.overload_hours} h)` : "Overload pay", t.overload_pay);
   earn("Licensed teacher subsidy", t.subsidy_pay);
   // 2026-11-25: substitute teaching and extra working days are in the month's totals and net pay but
@@ -3083,6 +3088,7 @@ function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = fal
   own("special_working_day", t.special_day_pay, "Special working day");
   earn("Leave conversion", t.leave_conversion_pay);
 
+  negativeItems.deductions.forEach((l) => deduct(l.label, l.amount, l.note));
   deduct(`Absences (${plural(d.absences_days || 0, "day")})`, t.absence_deduction);
   deduct(`Leave without pay (${plural(d.leave_without_pay_days || 0, "day")})`, t.leave_without_pay_deduction);
   deduct(`Late (${plural(d.late_days || 0, "day")})`, t.late_deduction);
