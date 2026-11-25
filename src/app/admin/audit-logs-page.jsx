@@ -3,7 +3,7 @@
 import * as React from "react";
 import { CheckCircle2Icon, DownloadIcon, ListIcon, ScrollTextIcon, SearchIcon, XCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -141,6 +141,12 @@ export function AuditLogsPage({ refreshKey, limit = 250, csvName = () => "sacs-a
       </section>
 
       <Card className="min-w-0 shadow-xs">
+        {/* Export in the card header (2026-11-25): in the filter row it wrapped alone onto a second line at 1366 px. */}
+        <CardHeader>
+          <CardTitle>Audit logs</CardTitle>
+          <CardDescription>Every recorded action, newest first.</CardDescription>
+          <CardAction><Button variant="outline" size="sm" onClick={exportCsv} disabled={!state.logs.length}><DownloadIcon aria-hidden="true" />Export CSV</Button></CardAction>
+        </CardHeader>
         <CardContent className="space-y-4">
           <FilterBar data-testid="audit-filters">
             <div className="relative" data-filter="search">
@@ -159,7 +165,6 @@ export function AuditLogsPage({ refreshKey, limit = 250, csvName = () => "sacs-a
             </div>
             <div data-filter="date"><DatePicker id="adm-audit-to" aria-label="To" value={to} onChange={setTo} min={from || undefined} placeholder="Any date" />
             </div>
-            <Button variant="outline" onClick={exportCsv} disabled={!state.logs.length}><DownloadIcon aria-hidden="true" />Export CSV</Button>
           </FilterBar>
 
           <DataTable
