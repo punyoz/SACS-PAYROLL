@@ -91,12 +91,13 @@ function keepHistoryInUrl(next) {
 }
 
 /** "Last 12 months" or a year, for the history pages' headers. */
-export function HistorySelect({ className }) {
+// size: "sm" in card headers (next to small buttons); "default" as a form field next to other dropdowns.
+export function HistorySelect({ className, size = "sm" }) {
   const { data, history, setHistory } = useAccountant();
   const years = data?.history_years || [];
   return (
     <Select value={history} onValueChange={setHistory}>
-      <SelectTrigger size="sm" className={className || "w-40"} aria-label="Showing"><SelectValue /></SelectTrigger>
+      <SelectTrigger size={size} className={className || "w-40"} aria-label="Showing"><SelectValue /></SelectTrigger>
       <SelectContent>
         <SelectItem value="recent">Last 12 months</SelectItem>
         {years.map((year) => <SelectItem key={year} value={String(year)}>{year}</SelectItem>)}

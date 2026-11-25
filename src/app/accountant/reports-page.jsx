@@ -250,7 +250,7 @@ export function ReportsPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>Showing</Label>
-                <HistorySelect className="w-full" />
+                <HistorySelect className="w-full" size="default" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="rpt-type">Report type</Label>
