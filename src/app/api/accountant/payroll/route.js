@@ -2831,6 +2831,8 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       loan_id: line.loan_id, loan_type: line.loan_type, description: line.description,
       due: line.due, amount: line.amount, shortfall: line.shortfall,
       balance_before: line.balance_before, balance_after: line.balance_after,
+      // A government loan (2026-11-25): its agency and HR's reference number, shown on the payslip line.
+      ...(line.agency ? { agency: line.agency, reference_no: line.reference_no || null } : {}),
     }));
     // Licensed-teacher subsidy, settled in the same commit (20261009020000):
     // the year's balance marked paid, its advances (and any approved

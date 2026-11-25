@@ -212,6 +212,15 @@ describe("The 16–end payslip deducts loans", () => {
     expect(table("payroll_loans")[0].remaining_balance).toBe(8606.25);
   });
 
+  it("an SSS loan HR encoded: its own line with the agency, remaining balance and reference (2026-11-25)", async () => {
+    seedLoan({ id: "sss-nate", loan_type: "sss_loan", agency: "SSS", loan_kind: "salary loan", reference_no: "SSS-0451", description: null,
+      principal: 12000, interest_pct: 0, total_payable: 12000, amortization: 1000, remaining_balance: 12000 });
+    expect((await process2nd()).status).toBe(200);
+    const entry = table("payroll_entries").find((e) => e.employee_id === NATE && e.pay_period === SECOND);
+    expect(entry.payroll.loans[0]).toMatchObject({ loan_type: "sss_loan", description: "SSS loan (salary loan)", agency: "SSS", reference_no: "SSS-0451", amount: 1000, balance_after: 11000 });
+    // How it reads on the payslip (screen, print, PDF): e2e/proof/government-loans.spec.mjs on the real screens.
+  });
+
   it("a suspended loan is skipped", async () => {
     seedLoan({ status: "suspended" });
     expect((await process2nd()).status).toBe(200);
