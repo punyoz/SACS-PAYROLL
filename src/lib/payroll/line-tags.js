@@ -38,7 +38,7 @@ export const GROUP_TITLES = Object.freeze({
   contributions: "Government contributions (employee share)",
   tax: "Withholding tax (income tax)",
   attendance: "Attendance deductions",
-  loans: "Loans / advances",
+  loans: "Cash advances / government loans",
   settlement: "Month settlement",
 });
 
@@ -449,7 +449,7 @@ export function lineInputFromPayroll(payroll, { taxTable = [] } = {}) {
     loans: second ? [
       // A government loan (2026-11-25): "SSS loan (salary loan)", with the remaining balance and HR's reference
       // number under it. Older stored lines keep their own words (no agency stored).
-      ...loanLines.map((l) => ({ kind: "loan", label: l.description || "Loan", amount: l.amount, how: l.agency
+      ...loanLines.map((l) => ({ kind: "loan", label: l.description || "Deduction", amount: l.amount, how: l.agency
         ? `Remaining balance ${pesoText(l.balance_after)}${l.reference_no ? ` · Ref. ${l.reference_no}` : ""}${num(l.shortfall) > 0 ? " (partial: the rest stays on the balance)" : ""}`
         : `Installment ${pesoText(l.amortization || l.amount)}; balance ${pesoText(l.balance_before)} → ${pesoText(l.balance_after)}${num(l.shortfall) > 0 ? " (partial)" : ""}` })),
       ...(offset > 0 ? [{ kind: "offset", label: "Subsidy advance offset", amount: offset, how: "Prior-year subsidy advance recovered as approved" }] : []),

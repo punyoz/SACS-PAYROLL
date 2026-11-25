@@ -193,13 +193,13 @@ export async function GET(request) {
       const statusLabel = LOAN_STATUS_LABELS[status];
       return await reportResponse({
         format: url.searchParams.get("format"),
-        fileName: `loans-${status}-${manilaDateKey()}`,
-        title: `Loans: ${statusLabel}`,
+        fileName: `cash-advances-${status}-${manilaDateKey()}`,
+        title: `Cash advances: ${statusLabel}`,
         branch: branchNames.length ? branchNames.join(", ") : guard.branchExempt ? "All branches" : "Own branch",
         period: `As of ${reportDate(manilaDateKey())}`,
         filters: [["Status", statusLabel], ["Search", q || "none"], ["Sorted by", loanSortLabel(sort)]],
-        empty: `No loans match: Status = ${statusLabel}${q ? `, Search = "${q}"` : ""}.`,
-        note: "Totals add every loan listed (rejected and paid ones too).",
+        empty: `No cash advances match: Status = ${statusLabel}${q ? `, Search = "${q}"` : ""}.`,
+        note: "Totals add every row listed (rejected and paid ones too).",
         columns: [
           { header: "Employee", width: 28 },
           { header: "Employee ID", width: 13 },

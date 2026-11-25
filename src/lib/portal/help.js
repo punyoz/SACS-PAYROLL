@@ -31,7 +31,7 @@ export const ROLE_HELP = {
     COMMON_END,
   ],
   accountant: [
-    { title: "Welcome, Accountant", body: "You process your branch's payroll each cutoff and send it to HR for approval. You also handle loans, subsidies, 13th month pay and final pay." },
+    { title: "Welcome, Accountant", body: "You process your branch's payroll each cutoff and send it to HR for approval. You also handle cash advances, subsidies, 13th month pay and final pay." },
     { title: "Processing payroll", body: "Process the cutoff, check the figures, then submit. One message sums up each action: green when done, red for an error, amber for a warning." },
     { title: "Records and exports", body: "Payroll Records and Reports export to Excel or PDF, with the school header, the period and the filters you chose." },
     COMMON_END,

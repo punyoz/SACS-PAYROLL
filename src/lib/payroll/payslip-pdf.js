@@ -167,7 +167,7 @@ function semiMonthlyRows(p, m, holidayLines = []) {
   p.row(contributionLabel("PhilHealth", m.contribution_basis?.philhealth), m.philhealth || 0);
   p.row(contributionLabel("Pag-IBIG", m.contribution_basis?.pagibig), m.pagibig || 0);
   p.row(withholdingTaxLabel("Withholding tax (monthly table)", m.tax_bracket), m.withholding_tax || 0, { note: `Taxable income ${money(m.taxable_income)}` });
-  minus("Loans and cash advances", m.cash_advance);
+  minus("Cash advances and government loans", m.cash_advance);
   (m.subsidy_memos || []).forEach((memo) => p.row(memo, null));
   p.row("Monthly net", m.monthly_net || 0, { bold: true });
   p.row(m.first_half_status === "final" ? "Less: paid in 1st half" : "Less: paid in 1st half (not processed)", m.first_half_paid || 0);

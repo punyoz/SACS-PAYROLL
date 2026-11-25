@@ -43,7 +43,7 @@ function negative(amount) {
 const LABELS = {
   salary: "Unpaid salary", thirteenth_month: "Pro-rated 13th month", subsidy: "Licensed teacher subsidy",
   sss: "SSS", philhealth: "PhilHealth", pagibig: "Pag-IBIG", withholding_tax: "Withholding tax",
-  carry_over: "Carry-over owed", loan: "Loan balance", year_end_tax: "Year-end tax adjustment",
+  carry_over: "Carry-over owed", loan: "Cash advance / government loan balance", year_end_tax: "Year-end tax adjustment",
 };
 
 /** The final pay lines and totals (Accountant and HR's approval screen show the same table). */
@@ -200,7 +200,7 @@ export function FinalPayPage({ refreshKey }) {
     const b = detail.data.breakdown;
     const ok = await confirm({
       title: `Submit ${selected.full_name}'s final pay${selected.correction ? " correction" : ""} for HR approval?`,
-      description: `Net ${money(b.net_pay)}, proposed release ${dateLabel(releaseOn)}. It is locked while HR reviews it; its loan repayments, 13th month and subsidy are held. The employee sees it only after HR approves.`,
+      description: `Net ${money(b.net_pay)}, proposed release ${dateLabel(releaseOn)}. It is locked while HR reviews it; its cash advance and government loan repayments, 13th month and subsidy are held. The employee sees it only after HR approves.`,
       confirmLabel: "Submit for HR approval",
     });
     if (!ok) return;
@@ -263,7 +263,7 @@ export function FinalPayPage({ refreshKey }) {
                     ["Last working day", dateLabel(selected.separated_on)],
                     ["Unpaid salary", money(sumKinds(b.earnings, ["salary"]))],
                     ["Pro-rated 13th month", money(sumKinds(b.earnings, ["thirteenth_month"]))],
-                    ["Loans and cash advances", negative(sumKinds(b.deductions, ["loan", "cash_advance"]))],
+                    ["Cash advances and government loans", negative(sumKinds(b.deductions, ["loan", "cash_advance"]))],
                     ["Government contributions", negative(sumKinds(b.deductions, ["sss", "philhealth", "pagibig"]))],
                     ["Withholding tax", negative(sumKinds(b.deductions.filter((d) => !d.credit), ["withholding_tax", "year_end_tax"]))],
                   ].map(([k, v]) => <div key={k} className="flex justify-between gap-3"><dt className="text-muted-foreground">{k}</dt><dd className="tabular-nums">{v}</dd></div>)}

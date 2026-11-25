@@ -3110,7 +3110,7 @@ function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = fal
       : null);
     const loanLines = (payroll.loans || []).filter((line) => toAmount(line.amount) > 0);
     // One line per deduction in the payslip's words: "SSS loan (salary loan)", "Cash advance" (2026-11-25).
-    loanLines.forEach((line) => deduct(line.description || "Loan", line.amount, line.agency
+    loanLines.forEach((line) => deduct(line.description || "Deduction", line.amount, line.agency
       ? `Remaining balance ${money(line.balance_after)}${line.reference_no ? ` · Ref. ${line.reference_no}` : ""}${line.shortfall > 0 ? ` (partial: ${money(line.shortfall)} stays on the balance)` : ""}`
       : `Balance ${money(line.balance_before)} → ${money(line.balance_after)}${line.shortfall > 0 ? ` (partial: ${money(line.shortfall)} stays on the balance)` : ""}`));
     deduct("Subsidy advance offset", toAmount((d.loan || 0) - loanLines.reduce((sum, line) => sum + toAmount(line.amount), 0)));

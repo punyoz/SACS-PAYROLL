@@ -351,7 +351,6 @@ function BatchBreakdown({ row }) {
   const unit = base.info.unit || {};
   const incentiveLabel = [
     earlyBirdWinnerPay(base.info) ? "Early Bird Incentive" : "",
-    base.info.pay?.perfect_attendance && base.half !== "first" ? "Perfect" : "",
     base.extras.other ? `Incentive/overload${base.extras.overloadHours ? ` (${base.extras.overloadHours} h)` : ""}` : "",
   ].filter(Boolean).join(" · ");
   const items = [
@@ -371,7 +370,7 @@ function BatchBreakdown({ row }) {
     ]),
     ...(base.half === "second" ? [["Paid in 1st half", "", -toAmount(base.extras.firstHalfPaid)]] : []),
     ...(base.extras.carryIn ? [["Carried from last month", "", -base.extras.carryIn]] : []),
-    ...(base.cashAdvance ? [["Loans / cash advance", "", -base.cashAdvance]] : []),
+    ...(base.cashAdvance ? [["Cash advance / gov. loans", "", -base.cashAdvance]] : []),
     ...(base.yearEndTax ? [[base.yearEndTax > 0 ? "Year-end tax adjustment" : "Year-end tax refund", "", -base.yearEndTax]] : []),
   ];
   return (
@@ -1354,15 +1353,6 @@ function SingleEntry({ onNavigate, editRequest }) {
                 <p className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm text-muted-foreground tabular-nums">
                   {winnerPay ? `${money(winnerPay)} — this period's winner` : "Not this period's winner"}
                 </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="pc-perfect" className="min-h-5 flex-wrap gap-x-1">{overrideLocked ? <LockIcon className="size-3.5 text-muted-foreground" aria-hidden="true" /> : null}Perfect attendance <span className="font-normal text-muted-foreground">{peso(unit.perfect_attendance)}/period</span></Label>
-                <Select value={shownForm.perfect ? "yes" : "no"} onValueChange={(v) => setForm((c) => ({ ...c, perfect: v === "yes" }))} disabled={attendanceLocked || overrideLocked}>
-                  <SelectTrigger id="pc-perfect" className={cn("w-full", overrideLocked && "border-dashed bg-muted text-muted-foreground")} title={overrideLocked ? overrideGate.message : undefined}><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="no">No</SelectItem><SelectItem value="yes">Yes</SelectItem></SelectContent>
-                </Select>
-                {ruleIncentiveNote(info.row?.rule_incentives, "perfect_attendance")
-                  ? <p className="text-xs text-muted-foreground" data-testid="perfect-note">Perfect attendance: {ruleIncentiveNote(info.row?.rule_incentives, "perfect_attendance")}</p> : null}
               </div>
             </div>
 

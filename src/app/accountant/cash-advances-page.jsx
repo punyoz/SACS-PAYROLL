@@ -121,7 +121,7 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
       // Both sources, each read where it lives.
       const [data, loans] = await Promise.all([fetchJson("/api/accountant/payroll?view=cash_advances"), fetchJson("/api/accountant/loans")]);
       if (!data.available) throw new Error(data.error || "Cash advances are not set up yet.");
-      if (!loans.available) throw new Error(loans.error || "Loans are not set up yet.");
+      if (!loans.available) throw new Error(loans.error || "Cash advances are not set up yet.");
       setState({ loading: false, error: null, data: { ...data, loans: (loans.loans || []).filter((l) => l.loan_type === "cash_advance") } });
     } catch (error) {
       setState((c) => ({ loading: false, error: error.message || "Unable to load cash advances.", data: c.data }));
@@ -219,8 +219,8 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
 
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true,
-      cell: (r) => <div><p className="font-medium">{r.employee_name}</p><p className="text-xs text-muted-foreground">{r.employee_code || ""}{r.description ? ` · ${r.description}` : ""}</p><p className="text-xs text-muted-foreground" data-testid="ca-source">Recorded in: {r.source === "loan" ? "Loans" : "Before Loans"}</p></div>,
-      searchValue: (r) => `${r.employee_name} ${r.employee_code || ""} ${r.description || ""} ${r.source === "loan" ? "Loans" : "Before Loans"} ${STATUSES[r.status]?.[0] || ""}` },
+      cell: (r) => <div><p className="font-medium">{r.employee_name}</p><p className="text-xs text-muted-foreground">{r.employee_code || ""}{r.description ? ` · ${r.description}` : ""}</p><p className="text-xs text-muted-foreground" data-testid="ca-source">Recorded in: {r.source === "loan" ? "Cash Advances & Subsidies" : "Older records"}</p></div>,
+      searchValue: (r) => `${r.employee_name} ${r.employee_code || ""} ${r.description || ""} ${r.source === "loan" ? "Cash Advances & Subsidies" : "Older records"} ${STATUSES[r.status]?.[0] || ""}` },
     { key: "date_granted", header: "Date given", sortable: true, className: "whitespace-nowrap", cell: (r) => dateLabel(r.date_granted) },
     { key: "principal", header: "Amount", align: "right", className: "tabular-nums", sortValue: (r) => r.principal, cell: (r) => money(r.principal) },
     { key: "installment", header: "Per payslip", align: "right", className: "tabular-nums", cell: (r) => money(r.per) },
@@ -268,8 +268,8 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
         <Alert className="border-info/40 bg-info/8">
           <InfoIcon aria-hidden="true" />
           <AlertDescription>
-            <p>Cash advances are saved in Loans (one loan system) and listed here too.</p>
-            {onNavigate ? <Button variant="outline" size="sm" className="mt-2" onClick={() => onNavigate("ac-loans")}>Open Loans →</Button> : null}
+            <p>Cash advances are filed in Cash Advances & Subsidies and listed here too.</p>
+            {onNavigate ? <Button variant="outline" size="sm" className="mt-2" onClick={() => onNavigate("ac-loans")}>Open Cash Advances →</Button> : null}
           </AlertDescription>
         </Alert>
       ) : (
@@ -341,7 +341,7 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{suspending ? "Suspend this cash advance?" : "Cancel this cash advance?"}</DialogTitle>
-            <DialogDescription>{suspending ? "Payroll skips it until it is resumed (Loans rules)." : "Nothing more will be deducted. What was already repaid stays on the payslips."}</DialogDescription>
+            <DialogDescription>{suspending ? "Payroll skips it until it is resumed." : "Nothing more will be deducted. What was already repaid stays on the payslips."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="ac-ca-cancel-reason">{suspending ? "Reason for suspending" : "Reason for cancelling"}</Label>

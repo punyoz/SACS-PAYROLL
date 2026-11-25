@@ -124,7 +124,7 @@ export function TeacherSubsidySection({ refreshKey }) {
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><GiftIcon className="size-4 text-gold-text" aria-hidden="true" />Licensed Teacher Subsidy</CardTitle>
-          <CardDescription>Annual subsidy for verified licensed teachers: advanced through Loans (never from salary) or paid on the 2nd-half payslip of the payout month.</CardDescription>
+          <CardDescription>Annual subsidy for verified licensed teachers: advanced through Cash Advances & Subsidies (never from salary) or paid on the 2nd-half payslip of the payout month.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {year ? (

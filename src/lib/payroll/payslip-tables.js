@@ -128,7 +128,7 @@ function fromGroups(g, holidayLines, dailyRate) {
 }
 
 const FINAL_EARNING = { thirteenth_month: "13th month pay (pro-rated)", subsidy: "Licensed teacher subsidy", leave_conversion: "Unused leave conversion" };
-const FINAL_DEDUCTION = { sss: "SSS", philhealth: "PhilHealth", pagibig: "Pag-IBIG", withholding_tax: "Withholding tax", carry_over: "Balance carried over", loan: "Loan", first_half_paid: "1st half already paid" };
+const FINAL_DEDUCTION = { sss: "SSS", philhealth: "PhilHealth", pagibig: "Pag-IBIG", withholding_tax: "Withholding tax", carry_over: "Balance carried over", loan: "Cash advance / government loan", first_half_paid: "1st half already paid" };
 
 /** A final pay (payroll.final_pay.breakdown, final-pay.js): every month, the 13th month, subsidy, leave and loans. */
 function fromFinalPay(fp, overpayment) {
@@ -235,7 +235,7 @@ export const DEDUCTION_GROUPS = [
   ["attendance", "Attendance"],
   ["government", "Government contributions"],
   ["tax", "Tax"],
-  ["loans", "Loans and advances"],
+  ["loans", "Cash advances and government loans"],
   ["other", "Other"],
 ];
 const ATTENDANCE_KEYS = new Set(["absent", "late", "undertime", "half_day", "lwop", "leave_with_pay", "prior_attendance"]);

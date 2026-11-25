@@ -29,7 +29,10 @@ export const RATE_TYPES = Object.freeze({
   // early_bird_bonus (per Early Bird day) was retired on Oct 13, 2026: the one
   // Early Bird incentive is the per-period winner (src/lib/payroll/early-bird.js).
   // Its old rate rows stay in payroll_rate_configs as history; nothing reads them.
-  perfect_attendance_bonus: { label: "Perfect Attendance bonus", unit: "peso", hint: "Added when a period has no Late, Undertime, Absent or Half Day" },
+  // perfect_attendance_bonus was retired on Nov 25, 2026 (owner: the school does not pay Perfect
+  // Attendance; the ₱500 row was a demo amount). It is no longer resolved, so every payslip computed from
+  // now on pays ₱0 and nothing is sent to HR. Its rows stay in payroll_rate_configs as history; payslips
+  // already processed keep the amount they were paid.
   sss_pct: { label: "SSS contribution", unit: "percent", hint: "Employee share: % of the monthly salary credit (before Oct 1, 2026: % of the period's basic salary)" },
   philhealth_pct: { label: "PhilHealth contribution", unit: "percent", hint: "Employee share: % of monthly basic salary within the floor and ceiling (before Oct 1, 2026: % of the period's basic salary)" },
   pagibig_pct: { label: "Pag-IBIG contribution", unit: "percent", hint: "Employee share: % of monthly salary up to the maximum fund salary (before Oct 1, 2026: % of the period's basic salary)" },

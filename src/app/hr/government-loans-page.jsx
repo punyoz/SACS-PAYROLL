@@ -117,7 +117,7 @@ export function GovernmentLoansPage({ refreshKey = 0 }) {
   const canEncode = Boolean(state.data?.can_encode);
   const columns = [
     { key: "employee", header: "Employee", sortable: true, sortValue: (l) => l.employee_name, cell: (l) => <div><p className="font-medium">{l.employee_name}</p><p className="text-xs text-muted-foreground">{l.employee_code}</p></div>, searchValue: (l) => `${l.employee_name} ${l.employee_code} ${l.reference_no || ""}` },
-    { key: "label", header: "Loan", cell: (l) => <div><p>{l.label}</p><p className="text-xs text-muted-foreground">{l.reference_no ? `Ref. ${l.reference_no}` : "No reference number"}</p></div> },
+    { key: "label", header: "Government loan", cell: (l) => <div><p>{l.label}</p><p className="text-xs text-muted-foreground">{l.reference_no ? `Ref. ${l.reference_no}` : "No reference number"}</p></div> },
     { key: "total", header: "Total", align: "right", className: "tabular-nums", cell: (l) => money(l.principal) },
     { key: "per", header: "Per 16–end payslip", align: "right", className: "tabular-nums", cell: (l) => money(l.amortization) },
     { key: "from", header: "From", cell: (l) => l.start_period },
