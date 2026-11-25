@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { readSource } from "./helpers/read-source.js";
 import { resetDb, rpc, table, users } from "./helpers/fake-supabase.js";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
@@ -351,19 +352,18 @@ describe("incentive recommendation", () => {
 
 describe("attendance issues are flagged by the system (2026-11-24)", () => {
   it("an Admin cannot file a manual attendance flag, even on their own branch; the page has no Note / Object (view only), only the message thread", async () => {
-    const { readFileSync } = await import("node:fs");
-    const route = readFileSync("src/app/api/admin/branch-oversight/route.js", "utf8");
+    const route = readSource("src/app/api/admin/branch-oversight/route.js");
     expect(route).toMatch(/if \(kind === "attendance_flag"\) return bad\("Attendance issues are flagged automatically/);
-    const page = readFileSync("src/app/admin/attendance-page.jsx", "utf8");
+    const page = readSource("src/app/admin/attendance-page.jsx");
     expect(page).not.toContain("Flag issue</Button>");
     expect(page).not.toContain("title={`Flag issue");
     expect(page).not.toMatch(/action: target\.action/);
     expect(page).not.toMatch(/>Note<\/Button>|>Object<\/Button>/);
     expect(page).toMatch(/<ItemThread itemType="automation_action"/);
     // The server refuses an Admin's note / objection (no Admin step).
-    const automation = readFileSync("src/app/api/automation/route.js", "utf8");
+    const automation = readSource("src/app/api/automation/route.js");
     expect(automation).toMatch(/if \(action === "note" \|\| action === "object"\) \{\n\s+return NextResponse\.json\(\{ error: "The system sends this straight to HR/);
     // Incidents stay manual.
-    expect(readFileSync("src/app/admin/requests-pages.jsx", "utf8")).toMatch(/kind="incident_report"/);
+    expect(readSource("src/app/admin/requests-pages.jsx")).toMatch(/kind="incident_report"/);
   });
 });
