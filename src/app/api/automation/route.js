@@ -20,7 +20,7 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { notify } from "@/lib/branch-requests-server";
 import { undoAutomation } from "@/lib/automation/undo";
-import { AUTOMATION_MODULES, AUTOMATION_STATUSES, NOTE_MIN, NOTE_MAX, summarizeAutomation } from "@/lib/automation/shared";
+import { AUTOMATION_MODULES, AUTOMATION_SWITCHES, AUTOMATION_STATUSES, NOTE_MIN, NOTE_MAX, summarizeAutomation } from "@/lib/automation/shared";
 
 const ROLES = new Set(["admin", "hr", "super_admin"]);
 const SELECT = "id,module,rule,kind,status,summary,data,reason,entity_type,entity_id,employee_id,branch_id,effective_on,admin_due_on,admin_note,admin_noted_by_name,admin_noted_at,admin_objected,forwarded_at,forwarded_by,escalated_at,undone_at,undone_by_name,undo_reason,closed_at,closed_note,created_at";
@@ -31,7 +31,7 @@ async function pausedNow(supabase) {
   const { data } = await supabase.from("system_config").select("key,value").eq("section", "automation").like("key", "paused%");
   const rows = data || [];
   const all = String(rows.find((r) => r.key === "paused")?.value ?? "false") !== "false";
-  const modules = Object.fromEntries(Object.keys(AUTOMATION_MODULES).map((m) => [m, rows.find((r) => r.key === `paused_${m}`)?.value === "true"]));
+  const modules = Object.fromEntries(AUTOMATION_SWITCHES.map((m) => [m, rows.find((r) => r.key === `paused_${m}`)?.value === "true"]));
   // The daily digests (2026-11-24), each on unless switched off.
   const { data: dig } = await supabase.from("system_config").select("key,value").eq("section", "automation").in("key", ["digest_hr", "digest_admin"]);
   const on = (k) => String((dig || []).find((r) => r.key === k)?.value ?? "true") !== "false";
@@ -137,7 +137,7 @@ async function pause(guard, body) {
   if (guard.role !== "hr" && guard.role !== "super_admin") return NextResponse.json({ error: "HR or the Super Admin pauses automation." }, { status: 403 });
   if (typeof body.paused !== "boolean") return NextResponse.json({ error: "Say whether to pause or resume." }, { status: 400 });
   const moduleKey = body.module ? String(body.module) : "";
-  if (moduleKey && !AUTOMATION_MODULES[moduleKey]) return NextResponse.json({ error: "Unknown module." }, { status: 400 });
+  if (moduleKey && !AUTOMATION_SWITCHES.includes(moduleKey)) return NextResponse.json({ error: "This module has no switch: it only tracks items for HR and stays on." }, { status: 400 });
   const key = moduleKey ? `paused_${moduleKey}` : "paused";
   const supabase = getServiceClient();
   const by = nameOf(guard);

@@ -19,6 +19,17 @@ export const AUTOMATION_MODULES = Object.freeze({
   awol_cases: "AWOL cases",
   incentive_recommendations: "Incentive recommendations",
 });
+/**
+ * The modules with an on/off switch (2026-11-25): only those whose switch stops
+ * real automatic work (flagging, applying, checking and routing, blocking).
+ * AWOL runs the nightly cases (confirm, notices, separation). The rest only
+ * track items waiting for HR (overtime, substitutions, incident reports) or
+ * raise one flag (incentives); they stay always on and
+ * stop only with "Pause all". Their labels stay above for the activity log.
+ */
+export const AUTOMATION_SWITCHES = Object.freeze([
+  "attendance_flags", "schedule_requests", "attendance_corrections", "leave_recommendations", "transfer_endorsements", "rfid_issues", "awol_cases",
+]);
 export const NOTE_MAX = 500;
 
 export const STATUS_LABEL = Object.freeze({

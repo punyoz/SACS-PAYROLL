@@ -11,7 +11,7 @@ import { DecisionRemarkDialog } from "@/components/portal/remark-field";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
-import { AUTOMATION_MODULES, NOTE_MAX, NOTE_MIN, STATUS_LABEL } from "@/lib/automation/shared";
+import { AUTOMATION_MODULES, AUTOMATION_SWITCHES, NOTE_MAX, NOTE_MIN, STATUS_LABEL } from "@/lib/automation/shared";
 
 /*
  * The Automation card (Part E step 1) on the Admin and HR dashboards: what the
@@ -120,7 +120,7 @@ export function AutomationCard({ role, refreshKey = 0 }) {
         {d?.paused ? <p className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-sm" data-testid="automation-paused">Automation is paused: nothing automatic runs until HR resumes it.</p> : null}
         {canPause && d?.modules_paused ? (
           <ul className="flex flex-wrap gap-2" aria-label="Modules" data-testid="automation-modules">
-            {Object.entries(AUTOMATION_MODULES).map(([m, label]) => (
+            {AUTOMATION_SWITCHES.map((m) => [m, AUTOMATION_MODULES[m]]).map(([m, label]) => (
               <li key={m} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
                 <span>{label}: {d.modules_paused[m] ? "paused" : "on"}</span>
                 <Button size="sm" variant="ghost" className="h-7 px-2" disabled={busy} onClick={() => toggleModule(m, !d.modules_paused[m])}>
