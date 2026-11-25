@@ -38,6 +38,13 @@ describe("modules", () => {
   it("every module has its own pause; all ship enabled (paused = false)", async () => {
     const { AUTOMATION_MODULES } = await import("@/lib/automation/shared");
     expect(Object.keys(AUTOMATION_MODULES)).toEqual(expect.arrayContaining(["attendance_flags", "schedule_requests"]));
+    // 2026-11-25: only modules whose switch stops real work get a switch; tracking-only ones stay on.
+    const { AUTOMATION_SWITCHES } = await import("@/lib/automation/shared");
+    expect(AUTOMATION_SWITCHES).toEqual(["attendance_flags", "schedule_requests", "attendance_corrections", "leave_recommendations", "transfer_endorsements", "rfid_issues", "awol_cases"]);
+    for (const m of ["overtime_requests", "substitutions", "incident_tracking", "incentive_recommendations"]) {
+      expect(AUTOMATION_SWITCHES).not.toContain(m);
+      expect(AUTOMATION_MODULES[m]).toBeTruthy();
+    }
     const sql = readFileSync("supabase/migrations/20261124010000_automation_framework.sql", "utf8");
     expect(sql).toMatch(/\('paused', 'false'\)/);
     expect(sql).toMatch(/FUNCTION public\.automation_off\(p_module TEXT\)/);

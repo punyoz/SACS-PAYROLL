@@ -12,7 +12,7 @@ import { DecisionRemarkDialog } from "@/components/portal/remark-field";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
-import { AUTOMATION_MODULES, STATUS_LABEL } from "@/lib/automation/shared";
+import { AUTOMATION_MODULES, AUTOMATION_SWITCHES, STATUS_LABEL } from "@/lib/automation/shared";
 import { cn } from "@/lib/utils";
 
 /*
@@ -108,7 +108,7 @@ export function AutomationSettings({ refreshKey = 0 }) {
           {d?.paused ? <p className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-sm" data-testid="automation-paused">Everything automatic is paused until you resume it.</p> : null}
           {d ? (
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label="Modules" data-testid="automation-modules">
-              {Object.entries(AUTOMATION_MODULES).map(([m, label]) => {
+              {AUTOMATION_SWITCHES.map((m) => [m, AUTOMATION_MODULES[m]]).map(([m, label]) => {
                 const on = !d.modules_paused?.[m];
                 return (
                   <li key={m} className="flex min-h-10 items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
