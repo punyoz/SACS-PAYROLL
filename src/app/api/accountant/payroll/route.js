@@ -2639,7 +2639,8 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       type: "special_working_day", quantity: 1, unit: "day", rate: l.amount, rate_config_id: null, amount: toAmount(l.amount),
       source_log_id: null, is_override: false, note: l.note, log_date: l.work_date,
     })),
-    // Substitute teaching: one line per part (inside the shift, outside it, above the standard load).
+    // Substitute teaching, paid as overtime (school policy 2026-11-26): one line per substitution,
+    // periods × period length × hourly × the day's overtime rate (src/lib/substitutions/pay.js).
     ...substitutionLines.map((l) => ({
       type: "substitution", quantity: Math.round((l.minutes / 60) * 100) / 100, unit: "hour",
       rate: l.minutes ? toAmount(l.amount / (l.minutes / 60)) : 0, rate_config_id: null, amount: toAmount(l.amount),

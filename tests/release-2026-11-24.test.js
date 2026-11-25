@@ -1,12 +1,12 @@
 // The 2026-11-24 release: the Admin views and monitors; HR <-> Admin messages and
 // the same counts; automatic substitution proposals; AWOL fully automatic (app
 // side); Settings > Automation; one RFID page; one filter bar.
-import { readFileSync } from "node:fs";
+import { readSource } from "./helpers/read-source.js";
 import { describe, expect, it, vi } from "vitest";
 import { leaveDays, proposalSpan } from "@/lib/substitutions/proposals";
 import { TRANSITIONS, canTransition } from "@/lib/awol/cases";
 
-const src = (p) => readFileSync(p, "utf8");
+const src = (p) => readSource(p);
 
 describe("substitution proposals from an approved leave", () => {
   const schedule = { work_start: 480, work_end: 1020, work_hours: 8 };
@@ -121,9 +121,11 @@ describe("one RFID page; one filter bar", () => {
     expect(src("src/components/portal/approval-filters.jsx")).not.toContain("Any employment status");
   });
   it("rows per page: 10 everywhere", () => {
-    const { execSync } = require("node:child_process");
-    const hits = execSync("git grep -n \"pageSize={15}\" -- src || true", { encoding: "utf8" });
-    expect(hits.trim()).toBe("");
+    // Cross-platform (2026-11-25): no shell, so no "|| true"; git grep exits 1 when nothing matches.
+    const { spawnSync } = require("node:child_process");
+    const found = spawnSync("git", ["grep", "-n", "pageSize={15}", "--", "src"], { encoding: "utf8" });
+    expect(found.status === 0 ? found.stdout.trim() : "").toBe("");
+    expect([0, 1]).toContain(found.status);
   });
 });
 
