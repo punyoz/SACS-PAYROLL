@@ -76,11 +76,11 @@ export function RfidIssuesPage({ refreshKey }) {
       kind="rfid_issue"
       icon={CreditCardIcon}
       title="RFID issue reports"
-      description="Report a lost, broken or malfunctioning card or reader. A card reported lost is blocked at once (HR can reactivate or replace it). HR or the Super Admin fixes it and marks it Resolved."
+      description="Report a reader that is not working, or another RFID problem you cannot fix yourself. HR or the Super Admin fixes it and marks it Resolved. A lost or broken card needs no report: use Lost or Replace on the card in RFID cards above."
       buttonLabel="Report an issue"
-      initial={{ issue_type: "lost_card" }}
+      initial={{ issue_type: "reader_fault" }}
       fields={[
-        { id: "issue_type", label: "Problem", type: "select", options: RFID_ISSUE_TYPES },
+        { id: "issue_type", label: "Problem", type: "select", options: ADMIN_RFID_ISSUE_TYPES },
         { id: "employee_id", label: "Card holder (if a card)", type: "employee" },
         { id: "device", label: "Reader / location (if a reader)", type: "text", wide: true, placeholder: "e.g. Main gate reader" },
       ]}
@@ -91,6 +91,10 @@ export function RfidIssuesPage({ refreshKey }) {
     />
   );
 }
+
+// 2026-11-25: the Admin fixes a lost or broken card in RFID cards (Lost / Replace), so the report
+// form offers only what the Admin cannot fix. Older reports keep their labels (RFID_ISSUE_TYPES).
+const ADMIN_RFID_ISSUE_TYPES = Object.freeze({ reader_fault: RFID_ISSUE_TYPES.reader_fault, other: RFID_ISSUE_TYPES.other });
 
 const hm = (t) => String(t || "").slice(0, 5);
 const SUB_STATUS = (s) => (s.needs_substitute ? "Waiting for HR to pick a teacher" : s.status === "pending" ? "Waiting for HR" : s.status === "approved" ? "Approved" : s.status === "rejected" ? "Rejected" : "Cancelled");
