@@ -21,7 +21,7 @@ const comboLabel = (r) => `${r.employee_type} · ${r.employment_status}`;
 const pending = (note) => /pending policy manual/i.test(String(note || ""));
 const SHORT = { "Vacation Leave": "Vacation", "Sick Leave": "Sick", "Emergency Leave": "Emergency", "Leave Credits": "Leave credits (days per year)" };
 const WHO = { female: "Female employees", married_male: "Married male employees", any: "Any employee" };
-const FLAGS = [["overtime_allowed", "Overtime"], ["subsidy_eligible", "Subsidies"], ["incentive_eligible", "Incentives"], ["loan_eligible", "Loans"]];
+const FLAGS = [["overtime_allowed", "Overtime"], ["subsidy_eligible", "Subsidies"], ["incentive_eligible", "Incentives"], ["loan_eligible", "Cash advances"]];
 
 /**
  * HR → Settings → Status & leave rules (Part A, 20261121010000): leave

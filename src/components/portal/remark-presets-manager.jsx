@@ -25,7 +25,7 @@ import { fetchJson, jsonBody } from "@/lib/portal/api";
 export const DECISION_LABELS = { approve: "Approve", reject: "Reject", resolve: "Resolve", endorse: "Endorse", object: "Object", override: "Override", revoke: "Revoke", file: "File (branch Admin)" };
 export const TYPE_LABELS = {
   "*": "Any type", leave_request: "Leave request", overtime_request: "Overtime request", attendance_correction: "Attendance correction",
-  payroll_run: "Payroll run", awol_case: "AWOL case", transfer_request: "Transfer request", adjustment: "Incentive / loan",
+  payroll_run: "Payroll run", awol_case: "AWOL case", transfer_request: "Transfer request", adjustment: "Incentive / cash advance",
   final_pay: "Final pay", tenure_grant: "Tenure pay protection", subsidy_request: "Subsidy request",
   incident_report: "Incident report (Admin)", incentive_endorsement: "Incentive proposal (Admin)", rfid_issue: "RFID issue (Admin)",
   payroll_correction: "Payroll correction", branch_request: "Branch request", substitution: "Substitution",

@@ -112,7 +112,7 @@ const TITLES = {
   "ac-loans": "Cash Advances", "ac-cash-advances": "All Cash Advances", "ac-approvals": "Subsidies", "ac-13th": "13th month pay", "ac-final-pay": "Final Pay",
   "ac-attendance": "Attendance Records", "ac-holidays": "Holidays & Duty", "ac-monitoring": "Payroll Monitoring", "ac-reports": "Payroll Reports",
   "ac-gov-rates": "Government Rates", "ac-pay-types": "Additional Pay Types", "ac-my-attendance": "My Attendance", "ac-my-timesheet": "My Timesheet", "ac-my-payslips": "My Payslips",
-  "ac-my-leave": "My Requests", "ac-my-requests": "Loans & Other Pay", "ac-profile": "My Profile",
+  "ac-my-leave": "My Requests", "ac-my-requests": "Deductions & Other Pay", "ac-profile": "My Profile",
 };
 const DESCRIPTIONS = {
   "ac-dashboard": "Payroll overview and activity summary for the current period.",
@@ -124,7 +124,7 @@ const DESCRIPTIONS = {
   "ac-pay-types": "Settings: your own additional pay types (name, taxable or not). HR still approves each item.",
   "ac-loans": "Cash advances (limited to one month's salary) and licensed-teacher subsidy advances. Deducted on the 16–end payslip until repaid. SSS and Pag-IBIG loans are encoded by HR.",
   "ac-cash-advances": "All cash advances, including the older records.",
-  "ac-final-pay": "Final pay for separated employees: unpaid salary, pro-rated 13th month, subsidy, less contributions, tax and loan balances. Release within 30 days.",
+  "ac-final-pay": "Final pay for separated employees: unpaid salary, pro-rated 13th month, subsidy, less contributions, tax, cash advance and government loan balances. Release within 30 days.",
   "ac-approvals": "Process licensed-teacher subsidies (missed-month adjustments, advances, excess-advance settlements). HR approves or rejects; rejected ones come back here to fix and resubmit.",
   "ac-13th": "Total basic salary earned in the year ÷ 12 — a separate payout in December.",
   "ac-attendance": "View-only — for payroll deduction reference.",

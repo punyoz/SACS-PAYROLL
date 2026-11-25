@@ -413,7 +413,7 @@ describe("Loans export = the Loans table (2026-11-19)", () => {
   it("an empty export says why", async () => {
     seedThree();
     const { xml } = await sheetOf(await exportLoans("status=paid"));
-    expect(xml).toContain("No loans match: Status = Paid.");
+    expect(xml).toContain("No cash advances match: Status = Paid.");
     expect(xml).toContain("0 records");
   });
 
@@ -467,7 +467,7 @@ describe("Loan salary limit", () => {
   it("messages: summary and refusal in plain words", async () => {
     const { loanLimitSummary, loanLimitRefusal, checkLoanLimit } = await import("@/lib/payroll/loan-limit");
     const info = { loan_limit: 10500, owed: 4000, multiplier: 1 };
-    expect(loanLimitSummary(info)).toBe("Salary limit ₱10,500.00, already owed on cash advances ₱4,000.00, you can take up to ₱6,500.00 more.");
+    expect(loanLimitSummary(info)).toBe("Salary limit ₱10,500.00. Already owed on cash advances: ₱4,000.00. Most that can still be borrowed: ₱6,500.00 (the total never goes over the limit).");
     expect(loanLimitRefusal(info, 7000)).toBe("This cash advance would make the total ₱11,000.00, which is more than the limit of ₱10,500.00 (1 month's salary). The most that can be added is ₱6,500.00.");
     expect(checkLoanLimit({ ...info, amount: 6500 }).ok).toBe(true);
     expect(checkLoanLimit({ ...info, amount: 6500.01 }).ok).toBe(false);

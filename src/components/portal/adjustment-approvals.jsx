@@ -118,9 +118,9 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
   return (
     <Card className="min-w-0 shadow-xs">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2"><ClipboardCheckIcon className="size-4 text-gold-text" aria-hidden="true" />Incentive & loan approvals</CardTitle>
+        <CardTitle className="flex items-center gap-2"><ClipboardCheckIcon className="size-4 text-gold-text" aria-hidden="true" />Incentive & cash advance approvals</CardTitle>
         <CardDescription>
-          Incentives, overload, loans and cash advances the Accountant filed, and the Perfect Attendance and Early Bird incentives the system computed each cutoff (marked &ldquo;system&rdquo;). Payroll pays or deducts them only once HR approves; a rejected one is kept, never paid.
+          Incentives, overload and cash advances the Accountant filed, and the Early Bird incentive the system computed each cutoff (marked &ldquo;system&rdquo;). Payroll pays or deducts them only once HR approves; a rejected one is kept, never paid.
           {data && !canDecide ? " Read-only: HR decides." : ""}
         </CardDescription>
         <CardAction className="flex flex-wrap items-center justify-end gap-2">
@@ -131,7 +131,7 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
       <CardContent className="space-y-4">
         <DataTable toolbar={filters.toolbar}
           columns={columns} rows={rows} rowKey={(i) => `${i.kind}-${i.id}`} loading={state.loading && !data} error={state.error} onRetry={load}
-          searchPlaceholder="Search employee, type or details…" caption="Incentive and loan approvals" minWidth={1000}
+          searchPlaceholder="Search employee, type or details…" caption="Incentive and cash advance approvals" minWidth={1000}
           empty={{ title: tab === "pending" ? "Nothing waiting for HR" : "No decisions yet", icon: ClipboardCheckIcon }}
           selection={canDecide ? { ...bulk.selection, rowId: (i) => `${i.kind}-${i.id}` } : null} />
         {bulk.dialog}

@@ -108,7 +108,7 @@ describe("the ₱18,500 employee on the screen, October 16-31 (preview)", () => 
     expect(summary).toMatchObject({ sss: 925, philhealth: 462.5, pagibig: 200, tax: 0 });
 
     expect(groups.groups.map((g) => g.title)).toEqual([
-      "Additions", "Government contributions (employee share)", "Withholding tax (income tax)", "Attendance deductions", "Loans / advances",
+      "Additions", "Government contributions (employee share)", "Withholding tax (income tax)", "Attendance deductions", "Cash advances / government loans",
     ]);
     expect(lineIn(groups, "contributions", "sss")).toMatchObject({ tag: "percentage", sign: "-", how: "SSS: 5% of ₱18,500.00 (monthly salary credit) = ₱925.00" });
     expect(lineIn(groups, "contributions", "philhealth")).toMatchObject({ tag: "percentage", how: "PhilHealth: 2.5% of ₱18,500.00 (monthly basic salary) = ₱462.50" });

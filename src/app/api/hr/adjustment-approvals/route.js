@@ -94,7 +94,7 @@ export async function GET(request) {
         amount_label: money(row.total_payable ?? row.principal),
         detail: `${row.description ? `${row.description} · ` : ""}${money(row.amortization)} per 16–end payslip from ${row.start_period}, ${row.number_of_payrolls} payslips`
           + (row.approval_status === "pending" && limits.byEmployee.get(row.employee_id)
-            ? ` · ${loanLimitSummary(limits.byEmployee.get(row.employee_id)).replace("already owed on cash advances", "owed on cash advances with this one").replace(/you can take up to (₱[\d,.]+) more/, "room left $1")}`
+            ? ` · ${loanLimitSummary(limits.byEmployee.get(row.employee_id)).replace("Already owed on cash advances", "Owed on cash advances with this one").replace(/Most that can still be borrowed: (₱[\d,.]+) \(the total never goes over the limit\)/, "Room left under the limit: $1")}`
             : ""),
         loan_limit: row.approval_status === "pending" ? limits.byEmployee.get(row.employee_id) || null : null,
       })),

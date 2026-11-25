@@ -202,7 +202,7 @@ function ProcessingWindows() {
           </li>
         ))}
       </ul>
-      <p className="mt-1 text-xs text-muted-foreground">Outside its window the Accountant cannot override Absent, Late, Undertime, Half day, Leave without pay or Perfect attendance. Rejecting a run (with a reason) reopens overrides for that run only.</p>
+      <p className="mt-1 text-xs text-muted-foreground">Outside its window the Accountant cannot override Absent, Late, Undertime, Half day, Leave without pay. Rejecting a run (with a reason) reopens overrides for that run only.</p>
     </div>
     </>
   );
@@ -362,7 +362,7 @@ function RunDetail({ runId, onBack, onChanged }) {
             {run ? <>{run.branch_name} · {run.period_label}{runNoLabel(run) ? ` · ${runNoLabel(run)}` : ""} <RunStatusBadge status={run.status} />{run.created_in_testing_mode ? <> <StatusBadge tone="danger">Testing mode</StatusBadge></> : null}</> : <Skeleton className="h-6 w-64" />}
           </CardTitle>
           <CardDescription>
-            {run ? <>{cutoffLabel(run)}: {first ? "attendance deductions only (late, undertime, absences)" : "attendance for the 16th to month end, plus withholding tax, SSS, PhilHealth, Pag-IBIG, loans and other deductions"}. Submitted by {run.submitted_by_name || "—"}{run.submitted_at ? ` on ${dateTime(run.submitted_at)}` : ""} · snapshot {run.submission_no}.</> : null}
+            {run ? <>{cutoffLabel(run)}: {first ? "attendance deductions only (late, undertime, absences)" : "attendance for the 16th to month end, plus withholding tax, SSS, PhilHealth, Pag-IBIG, cash advances, government loans and other deductions"}. Submitted by {run.submitted_by_name || "—"}{run.submitted_at ? ` on ${dateTime(run.submitted_at)}` : ""} · snapshot {run.submission_no}.</> : null}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -203,7 +203,7 @@ describe("payslip PDF: two panels, one page, everything adds up (2026-11-22)", (
     const d = secondHalf();
     const { text } = await readPdf(await buildPayslipPdf(d));
     ["Monthly tax computation", "Taxable income ₱24,374.87", "Month total: 1st half", "Year to date (2026)", "Tax withheld", "125% of the hourly rate", "Substitute teaching"].forEach((piece) => expect(text, piece).toContain(piece));
-    const order = ["Attendance", "Government contributions", "Tax", "Loans and advances"].map((g) => text.indexOf(` ${g} `));
+    const order = ["Attendance", "Government contributions", "Tax", "Cash advances and government loans"].map((g) => text.indexOf(` ${g} `));
     order.forEach((at) => expect(at).toBeGreaterThan(0));
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });

@@ -220,13 +220,28 @@ describe("the remittance report", () => {
 });
 
 describe("bonuses under the ₱90,000 ceiling", () => {
-  it("Gio: ₱89,800 of benefits already paid, ₱500 perfect attendance bonus → ₱200 exempt, ₱300 taxed", async () => {
+  // 2026-11-25: Perfect Attendance is retired (the school does not pay it); the ceiling is shown with a ₱500 Bonus item,
+  // an "other benefit" under the same ₱90,000 yearly ceiling.
+  it("a ₱500 Perfect Attendance rate pays nothing any more (retired)", async () => {
+    table("attendance_logs").push({
+      id: "g0", employee_id: "u-gio", branch_id: BRANCH, log_date: "2026-11-17", time_in: "2026-11-17T00:00:00Z", time_out: "2026-11-17T09:00:00Z",
+      created_at: "2026-11-17T00:00:00Z", status: "On Time", late_minutes: 0, undertime_minutes: 0, is_half_day: false, is_early_bird: false, archived_duplicate: false, arrival_offset_minutes: 0,
+    });
+    await processNovember([rate("perfect_attendance_bonus", 500, "2026-11-01")]);
+    const p = entry("u-gio", SECOND).payroll;
+    expect(Number(p.totals.perfect_attendance_incentive) || 0).toBe(0);
+    expect(p.monthly.monthly_gross).toBe(30000);
+  });
+
+  it("Gio: ₱89,800 of benefits already paid, a ₱500 bonus → ₱200 exempt, ₱300 taxed", async () => {
+    table("payroll_monthly_incentives").push({ id: "bonus-gio", employee_id: "u-gio", branch_id: BRANCH, item_date: "2026-11-10", kind: "bonus", description: "Bonus",
+      amount: 500, archived: false, approval_status: "approved", created_at: "2026-11-10T00:00:00Z", decided_at: "2026-11-10T00:00:00Z" });
     table("payroll_exempt_benefits_paid").push({ employee_id: "u-gio", tax_year: 2026, kind: "thirteenth_month", amount: 89800, paid_on: "2026-06-30" });
     table("attendance_logs").push({
       id: "g1", employee_id: "u-gio", branch_id: BRANCH, log_date: "2026-11-17", time_in: "2026-11-17T00:00:00Z", time_out: "2026-11-17T09:00:00Z",
       created_at: "2026-11-17T00:00:00Z", status: "On Time", late_minutes: 0, undertime_minutes: 0, is_half_day: false, is_early_bird: false, archived_duplicate: false, arrival_offset_minutes: 0,
     });
-    await processNovember([rate("perfect_attendance_bonus", 500, "2026-11-01")]);
+    await processNovember([]);
     const m = entry("u-gio", SECOND).payroll.monthly;
     expect(m.bonuses).toEqual({ amount: 500, exempt: 200, taxable: 300, ceiling: 90000, benefits_ytd: 89800 });
     // 30,000 + 500 − 2,450 − 200 exempt = 27,850 → (27,850 − 20,833) × 15% = 1,052.55.

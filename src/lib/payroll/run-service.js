@@ -357,7 +357,7 @@ export async function submitRun(supabase, guard, { branchId, periodLabel, acknow
       body: {
         code: ruleBlock.waiting.length ? "incentives_pending" : "needs_recompute",
         error: [
-          ruleBlock.waiting.length ? `HR has not decided these incentives yet (Incentive & loan approvals): ${ruleBlock.waiting.join(", ")}.` : null,
+          ruleBlock.waiting.length ? `HR has not decided these incentives yet (Incentive & cash advance approvals): ${ruleBlock.waiting.join(", ")}.` : null,
           ruleBlock.recompute.length ? `Recompute first, HR approved these incentives after the payslip was computed: ${ruleBlock.recompute.join(", ")}.` : null,
         ].filter(Boolean).join(" "),
         incentives_pending: ruleBlock.waiting,

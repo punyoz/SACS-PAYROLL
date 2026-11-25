@@ -46,11 +46,11 @@ export function checkLoanLimit({ loan_limit: limit, owed, amount }) {
   return { ok: total <= peso(limit), total, room };
 }
 
-/** "Salary limit ₱X, already owed on cash advances ₱Y, you can take up to ₱Z more." */
+/** "Salary limit ₱X. Already owed on cash advances: ₱Y. Most that can still be borrowed: ₱Z (the total never goes over the limit)." */
 export function loanLimitSummary(info) {
   if (!info) return "";
   const room = Math.max(0, peso(Number(info.loan_limit) - Number(info.owed)));
-  return `Salary limit ${money(info.loan_limit)}, already owed on cash advances ${money(info.owed)}, you can take up to ${money(room)} more.`;
+  return `Salary limit ${money(info.loan_limit)}. Already owed on cash advances: ${money(info.owed)}. Most that can still be borrowed: ${money(room)} (the total never goes over the limit).`;
 }
 
 /** The refusal, in the same words the database uses. */

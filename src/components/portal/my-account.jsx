@@ -69,7 +69,7 @@ export function myAccountGroup(prefix, { defaultOpen = false } = {}) {
       { id: ids.timesheet, label: "My Timesheet", icon: ClockIcon, module: "my_account" },
       { id: ids.leave, label: "My Requests", icon: CalendarDaysIcon, module: "my_account" },
       { id: ids.payslips, label: "My Payslips", icon: ReceiptTextIcon, module: "my_account" },
-      { id: ids.requests, label: "Loans & Other Pay", icon: InboxIcon, module: "my_account" },
+      { id: ids.requests, label: "Deductions & Other Pay", icon: InboxIcon, module: "my_account" },
       { id: ids.profile, label: "My Profile", icon: UserRoundIcon, module: "profile" },
     ],
   };
@@ -87,7 +87,7 @@ export function myAccountItem(prefix) {
         { id: ids.timesheet, label: "My Timesheet", module: "my_account" },
         { id: ids.payslips, label: "My Payslips", module: "my_account" },
         { id: ids.leave, label: "My Requests", module: "my_account" },
-        { id: ids.requests, label: "Loans & Other Pay", module: "my_account" },
+        { id: ids.requests, label: "Deductions & Other Pay", module: "my_account" },
         { id: ids.profile, label: "Profile", module: "profile" },
       ],
     }],
@@ -102,7 +102,7 @@ export function employeeAccountItems() {
       { id: ids.attendance, label: "Attendance", module: "my_account" }, { id: ids.timesheet, label: "Timesheet", module: "my_account" }] },
     requests: { id: ids.leave, label: "My Requests", icon: CalendarDaysIcon, module: "my_account" },
     payslips: { id: ids.payslips, label: "My Payslips", icon: ReceiptTextIcon, tabs: [
-      { id: ids.payslips, label: "Payslips", module: "my_account" }, { id: ids.requests, label: "Loans & Other Pay", module: "my_account" }] },
+      { id: ids.payslips, label: "Payslips", module: "my_account" }, { id: ids.requests, label: "Deductions & Other Pay", module: "my_account" }] },
     profile: { id: ids.profile, label: "My Profile", icon: UserRoundIcon, module: "profile" },
   };
 }
@@ -112,7 +112,7 @@ export const MY_DESCRIPTIONS = {
   timesheet: "Your own daily hours, tardiness and undertime for any date range.",
   leave: "File your own leave, half days and overtime, and follow their approval.",
   payslips: "Your payslips. Choose View to see the full details.",
-  requests: "Your own loans, cash advances, incentives, subsidy and 13th month pay.",
+  requests: "Your own deductions (cash advances, SSS / Pag-IBIG loans), incentives, subsidy and 13th month pay.",
   profile: "Your personal, contact and government details on file.",
 };
 

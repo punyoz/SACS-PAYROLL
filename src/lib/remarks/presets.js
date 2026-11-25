@@ -89,7 +89,7 @@ export function remarkClient(remark, { decision, entityType, module, table, ids 
 
 export const ENTITY_LABELS = Object.freeze({
   leave_request: "Leave request", overtime_request: "Overtime request", attendance_correction: "Attendance correction",
-  payroll_run: "Payroll run", awol_case: "AWOL case", transfer_request: "Transfer request", adjustment: "Incentive / loan",
+  payroll_run: "Payroll run", awol_case: "AWOL case", transfer_request: "Transfer request", adjustment: "Incentive / cash advance",
   final_pay: "Final pay", tenure_grant: "Tenure pay protection", subsidy_request: "Subsidy request",
   payroll_correction: "Payroll correction", branch_request: "Branch request", substitution: "Substitution",
   incident_report: "Incident report (Admin)", incentive_endorsement: "Incentive proposal (Admin)", rfid_issue: "RFID issue (Admin)",

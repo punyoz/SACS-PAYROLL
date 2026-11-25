@@ -301,12 +301,7 @@ export function LoansPage({ refreshKey }) {
                 <TabsContent value="loan">
                   <form onSubmit={submitLoan} noValidate className="grid items-start gap-4 sm:grid-cols-2">
                     <div className="sm:col-span-2">{field("employee", "Employee", <EmployeeSelect id="ac-ln-employee" value={form.employee} onChange={(v) => setForm((c) => ({ ...c, employee: v }))} employees={people} invalid={Boolean(errors.employee)} />, "Employees on AWOL / separation hold are not listed.")}</div>
-                    {field("type", "Type", (
-                      <Select value={form.type} onValueChange={(v) => setForm((c) => ({ ...c, type: v }))}>
-                        <SelectTrigger id="ac-ln-type" className="w-full"><SelectValue /></SelectTrigger>
-                        <SelectContent>{TYPES.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
-                      </Select>
-                    ))}
+                    {/* No Type field (2026-11-25): a cash advance is the only kind filed here. */}
                     {field("granted", "Date given", <DatePicker id="ac-ln-granted" value={form.granted} onChange={(v) => setForm((c) => ({ ...c, granted: v }))} aria-invalid={Boolean(errors.granted) || undefined} />)}
                     {field("principal", "Amount (₱)", <Input id="ac-ln-principal" type="number" min="0" max={form.type === "cash_advance" ? CASH_ADVANCE_MAX : LOAN_MAX} step="0.01" inputMode="decimal" value={form.principal} onChange={(e) => setForm((c) => ({ ...c, principal: e.target.value }))} aria-invalid={Boolean(errors.principal) || undefined} />, limitInfo ? <span data-testid="loan-limit-summary">{loanLimitSummary(limitInfo)}</span> : null)}
                     {field("interest", "Interest (%, flat)", <Input id="ac-ln-interest" type="number" min="0" max="100" step="0.01" inputMode="decimal" value={form.interest} onChange={(e) => setForm((c) => ({ ...c, interest: e.target.value }))} aria-invalid={Boolean(errors.interest) || undefined} />, total ? `Total payable ${money(total)}` : null)}
@@ -372,7 +367,7 @@ export function LoansPage({ refreshKey }) {
                   <SelectContent>{Object.entries(LOAN_STATUS_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
                 </Select>
                 {/* The file lists what the table shows: this status, the search text and the sort (2026-11-19). */}
-                <ExportButtons href={`/api/accountant/loans?status=${filter}`} params={{ q: query, sort: sort ? `${sort.key}:${sort.dir}` : "" }} label={`loans (${LOAN_STATUS_LABELS[filter] || "All"})`} disabled={!shown.length} />
+                <ExportButtons href={`/api/accountant/loans?status=${filter}`} params={{ q: query, sort: sort ? `${sort.key}:${sort.dir}` : "" }} label={`cash advances (${LOAN_STATUS_LABELS[filter] || "All"})`} disabled={!shown.length} />
               </>
             )}
             searchPlaceholder="Search employee, type or description…" empty={{ title: "No cash advances here", icon: HandCoinsIcon }} caption="Cash advances" minWidth={1150} />

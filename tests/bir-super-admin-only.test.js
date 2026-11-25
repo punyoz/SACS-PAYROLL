@@ -21,8 +21,8 @@ import { NAME_TYPING_HINT } from "@/lib/person-name";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
-// Part I (2026-11-23): "Leave & Overtime" is "My Requests"; the money list is "Loans & Other Pay".
-const SIX = ["My Attendance", "My Timesheet", "My Requests", "My Payslips", "Loans & Other Pay", "My Profile"];
+// Part I (2026-11-23): "Leave & Overtime" is "My Requests"; the money list is "Deductions & Other Pay".
+const SIX = ["My Attendance", "My Timesheet", "My Requests", "My Payslips", "Deductions & Other Pay", "My Profile"];
 
 describe("BIR access: the Super Admin only", () => {
   it("only the Super Admin holds bir_forms", () => {
