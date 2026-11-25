@@ -44,6 +44,7 @@ import { textLimitError } from "@/lib/input-limits";
 import { reportDate, reportResponse, wantsFile } from "@/lib/export/report-file";
 import { LOAN_STATUS_LABELS, loanCanResume, loanCanSuspend, loanDecisionText, loanMatchesQuery, loanMatchesStatus, loanSortLabel, loanStatusLabel, parseLoanSort, sortLoans } from "@/lib/payroll/loan-status";
 import { eligibilityRefusal } from "@/lib/employees/classification-server";
+import { checkLoanLimit, isLimitedLoanType, loadLoanLimits, loanLimitDbRefusal, loanLimitRefusal } from "@/lib/payroll/loan-limit";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { description: [200, "The description"], reason: [300, "The reason"] };
@@ -58,6 +59,20 @@ function dbError(error, fallback = "The loan was not saved.") {
     return NextResponse.json({ error: String(error.message || fallback).replace(/^ERROR:\s*/, "") }, { status: 400 });
   }
   return NextResponse.json({ error: sanitizeError(error, fallback) }, { status: 500 });
+}
+
+/**
+ * A loan the salary limit refuses (20261125010000): audited (who, amount, limit, owed), then a 400.
+ * `info` = the employee's limit numbers (or the database's, from its refusal).
+ */
+async function limitRefused(guard, person, { message, amount, info, stage }) {
+  await appendAuditLog({
+    actor: guard, module: "payroll", action: "loan_limit_refused", entity_type: "payroll_loan",
+    entity_id: person.id, status: "failed", source: "api",
+    description: `Loan of ${money(amount)} for ${personLabel(person)} refused (${stage}): limit ${money(info?.loan_limit)}, already owed ${money(info?.owed)}.`,
+    metadata: { employee_id: person.id, amount: peso(amount), loan_limit: peso(info?.loan_limit), owed: peso(info?.owed), room: peso(info?.room), monthly_basic: peso(info?.monthly_basic), multiplier: info?.multiplier ?? null, stage },
+  });
+  return NextResponse.json({ error: message, code: "loan_limit", limit: info || null }, { status: 400 });
 }
 
 /** A refusal from subsidy processing (the database's own rules). */
@@ -207,13 +222,18 @@ export async function GET(request) {
     }
 
     const open = loans.filter((loan) => loan.status !== "paid");
+    // The salary limit of each person who can borrow (or the employee's own), from the database.
+    const limitIds = guard.scope === "self" ? [guard.userId] : staff.filter((person) => !person.archived).map((person) => person.id);
+    const limits = await loadLoanLimits(supabase, limitIds);
     return NextResponse.json({
       available: true,
       loans,
       people: guard.scope === "self" ? [] : staff.filter((person) => !person.archived).map((person) => ({
         id: person.id, full_name: person.full_name, employee_id: person.employee_id,
         payroll_hold: person.payroll_hold, is_licensed_teacher: person.is_licensed_teacher,
+        loan_limit: limits.byEmployee.get(person.id) || null,
       })),
+      my_loan_limit: guard.scope === "self" ? limits.byEmployee.get(guard.userId) || null : undefined,
       subsidy_balances: subsidyBalances,
       summary: {
         open_count: open.length,
@@ -276,6 +296,17 @@ export async function POST(request) {
         return NextResponse.json({ error: `${person.full_name}'s ${startLabel} payslip is already Final. Start the deduction on a later pay period.` }, { status: 409 });
       }
 
+      // The salary limit (20261125010000): the total owed after this loan stays within the limit.
+      // The database checks again on insert and when HR approves.
+      const amount = totalPayable(input.principal, input.interest_pct);
+      if (isLimitedLoanType(input.loan_type)) {
+        const limits = await loadLoanLimits(supabase, [person.id]);
+        const info = limits.byEmployee.get(person.id);
+        if (info && !checkLoanLimit({ ...info, amount }).ok) {
+          return await limitRefused(guard, person, { message: loanLimitRefusal(info, amount), amount, info, stage: "filed" });
+        }
+      }
+
       const row = {
         employee_id: person.id,
         branch_id: person.branch_id || null,
@@ -294,7 +325,11 @@ export async function POST(request) {
         approval_status: "pending",
       };
       const result = await supabase.from("payroll_loans").insert(row).select("id,total_payable").maybeSingle();
-      if (result.error) return dbError(result.error);
+      if (result.error) {
+        const refusal = loanLimitDbRefusal(result.error);
+        if (refusal) return await limitRefused(guard, person, { message: refusal.error, amount, info: refusal.detail, stage: "filed" });
+        return dbError(result.error);
+      }
 
       await appendAuditLog({
         actor: guard, module: "payroll", action: "loan_create", entity_type: "payroll_loan",

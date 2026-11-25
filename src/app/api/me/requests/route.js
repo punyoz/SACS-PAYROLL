@@ -15,6 +15,7 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient } from "@/lib/supabase/admin";
 import { compute13thMonthFromEntries } from "@/lib/payroll/thirteenth-month";
 import { manilaDateKey } from "@/lib/payroll/periods";
+import { loadLoanLimits } from "@/lib/payroll/loan-limit";
 
 const LIMIT = 200;
 
@@ -50,8 +51,13 @@ export async function GET(request) {
     };
     // Cash advances are also kept as loans of type cash_advance (20261009020000).
     const allLoans = list(loans);
+    // The salary limit (20261125010000): only roles on payroll borrow (no Super Admin / Admin).
+    const loanLimit = ["employee", "hr", "accountant"].includes(String(guard.role || ""))
+      ? (await loadLoanLimits(supabase, [me])).byEmployee.get(me) || null
+      : null;
     return NextResponse.json({
       loans: allLoans.filter((row) => row.loan_type !== "cash_advance"),
+      loan_limit: loanLimit,
       cash_advances: [...allLoans.filter((row) => row.loan_type === "cash_advance"), ...list(advances).map((row) => ({ ...row, legacy: true }))],
       incentives: list(incentives),
       subsidy: list(subsidy),

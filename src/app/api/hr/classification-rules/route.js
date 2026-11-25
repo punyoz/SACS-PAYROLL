@@ -7,6 +7,7 @@
  *   POST  { kind: "leave", effective_from, note?, rows: [{ leave_type, employee_type, employment_status, employment_type, days_per_year }] }
  *         { kind: "pay", effective_from, note?, rows: [{ employee_type, employment_status, employment_type, pay_basis, overtime_allowed, subsidy_eligible, incentive_eligible, loan_eligible }] }
  *         { kind: "settings", values: { probation_months, probation_reminder_days, contract_reminder_days } }
+ *         { kind: "loan_limit", multiplier }   the loan salary limit (20261125010000; pending policy manual)
  *   HR / Super Admin only; every save is a new version (history kept) and audited.
  */
 import { NextResponse } from "next/server";
@@ -20,6 +21,22 @@ import {
   leaveRuleFor, legalMinimumWarnings, payRuleFor,
 } from "@/lib/employees/classification";
 import { loadLeaveRules, loadPayRules, loadStatutoryLeaves } from "@/lib/employees/classification-server";
+import { LOAN_LIMIT_BASIS_LABELS, LOAN_LIMIT_DEFAULTS, LOAN_LIMIT_MULTIPLIER_RANGE, multiplierText } from "@/lib/payroll/loan-limit";
+
+/** The loan salary limit settings (system_config payroll.loan_limit_*), defaults when unset. */
+async function loadLoanLimitSettings(supabase) {
+  const rows = (await supabase.from("system_config").select("key,value,updated_by,updated_at").eq("section", "payroll").in("key", ["loan_limit_basis", "loan_limit_multiplier"])).data || [];
+  const row = (key) => rows.find((r) => r.key === key);
+  const m = Number(row("loan_limit_multiplier")?.value);
+  const basis = LOAN_LIMIT_BASIS_LABELS[row("loan_limit_basis")?.value] ? row("loan_limit_basis").value : LOAN_LIMIT_DEFAULTS.basis;
+  return {
+    basis, basis_label: LOAN_LIMIT_BASIS_LABELS[basis],
+    multiplier: Number.isFinite(m) && m > 0 ? m : LOAN_LIMIT_DEFAULTS.multiplier,
+    ...LOAN_LIMIT_MULTIPLIER_RANGE,
+    updated_by: row("loan_limit_multiplier")?.updated_by || null,
+    updated_at: row("loan_limit_multiplier")?.updated_at || null,
+  };
+}
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const today = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
@@ -32,10 +49,11 @@ export async function GET(request) {
     const guard = await requirePermission(request, "user_management", "read");
     if (guard.denied) return guard.denied;
     const supabase = getAdminClient();
-    const [leaveRules, payRules, config, statutory] = await Promise.all([
+    const [leaveRules, payRules, config, statutory, loanLimit] = await Promise.all([
       loadLeaveRules(supabase), loadPayRules(supabase),
       supabase.from("system_config").select("key,value").eq("section", "hr").in("key", Object.keys(HR_SETTINGS)),
       loadStatutoryLeaves(supabase),
+      loadLoanLimitSettings(supabase),
     ]);
     const on = today();
     const leave = combos().map((c) => ({
@@ -55,7 +73,7 @@ export async function GET(request) {
       const n = Number((config.data || []).find((r) => r.key === key)?.value);
       return [key, { ...def, value: Number.isFinite(n) && n > 0 ? n : def.fallback }];
     }));
-    return NextResponse.json({ leave, pay, upcoming, warnings: legalMinimumWarnings(leaveRules, on), settings, leave_types: [POOL_LEAVE_TYPE], statutory });
+    return NextResponse.json({ leave, pay, upcoming, warnings: legalMinimumWarnings(leaveRules, on), settings, leave_types: [POOL_LEAVE_TYPE], statutory, loan_limit: loanLimit });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
@@ -98,6 +116,20 @@ export async function POST(request) {
           description: `Statutory leave saved by ${by}: ${changed.join("; ")}.`, metadata: { changes: changed } });
       }
       return NextResponse.json({ success: true, changed: changed.length });
+    }
+
+    if (body.kind === "loan_limit") {
+      const m = Number(body.multiplier);
+      const { min, max } = LOAN_LIMIT_MULTIPLIER_RANGE;
+      if (!Number.isFinite(m) || m < min || m > max || Math.abs(Math.round(m * 100) - m * 100) > 1e-9) {
+        return NextResponse.json({ error: `Loan limit: a number of months' salary from ${min} to ${max} (up to 2 decimals).` }, { status: 400 });
+      }
+      const before = await loadLoanLimitSettings(supabase);
+      const saved = await supabase.from("system_config").upsert({ section: "payroll", key: "loan_limit_multiplier", value: String(m), updated_by: by, updated_at: new Date().toISOString() }, { onConflict: "section,key" });
+      if (saved.error) return NextResponse.json({ error: sanitizeError(saved.error) }, { status: 400 });
+      await appendAuditLog({ actor: guard, module: "payroll", action: "loan_limit_setting_change", entity_type: "system_config", entity_id: "payroll.loan_limit_multiplier", status: "success", source: "api",
+        description: `Loan limit set by ${by}: ${multiplierText(m)} (was ${multiplierText(before.multiplier)}). Applies to new and changed loans only.`, metadata: { from: before.multiplier, to: m } });
+      return NextResponse.json({ success: true });
     }
 
     if (body.kind === "settings") {

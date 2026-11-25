@@ -28,6 +28,7 @@ import { roundPeso } from "@/lib/payroll/money";
 import { approvalFields, describeDecisionError } from "@/lib/payroll/adjustment-approvals";
 import { LOAN_TYPE_LABELS } from "@/lib/payroll/loans";
 import { textLimitError } from "@/lib/input-limits";
+import { isLimitedLoanType, loadLoanLimits, loanLimitSummary } from "@/lib/payroll/loan-limit";
 import { RULE_INCENTIVE_LABELS } from "@/lib/payroll/incentive-recommendations";
 
 // The longest text each box takes; the form boxes match.
@@ -64,6 +65,9 @@ export async function GET(request) {
       return NextResponse.json({ available: false, items: [], error: "Approvals are not set up yet: apply 20261027020000_adjustment_approvals.sql." });
     }
     const person = new Map((people.data || []).map((p) => [p.id, p]));
+    // The salary limit of each employee with a pending loan (20261125010000), for HR to see before approving.
+    const pendingLoanOwners = (loans.data || []).filter((row) => row.approval_status === "pending" && isLimitedLoanType(row.loan_type)).map((row) => row.employee_id);
+    const limits = await loadLoanLimits(supabase, pendingLoanOwners);
     const branch = new Map((branches.data || []).map((b) => [b.id, b.name]));
     const base = (row) => ({
       id: row.id, employee_id: row.employee_id, employee_name: person.get(row.employee_id)?.full_name || "—",
@@ -87,7 +91,11 @@ export async function GET(request) {
       ...(loans.data || []).map((row) => ({
         ...base(row), kind: "loan", type_label: LOAN_TYPE_LABELS[row.loan_type] || row.loan_type,
         amount_label: money(row.total_payable ?? row.principal),
-        detail: `${row.description ? `${row.description} · ` : ""}${money(row.amortization)} per 16–end payslip from ${row.start_period}, ${row.number_of_payrolls} payslips`,
+        detail: `${row.description ? `${row.description} · ` : ""}${money(row.amortization)} per 16–end payslip from ${row.start_period}, ${row.number_of_payrolls} payslips`
+          + (row.approval_status === "pending" && limits.byEmployee.get(row.employee_id)
+            ? ` · ${loanLimitSummary(limits.byEmployee.get(row.employee_id)).replace("already owed", "owed with this loan").replace("you can borrow up to", "room left")}`
+            : ""),
+        loan_limit: row.approval_status === "pending" ? limits.byEmployee.get(row.employee_id) || null : null,
       })),
     ]
       .filter((item) => wanted === "all" || (wanted === "pending" ? item.approval_status === "pending" : item.approval_status !== "pending"))
@@ -134,6 +142,15 @@ export async function PATCH(request) {
       : await decider.rpc("payroll_adjustment_decide", { p_actor: guard.userId, p_kind: kind, p_id: id, p_decision: decision, p_note: note || null });
     if (result.error) {
       const failure = describeDecisionError(result.error);
+      if (failure.code === "loan_limit") {
+        const loan = (await supabase.from("payroll_loans").select("employee_id,total_payable").eq("id", id).maybeSingle()).data;
+        const info = loan ? (await loadLoanLimits(supabase, [loan.employee_id], { exclude: id })).byEmployee.get(loan.employee_id) : null;
+        await appendAuditLog({
+          actor: guard, module: "payroll", action: "loan_limit_refused", entity_type: "payroll_loan", entity_id: id, status: "failed", source: "api",
+          description: `HR approval of a ${money(loan?.total_payable)} loan refused: limit ${money(info?.loan_limit)}, already owed ${money(info?.owed)}.`,
+          metadata: { stage: "approval", loan_id: id, employee_id: loan?.employee_id || null, amount: roundPeso(loan?.total_payable), loan_limit: info?.loan_limit ?? null, owed: info?.owed ?? null, room: info?.room ?? null },
+        });
+      }
       return NextResponse.json({ error: failure.error, code: failure.code }, { status: failure.status });
     }
     const row = Array.isArray(result.data) ? result.data[0] : result.data;

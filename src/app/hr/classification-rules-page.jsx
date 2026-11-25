@@ -37,6 +37,7 @@ export function ClassificationRulesPage({ refreshKey }) {
   const [leave, setLeave] = React.useState([]);
   const [pay, setPay] = React.useState([]);
   const [settings, setSettings] = React.useState({});
+  const [loanMultiplier, setLoanMultiplier] = React.useState("");
   const [statutory, setStatutory] = React.useState([]);
   const [from, setFrom] = React.useState({ leave: today(), pay: today() });
   const [note, setNote] = React.useState({ leave: "", pay: "" });
@@ -50,6 +51,7 @@ export function ClassificationRulesPage({ refreshKey }) {
       setLeave(d.leave.map((r) => ({ ...r, values: Object.fromEntries(d.leave_types.map((t) => [t, String(r.days[t]?.days ?? 0)])) })));
       setPay(d.pay.map((r) => ({ ...r, ...(r.rule || { pay_basis: "monthly", overtime_allowed: true, subsidy_eligible: true, incentive_eligible: true, loan_eligible: true }) })));
       setSettings(Object.fromEntries(Object.entries(d.settings).map(([k, v]) => [k, String(v.value)])));
+      setLoanMultiplier(d.loan_limit ? String(d.loan_limit.multiplier) : "");
       setStatutory((d.statutory || []).map((t) => ({ ...t, days: String(Number(t.days)), max_events: t.max_events ? String(t.max_events) : "" })));
     } catch (e) {
       setError(e.message);
@@ -257,6 +259,34 @@ export function ClassificationRulesPage({ refreshKey }) {
           ))}
         </CardContent>
       </Card>
+
+      {data.loan_limit ? (
+        <Card className="min-w-0 shadow-xs" data-testid="loan-limit-settings">
+          <CardHeader>
+            <CardTitle>Loan limit <StatusBadge tone="gold" className="ml-2" dot={false}>Pending policy manual</StatusBadge></CardTitle>
+            <CardDescription>
+              An employee cannot owe more on loans than this. Counted: the remaining balance of every unpaid loan (pending or approved) plus the new one.
+              Cash advances keep their own limit. Checked when a loan is filed, increased and approved; loans already given are not changed.
+            </CardDescription>
+            {canEdit ? (
+              <CardAction>
+                <Button onClick={() => save("loan_limit", { multiplier: loanMultiplier })} disabled={Boolean(busy)}>{busy === "loan_limit" ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Save</Button>
+              </CardAction>
+            ) : null}
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Based on</Label>
+              <p className="text-sm">{data.loan_limit.basis_label}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="hr-set-loan-limit">Limit (months of that salary)</Label>
+              <Input id="hr-set-loan-limit" inputMode="decimal" className="w-28 tabular-nums" disabled={!canEdit} value={loanMultiplier}
+                onChange={(e) => setLoanMultiplier(e.target.value)} />
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

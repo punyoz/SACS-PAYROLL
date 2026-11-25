@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { checkLoanLimit, isLimitedLoanType, loanLimitRefusal, loanLimitSummary } from "@/lib/payroll/loan-limit";
 import { GiftIcon, HandCoinsIcon, HourglassIcon, Loader2Icon, RefreshCwIcon, WalletIcon, CoinsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -126,13 +127,16 @@ export function LoansPage({ refreshKey }) {
 
   const total = totalOf(form.principal, form.interest);
   const suggested = perPayroll(total, form.payrolls);
+  // The salary limit (20261125010000): salary, emergency and other loans; cash advances keep their own cap.
+  const limitInfo = isLimitedLoanType(form.type) ? people.find((p) => p.id === form.employee)?.loan_limit || null : null;
+  const overLimit = limitInfo && total > 0 && !checkLoanLimit({ ...limitInfo, amount: total }).ok;
 
   async function submitLoan(event) {
     event.preventDefault();
     const amort = form.amortization === "" ? suggested : Number(form.amortization);
     const next = {
       employee: !form.employee ? "Select an employee." : "",
-      principal: !(Number(form.principal) > 0) ? "Enter the amount lent." : "",
+      principal: !(Number(form.principal) > 0) ? "Enter the amount lent." : overLimit ? loanLimitRefusal(limitInfo, total) : "",
       interest: !(Number(form.interest) >= 0 && Number(form.interest) <= 100) ? "0 to 100%." : "",
       payrolls: !(Number.isInteger(Number(form.payrolls)) && Number(form.payrolls) >= 1 && Number(form.payrolls) <= 120) ? "1 to 120 payrolls." : "",
       amortization: !(amort > 0) ? "Enter the amount per payroll." : amort > total ? "It cannot be more than the total payable." : "",
@@ -304,7 +308,7 @@ export function LoansPage({ refreshKey }) {
                       </Select>
                     ))}
                     {field("granted", "Date given", <DatePicker id="ac-ln-granted" value={form.granted} onChange={(v) => setForm((c) => ({ ...c, granted: v }))} aria-invalid={Boolean(errors.granted) || undefined} />)}
-                    {field("principal", "Amount lent (₱)", <Input id="ac-ln-principal" type="number" min="0" max={form.type === "cash_advance" ? CASH_ADVANCE_MAX : LOAN_MAX} step="0.01" inputMode="decimal" value={form.principal} onChange={(e) => setForm((c) => ({ ...c, principal: e.target.value }))} aria-invalid={Boolean(errors.principal) || undefined} />)}
+                    {field("principal", "Amount lent (₱)", <Input id="ac-ln-principal" type="number" min="0" max={form.type === "cash_advance" ? CASH_ADVANCE_MAX : LOAN_MAX} step="0.01" inputMode="decimal" value={form.principal} onChange={(e) => setForm((c) => ({ ...c, principal: e.target.value }))} aria-invalid={Boolean(errors.principal) || undefined} />, limitInfo ? <span data-testid="loan-limit-summary">{loanLimitSummary(limitInfo)}</span> : null)}
                     {field("interest", "Interest (%, flat)", <Input id="ac-ln-interest" type="number" min="0" max="100" step="0.01" inputMode="decimal" value={form.interest} onChange={(e) => setForm((c) => ({ ...c, interest: e.target.value }))} aria-invalid={Boolean(errors.interest) || undefined} />, total ? `Total payable ${money(total)}` : null)}
                     {field("payrolls", "Number of payrolls", <Input id="ac-ln-payrolls" type="number" min="1" max="120" step="1" inputMode="numeric" value={form.payrolls} onChange={(e) => setForm((c) => ({ ...c, payrolls: e.target.value }))} aria-invalid={Boolean(errors.payrolls) || undefined} />, "16–end payslips")}
                     {field("amortization", "Per payroll (₱)", <Input id="ac-ln-amortization" type="number" min="0" max={LOAN_MAX * 2} step="0.01" inputMode="decimal" placeholder={suggested ? suggested.toFixed(2) : ""} value={form.amortization} onChange={(e) => setForm((c) => ({ ...c, amortization: e.target.value }))} aria-invalid={Boolean(errors.amortization) || undefined} />, suggested ? `Blank = ${money(suggested)}` : null)}

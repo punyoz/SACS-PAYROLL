@@ -10,6 +10,7 @@
  * API answers 403.
  */
 import * as React from "react";
+import { loanLimitSummary } from "@/lib/payroll/loan-limit";
 import {
   HandCoinsIcon,
   CalendarCheckIcon,
@@ -197,6 +198,9 @@ export function MyRequestsPage({ refreshKey = 0, initialTab = "loans" }) {
           </TabsList>
           {MY_REQUEST_TABS.map((t) => (
             <TabsContent key={t.value} value={t.value} className="mt-3">
+              {t.value === "loans" && state.data?.loan_limit ? (
+                <p className="mb-3 text-sm text-muted-foreground" data-testid="my-loan-limit">{loanLimitSummary(state.data.loan_limit)} Cash advances are separate.</p>
+              ) : null}
               <DataTable
                 columns={REQUEST_COLUMNS[t.value]}
                 rows={rowsOf(t.value)}

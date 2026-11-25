@@ -50,6 +50,8 @@ export function approvalFields(row) {
 /** A database refusal as an HTTP answer. */
 export function describeDecisionError(error) {
   const message = String(error?.message || error || "");
+  // The salary limit (20261125010000): a loan that no longer fits when HR approves it.
+  if (/loan_limit:/i.test(message)) return { status: 400, code: "loan_limit", error: message.replace(/^.*?loan_limit:\s*/i, "") };
   if (/forbidden/i.test(message)) return { status: 403, code: "forbidden", error: "Only HR approves or rejects incentives, overload and loans." };
   if (/already_decided/i.test(message)) return { status: 409, code: "already_decided", error: message.replace(/^.*already_decided:\s*/i, "It ") };
   if (/not_found/i.test(message)) return { status: 404, code: "not_found", error: "Not found." };
