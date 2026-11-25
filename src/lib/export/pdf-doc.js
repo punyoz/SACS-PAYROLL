@@ -157,35 +157,40 @@ const P = StyleSheet.create({
   blabel: { width: "64%", paddingRight: 6 },
   bamount: { width: "36%", textAlign: "right" },
   bnote: { paddingVertical: 3, paddingHorizontal: INNER, fontSize: 7, color: MUTED, lineHeight: 1.3 },
+  // A dense payslip (many deduction lines, 2026-11-25): tighter rows so it still fits one A4 page.
+  prowTight: { paddingVertical: 1.5 },
+  browTight: { paddingVertical: 1.2 },
+  pformulaTight: { lineHeight: 1.15, marginTop: 0 },
+  groupTight: { paddingTop: 2.5, paddingBottom: 1 },
 });
 
-function panelRows(rows) {
+function panelRows(rows, tight = false) {
   return rows.map((r, i) => (r.group
-    ? h(Text, { key: i, style: P.group }, r.group)
-    : h(View, { key: i, style: P.prow, wrap: false },
+    ? h(Text, { key: i, style: [P.group, tight ? P.groupTight : null] }, r.group)
+    : h(View, { key: i, style: [P.prow, tight ? P.prowTight : null], wrap: false },
       h(View, { style: [P.pitem, r.indent ? { paddingLeft: 8 } : null] },
         h(Text, { style: r.indent ? { fontSize: 8, color: MUTED } : null }, r.label),
-        r.formula ? h(Text, { style: P.pformula }, r.formula) : null),
+        r.formula ? h(Text, { style: [P.pformula, tight ? P.pformulaTight : null] }, r.formula) : null),
       h(Text, { style: [P.pamount, r.indent ? { fontSize: 8, color: MUTED } : null] }, r.amount || ""))));
 }
 
 /** A panel: its title over Item | Amount, the rows, and its total at the bottom (both totals on one line). */
-function Panel({ panel }) {
+function Panel({ panel, tight }) {
   return h(View, { style: P.panel },
     h(View, { style: P.panelTitle },
       h(Text, { style: [P.pitem, S.bold] }, panel.title),
       h(Text, { style: [P.pamount, S.bandHead] }, "Amount")),
-    h(View, { style: P.panelBody }, ...panelRows(panel.rows)),
+    h(View, { style: P.panelBody }, ...panelRows(panel.rows, tight)),
     h(View, { style: P.ptotal, wrap: false },
       h(Text, { style: [P.pitem, S.bold] }, panel.total[0]),
       h(Text, { style: [P.pamount, S.bold] }, panel.total[1])));
 }
 
 /** A small box (tax computation, year to date): title, label | amount rows, an optional note. */
-function SmallBox({ box, last }) {
+function SmallBox({ box, last, tight }) {
   return h(View, { style: [P.box, last ? null : { marginRight: PANEL_GAP }], wrap: false },
     h(View, { style: P.panelTitle }, h(Text, { style: S.bold }, box.title)),
-    ...box.rows.map(([label, amount, bold], i) => h(View, { key: i, style: P.brow },
+    ...box.rows.map(([label, amount, bold], i) => h(View, { key: i, style: [P.brow, tight ? P.browTight : null] },
       h(Text, { style: [P.blabel, bold ? S.bold : null] }, label),
       h(Text, { style: [P.bamount, bold ? S.bold : null] }, amount || ""))),
     box.note ? h(Text, { style: P.bnote }, box.note) : null);
@@ -227,9 +232,9 @@ export function renderPayslipDocument(model) {
     h(View, { style: { marginTop: 4 } }),
     model.panels
       ? h(View, { style: P.panels },
-        h(Panel, { panel: model.panels.earnings }),
+        h(Panel, { panel: model.panels.earnings, tight: model.tight }),
         h(View, { style: P.panelGap }),
-        h(Panel, { panel: model.panels.deductions }))
+        h(Panel, { panel: model.panels.deductions, tight: model.tight }))
       : null,
     ...(model.sections || []).map((section, i) => h(Section, { key: `s${i}`, section })),
     ...(model.notes || []).map((text, i) => h(Text, { key: `n${i}`, style: [S.note, { marginBottom: 4 }] }, text)),
@@ -251,7 +256,7 @@ export function renderPayslipDocument(model) {
     model.boxes?.length
       // One box (a 1st half: year to date only) keeps the right column, so its amounts line up with Deductions.
       ? h(View, { style: P.boxes }, ...(model.boxes.length === 1 ? [null, model.boxes[0]] : model.boxes).map((box, i, all) => (box
-        ? h(SmallBox, { key: i, box, last: i === all.length - 1 })
+        ? h(SmallBox, { key: i, box, last: i === all.length - 1, tight: model.tight })
         : h(View, { key: i, style: { flexGrow: 1, flexBasis: 0, marginRight: PANEL_GAP } }))))
       : null,
     // The Leave Balance as one line when the boxes leave no room for it (2026-11-25), for information only.
