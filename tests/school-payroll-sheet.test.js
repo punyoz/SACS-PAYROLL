@@ -192,16 +192,16 @@ describe("cash advances", () => {
 });
 
 describe("accountant sidebar", () => {
-  it("shows Incentives & Overload, Cash Advances and 13th Month Pay under Payroll", async () => {
+  it("shows Incentives & Overload and 13th Month Pay under Payroll (old Cash Advances history page removed 2026-11-25)", async () => {
     const { buildMenu, allowedPagesFor } = await import("@/lib/rbac/menu");
     const payroll = buildMenu("accountant").find((section) => section.section === "Payroll");
     // Loans and subsidy-adjustment Approvals (20261009010000) sit after
-    // Payslips; Cash Advances stays as history.
+    // Payslips; the Cash advances tab keeps the history.
     expect(payroll.items.map((item) => item.page)).toEqual([
-      "ac-process", "ac-records", "ac-payslips", "ac-loans", "ac-approvals", "ac-incentives", "ac-cash-advances", "ac-13th",
+      "ac-process", "ac-records", "ac-payslips", "ac-loans", "ac-approvals", "ac-incentives", "ac-13th",
     ]);
-    expect(allowedPagesFor("accountant")).toEqual(expect.arrayContaining(["ac-cash-advances", "ac-incentives", "ac-13th"]));
-    expect(allowedPagesFor("hr")).not.toContain("ac-cash-advances");
+    expect(allowedPagesFor("accountant")).toEqual(expect.arrayContaining(["ac-incentives", "ac-13th"]));
+    expect(allowedPagesFor("accountant")).not.toContain("ac-cash-advances");
   });
 });
 

@@ -219,7 +219,7 @@ test("HR: sidebar unchanged, logo, cards", async ({ page }) => {
 
 for (const [role, portal, fromPages, cardPages] of [
   ["admin", "/admin", ["adm-attendance", "adm-leaves", "adm-maintenance"], ["adm-dashboard", "adm-maintenance"]],
-  ["accountant", "/accountant", ["ac-process", "ac-loans", "ac-monitoring"], ["ac-dashboard", "ac-monitoring", "ac-loans", "ac-cash-advances"]],
+  ["accountant", "/accountant", ["ac-process", "ac-loans", "ac-monitoring"], ["ac-dashboard", "ac-monitoring", "ac-loans"]],
   ["employee", "/employee", ["emp-attendance", "emp-payslips", "emp-leave"], ["emp-dash"]],
 ]) {
   test(`${role}: logo and cards`, async ({ page }) => {
