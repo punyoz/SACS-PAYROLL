@@ -254,6 +254,8 @@ export function renderPayslipDocument(model) {
         ? h(SmallBox, { key: i, box, last: i === all.length - 1 })
         : h(View, { key: i, style: { flexGrow: 1, flexBasis: 0, marginRight: PANEL_GAP } }))))
       : null,
+    // The Leave Balance as one line when the boxes leave no room for it (2026-11-25), for information only.
+    model.leaveLine ? h(Text, { style: S.line }, model.leaveLine) : null,
     model.by ? h(Text, { style: S.line }, model.by) : null),
     ...footer(model.footer));
   return renderToBuffer(h(Document, { title: `Payslip ${model.payslipNo || ""}`.trim(), author: "SACS Payroll", creator: "SACS Payroll", producer: "SACS Payroll" }, page));
