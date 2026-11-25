@@ -269,13 +269,16 @@ function taxBox(box) {
   };
 }
 
-/** The Leave Balance box (payslipTables leave_balance): days, for information only. */
+/**
+ * The Leave Balance (payslipTables leave_balance), for information only. Beside the year to date when
+ * there is room (a 1st half: one box), else one short line under the boxes (a 2nd half: the tax
+ * computation and the year to date), so the payslip stays on one A4 page (2026-11-25).
+ */
 function leaveBox(box) {
-  return {
-    title: box.title,
-    rows: box.rows.map((r) => [r.label, r.value, Boolean(r.strong)]),
-    note: box.note,
-  };
+  return { title: box.title, rows: box.rows.map((r) => [r.label, r.value, Boolean(r.strong)]), note: box.note };
+}
+function leaveLine(box) {
+  return `${box.title} (${box.note.replace(/\.$/, "").toLowerCase()}): ${box.rows.map((r) => `${r.label} — ${r.value}`).join(" · ")}`;
 }
 
 /** Year to date (loadPayslipYtd): the employee's share only. */
@@ -341,7 +344,9 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
   const totalDeductions = Number(tables ? tables.total_deductions : view ? view.total_deductions : details?.deductions?.total_deductions ?? monthly?.cutoff?.total_deductions ?? 0);
   const netLabel = view ? view.net_label : monthly && !details?.final_pay ? `${monthly.half === "first" ? "1st" : "2nd"} half net pay` : "Net pay";
   const stamp = new Date().toLocaleString("en-US", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" });
-  const boxes = [extra.tax_box ? taxBox(extra.tax_box) : null, details?.ytd ? ytdBox(details.ytd) : null, tables?.leave_balance ? leaveBox(tables.leave_balance) : null].filter(Boolean);
+  const boxes = [extra.tax_box ? taxBox(extra.tax_box) : null, details?.ytd ? ytdBox(details.ytd) : null].filter(Boolean);
+  const leave = tables?.leave_balance || null;
+  if (leave && boxes.length < 2) boxes.push(leaveBox(leave));
 
   return renderPayslipDocument({
     seal: sealUsable ? seal : null,
@@ -371,6 +376,7 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
     net: { gross: pesoPdf(gross), deductions: pesoPdf(Math.abs(totalDeductions)), carried: tables?.carry_over_out ? pesoPdf(tables.carry_over_out) : null, recover: tables?.overpayment_to_recover ? pesoPdf(tables.overpayment_to_recover) : null, net: pesoPdf(details?.net_pay || 0), netLabel: String(netLabel || "Net pay").toUpperCase() },
     monthTotal: extra.month_total?.label || null,
     boxes,
+    leaveLine: leave && !boxes.some((b) => b.title === leave.title) ? leaveLine(leave) : null,
     by: generation.generated_by_name ? `Computed by ${generation.generated_by_name}` : null,
     footer: ["Employee share only. Attendance includes HR-approved corrections.", `Generated ${stamp} by ${systemName(orgName)}`],
   });

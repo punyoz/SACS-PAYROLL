@@ -107,3 +107,32 @@ describe("Leave Balance box", () => {
     expect(payslipTotalsCheck(t, 11000)).toEqual([]);
   });
 });
+
+describe("one A4 page (2026-11-25 fix)", () => {
+  const pages = (pdf) => (Buffer.from(pdf).toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length;
+  const leave = { label: "Vacation, sick, emergency (one pool)", year: 2026, as_of: "2026-11-30", allotment: 5, used: 1, used_by_type: { "Vacation Leave": 1 }, remaining: 4 };
+  const taxBox = { rows: [{ label: "Monthly basic salary", amount: 30000, sign: "" }, { label: "Other earnings (overload, incentives, overtime, holiday pay)", amount: 1500, sign: "+" },
+    { label: "Attendance deductions (whole month)", amount: 965.52, sign: "-" }, { label: "Non-taxable items left out", amount: 500, sign: "-" }, { label: "SSS, PhilHealth and Pag-IBIG", amount: 2450, sign: "-" }],
+    taxable: 27584.48, tax: 1012.72, bracket: "₱20,833 to ₱33,332", formula: "₱0.00 + 15% × (₱27,584.48 − ₱20,833.00) = ₱1,012.72", reason: null };
+  const ytd = { year: 2026, gross: 160000, taxable: 140000, tax: 5000, sss: 7500, philhealth: 3750, pagibig: 1000, basic: 150000, thirteenth_accrued: 12500, payslips: 10 };
+  const details = (extra = {}) => ({
+    payslip_no: "PS-1", pay_period: "November 16-30, 2026", status: "final", status_label: "Paid", employee: { name: "Test", id: "T-1", position: "Teacher", branch: "Main", type: "Teaching · Regular" },
+    attendance_summary: { days_present: 10, days_absent: 1, half_days: 0, late_minutes: 0, undertime_minutes: 0, leave_days: 1 },
+    // A typical 2nd half (like the stored ones this was found on): overtime, holiday pay, absences, lates, perfect attendance.
+    earnings: { basic_salary: 15000, overtime: 450, holiday_pay: 900, gross_pay: 16850 },
+    deductions: { sss: 1500, philhealth: 750, pagibig: 200, withholding_tax: 1012.72, absence_deduction: 965.52, late_days: 2, late_deduction: 120,
+      total_deductions: 4548.24, leave_with_pay_days: 1 },
+    incentives: { perfect_attendance_incentive: 500 }, leave_daily_rate: 1379.31,
+    net_pay: 12071.76, tax_box: taxBox, ytd, leave_balance: leave, ...extra,
+  });
+
+  it("a 2nd half with the tax computation, the year to date and the leave balance is one page", async () => {
+    const { buildPayslipPdf } = await import("@/lib/payroll/payslip-pdf");
+    expect(pages(await buildPayslipPdf(details()))).toBe(1);
+  });
+
+  it("a 1st half (year to date only) shows the leave balance as a box beside it, one page", async () => {
+    const { buildPayslipPdf } = await import("@/lib/payroll/payslip-pdf");
+    expect(pages(await buildPayslipPdf(details({ tax_box: null, pay_period: "November 1-15, 2026" })))).toBe(1);
+  });
+});
