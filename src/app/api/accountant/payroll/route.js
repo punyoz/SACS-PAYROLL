@@ -436,6 +436,9 @@ function normalizePayrollEntry(row) {
         undertime_minutes: toAmount(payrollObj?.deductions?.undertime_minutes ?? 0),
         half_days: toAmount(payrollObj?.deductions?.half_days ?? 0),
         leave_with_pay_days: toAmount(payrollObj?.deductions?.leave_with_pay_days),
+        // The paid leave by type, as stored (display only): the same "Paid leave (2 days: Vacation 2)" as HR and the employee.
+        ...(payrollObj?.deductions?.leave_with_pay_by_type && typeof payrollObj.deductions.leave_with_pay_by_type === "object"
+          ? { leave_with_pay_by_type: payrollObj.deductions.leave_with_pay_by_type } : {}),
         leave_without_pay_days: toAmount(payrollObj?.deductions?.leave_without_pay_days),
         cash_advance: toAmount(payrollObj?.deductions?.cash_advance ?? 0),
       },
