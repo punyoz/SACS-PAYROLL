@@ -279,7 +279,7 @@ export function PayRecordPage() {
           <div className="space-y-1.5 sm:w-[26rem]">
             <Label htmlFor="ac-payslip-select">Payslip</Label>
             <Select value={selected} onValueChange={(id) => { setSelected(id); load({ entryId: id }); }} disabled={!options.length}>
-              <SelectTrigger id="ac-payslip-select" className="w-full"><SelectValue placeholder={options.length ? "Select a payslip" : "No payslips available"} /></SelectTrigger>
+              <SelectTrigger id="ac-payslip-select" className="w-full max-sm:data-[size=default]:h-auto max-sm:min-h-9 max-sm:whitespace-normal max-sm:text-left max-sm:*:data-[slot=select-value]:line-clamp-2"><SelectValue placeholder={options.length ? "Select a payslip" : "No payslips available"} /></SelectTrigger>
               <SelectContent>{options.map((o) => <SelectItem key={o.id} value={String(o.id)}>{o.label}</SelectItem>)}</SelectContent>
             </Select>
           </div>
