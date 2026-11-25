@@ -131,6 +131,13 @@ describe("one A4 page (2026-11-25 fix)", () => {
     expect(pages(await buildPayslipPdf(details()))).toBe(1);
   });
 
+  it("a dense 2nd half (an absence, a late, a cash advance and the boxes) is still one page (compact rows)", async () => {
+    const { buildPayslipPdf } = await import("@/lib/payroll/payslip-pdf");
+    const dense = details({ deductions: { ...details().deductions, cash_advance: 1500, half_days: 1, half_day_deduction: 689.66, undertime_minutes: 30, undertime_deduction: 57.47,
+      total_deductions: 6795.37 } });
+    expect(pages(await buildPayslipPdf(dense))).toBe(1);
+  });
+
   it("a 1st half (year to date only) shows the leave balance as a box beside it, one page", async () => {
     const { buildPayslipPdf } = await import("@/lib/payroll/payslip-pdf");
     expect(pages(await buildPayslipPdf(details({ tax_box: null, pay_period: "November 1-15, 2026" })))).toBe(1);

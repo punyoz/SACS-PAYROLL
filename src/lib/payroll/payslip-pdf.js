@@ -278,7 +278,9 @@ function leaveBox(box) {
   return { title: box.title, rows: box.rows.map((r) => [r.label, r.value, Boolean(r.strong)]), note: box.note };
 }
 function leaveLine(box) {
-  return `${box.title} (${box.note.replace(/\.$/, "").toLowerCase()}): ${box.rows.map((r) => `${r.label} — ${r.value}`).join(" · ")}`;
+  // One short line: "Leave balance (for information only): Credits for 2026 — 5 days · Used to date (Nov 30) — 1 day · Remaining — 4 days".
+  const rows = box.rows.filter((r) => r.key !== "type");
+  return `${box.title} (for information only, not part of your pay): ${rows.map((r) => `${r.label} — ${r.value}`).join(" · ")}`;
 }
 
 /** Year to date (loadPayslipYtd): the employee's share only. */
@@ -371,6 +373,8 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
     stats: summary ? [["Days present", summary.days_present], ["Days absent", summary.days_absent], ["Half days", summary.half_days],
       ["Late minutes", summary.late_minutes], ["Undertime minutes", summary.undertime_minutes], ["Leave days", summary.leave_days]] : null,
     panels: tables ? panelsFor(tables) : null,
+    // Many lines (e.g. contributions, tax and several loans): tighter rows so the payslip stays one page.
+    tight: Boolean(tables && boxes.length >= 2 && Math.max(panelsFor(tables).earnings.rows.length, panelsFor(tables).deductions.rows.length) >= 7),
     sections,
     notes: (tables?.notes || []).map(sentence),
     net: { gross: pesoPdf(gross), deductions: pesoPdf(Math.abs(totalDeductions)), carried: tables?.carry_over_out ? pesoPdf(tables.carry_over_out) : null, recover: tables?.overpayment_to_recover ? pesoPdf(tables.overpayment_to_recover) : null, net: pesoPdf(details?.net_pay || 0), netLabel: String(netLabel || "Net pay").toUpperCase() },
