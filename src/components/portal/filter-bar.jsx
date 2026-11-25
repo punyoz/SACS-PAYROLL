@@ -23,6 +23,8 @@ export const FILTER_BAR = cn(
   "sm:[&>[data-filter=search]]:w-auto sm:[&>[data-filter=search]]:min-w-[280px] sm:[&>[data-filter=search]]:max-w-[360px] sm:[&>[data-filter=search]]:flex-[1_1_280px]",
   "[&_[data-slot=select-trigger]]:h-10 [&_[data-slot=select-trigger]]:w-full sm:[&_[data-slot=select-trigger]]:w-auto sm:[&_[data-slot=select-trigger]]:min-w-40 sm:[&_[data-slot=select-trigger]]:max-w-60",
   "[&_input]:h-10 [&_[data-slot=button]]:h-10 [&_[data-slot=button]]:rounded-md [&_input]:rounded-md",
+  // Date pickers' buttons carry the popover's slot (2026-11-25: they were 36 px next to 40 px controls).
+  "[&_[data-slot=popover-trigger]]:h-10 [&_[data-slot=popover-trigger]]:rounded-md",
   "sm:[&>[data-filter=date]]:w-40",
   "[&>*:last-child:nth-child(even)]:col-span-2 sm:[&>*:last-child:nth-child(even)]:col-span-1",
 );
