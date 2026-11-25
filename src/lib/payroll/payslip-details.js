@@ -113,6 +113,14 @@ export function payslipStatus(entry, runStatus = null) {
   return { label: "Pending HR approval", pay_date_label: null };
 }
 
+/**
+ * The payslip's "Category" / "Type": the category and status stored with it ("Teaching · Regular"),
+ * else the row's employee type. One rule for every role (My Payslips showed "N/A", 2026-11-25).
+ */
+export function payslipCategory(payroll, fallback = null) {
+  return classificationLabel(payroll?.payslip_meta?.classification || {}) || fallback || null;
+}
+
 export function buildPayslipDetails(entry, { taxRows = [], runStatus = null } = {}) {
   if (!entry) return null;
   const generation = entry.payroll?.generation || null;
@@ -153,7 +161,7 @@ export function buildPayslipDetails(entry, { taxRows = [], runStatus = null } = 
       id: entry.employee_code,
       name: entry.employee_name,
       // "Teaching · Regular · Full-time" when the payslip kept it (from 20261121010000).
-      type: classificationLabel(entry.payroll?.payslip_meta?.classification || {}) || entry.employee_type,
+      type: payslipCategory(entry.payroll, entry.employee_type),
       position: generation?.position_title || entry.payroll?.payslip_meta?.position_title || entry.position,
       branch: generation?.branch_name || entry.payroll?.payslip_meta?.branch_name || null,
       // Days worked in each branch when there was more than one (a transfer).

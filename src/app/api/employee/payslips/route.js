@@ -10,7 +10,7 @@ import { periodFromLabel } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { employeePayslipView } from "@/lib/payroll/line-tags";
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
-import { buildPayslipDetails, formatManilaDate, loadPayslipYtd, loadTaxBracketRows, payslipSeal, payslipStatus, withBranchName } from "@/lib/payroll/payslip-details";
+import { buildPayslipDetails, formatManilaDate, payslipCategory, loadPayslipYtd, loadTaxBracketRows, payslipSeal, payslipStatus, withBranchName } from "@/lib/payroll/payslip-details";
 import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
 import { attachLeaveBalances, withLeaveBalance } from "@/lib/payroll/payslip-leave";
 import { loadOrgName } from "@/lib/org-name";
@@ -117,7 +117,8 @@ function mapEntryToPayslip(row, taxRows = []) {
     employee: {
       name: row.employee_name || null,
       id: row.employee_code || null,
-      type: row.employee_type || null,
+      // The same Category · Status as HR and the Accountant see (payslipCategory).
+      type: payslipCategory(payroll, row.employee_type),
       position: payroll.generation?.position_title || payroll.payslip_meta?.position_title || row.position || null,
       branch: payroll.generation?.branch_name || payroll.payslip_meta?.branch_name || null,
       branch_days: payroll.generation?.branch_days || payroll.payslip_meta?.branch_days || null,
