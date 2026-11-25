@@ -27,7 +27,12 @@ const PASSWORD = `Proof-${Math.random().toString(36).slice(2, 10)}#Aa1`;   // lo
 test.describe.configure({ mode: "serial" });
 test.setTimeout(10 * 60 * 1000);
 const ctx = { branch: null, gina: null };
-const shot = async (locator, name) => { await locator.screenshot({ path: join(OUT, `${name}.png`) }); };
+const shot = async (locator, name) => {
+  // The sticky top bar would cover part of a tall element in the picture; dropdowns are closed first.
+  await locator.page().addStyleTag({ content: "header, [data-slot=sidebar-inset] > header { position: static !important; }" }).catch(() => {});
+  await locator.page().waitForTimeout(400);
+  await locator.screenshot({ path: join(OUT, `${name}.png`) });
+};
 const docOf = (page) => main(page).locator("[data-print-area]").first();
 
 async function cleanup() {
@@ -163,6 +168,7 @@ test("HR encodes the SSS and Pag-IBIG loans; the Accountant files a cash advance
   await page.fill("#gl-per", "1000");
   await page.locator("#gl-start").click();
   await page.getByRole("option", { name: /November 16-30, 2026/ }).click();
+  await expect(page.getByRole("listbox")).toHaveCount(0);
   await shot(form, "hr-encoding-form");
   await form.getByRole("button", { name: "Encode", exact: true }).click();
   await expect(form).toBeHidden({ timeout: 30000 });
@@ -223,6 +229,7 @@ test("the payslips, the employee's deductions and the remittance", async ({ page
   await main(page).locator("tr").filter({ hasText: /16-30|16–30/ }).first().getByRole("button", { name: /View|Showing/ }).click();
   await settle(page);
   await expect(docOf(page)).toContainText("SSS loan (salary loan)");
+  await expect(docOf(page)).toContainText("Remaining balance ₱23,000.00 · Ref. SSS-0451");
   await shot(docOf(page), "employee-payslip-2nd-half");
   await page.emulateMedia({ media: "print" });
   await shot(docOf(page), "print-2nd-half");

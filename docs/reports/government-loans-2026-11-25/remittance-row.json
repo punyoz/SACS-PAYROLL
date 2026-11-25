@@ -1,0 +1,51 @@
+{
+  "row": {
+    "employee_id": "d66b3e23-7746-4994-a707-7778cd3fbc78",
+    "employee_name": "Gina Proof",
+    "employee_code": "PROOF-GL1",
+    "branch_name": "Loans Proof Branch",
+    "statuses": [
+      "Final",
+      "Final"
+    ],
+    "payslips": [
+      "PS-202611-0058",
+      "PS-202612-0001"
+    ],
+    "sss_ee": 1500,
+    "sss_er": 3000,
+    "sss_ec": 30,
+    "philhealth_ee": 750,
+    "philhealth_er": 750,
+    "pagibig_ee": 200,
+    "pagibig_er": 200,
+    "withholding_tax": 1007.55,
+    "year_end_tax": 0,
+    "sss_loan": 1000,
+    "pagibig_loan": 800,
+    "employer_recorded": true,
+    "has_contributions": true,
+    "sss_total": 4530,
+    "philhealth_total": 1500,
+    "pagibig_total": 400,
+    "total_remit": 9237.55,
+    "status": "Final"
+  },
+  "totals": {
+    "sss_ee": 13775,
+    "sss_er": 27550,
+    "sss_ec": 320,
+    "sss_total": 41645,
+    "philhealth_ee": 6887.5,
+    "philhealth_er": 6887.5,
+    "philhealth_total": 13775,
+    "pagibig_ee": 2400,
+    "pagibig_er": 2400,
+    "pagibig_total": 4800,
+    "sss_loan": 1000,
+    "pagibig_loan": 800,
+    "withholding_tax": 5938.88,
+    "year_end_tax": 0,
+    "total_remit": 67958.88
+  }
+}

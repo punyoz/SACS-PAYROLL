@@ -1,0 +1,26 @@
+{
+  "first_half_loans": [],
+  "second_half_loans": [
+    {
+      "description": "SSS loan (salary loan)",
+      "amount": 1000,
+      "balance_after": 23000,
+      "reference_no": "SSS-0451"
+    },
+    {
+      "description": "Pag-IBIG loan (multi-purpose)",
+      "amount": 800,
+      "balance_after": 8800,
+      "reference_no": "MPL-2026-77"
+    },
+    {
+      "description": "Cash advance",
+      "amount": 1000,
+      "balance_after": 2000,
+      "reference_no": null
+    }
+  ],
+  "gross": 15000,
+  "total_deductions": 6257.55,
+  "net": 8742.45
+}

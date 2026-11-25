@@ -13,10 +13,14 @@ import { cn } from "@/lib/utils";
  * (src/lib/payroll/payslip-tables.js). How a line was computed is behind ⓘ.
  */
 
-export function PayslipRow({ label, value, tone, strong, muted, indent, note }) {
+export function PayslipRow({ label, value, tone, strong, muted, indent, note, sub }) {
   return (
     <div role="row" className={cn("flex items-baseline justify-between gap-4 px-3 py-1.5 text-sm print:py-0.5", strong && "bg-muted/40 font-semibold", muted && "text-muted-foreground", indent && "py-1 pl-6 text-xs")}>
-      <span role="cell" className="flex min-w-0 items-center gap-1.5 break-words">{label}{note ? <InfoTip label={`How ${label} was computed`}>{note}</InfoTip> : null}</span>
+      <span role="cell" className="min-w-0 break-words">
+        <span className="flex items-center gap-1.5">{label}{note && !sub ? <InfoTip label={`How ${label} was computed`}>{note}</InfoTip> : null}</span>
+        {/* Small text under the line (a government loan's remaining balance and reference, 2026-11-25). */}
+        {sub ? <span className="block text-xs text-muted-foreground" data-testid="payslip-row-sub">{sub}</span> : null}
+      </span>
       <span role="cell" className={cn("shrink-0 text-right tabular-nums", tone === "plus" && "text-success", tone === "minus" && "text-destructive", tone === "gold" && "text-gold-text")}>{value}</span>
     </div>
   );
@@ -71,7 +75,8 @@ export function PayslipTables({ tables }) {
             return rows.length ? (
               <React.Fragment key={key}>
                 <GroupLabel>{label}</GroupLabel>
-                {rows.map((row) => <PayslipRow key={`${row.key}-${row.label}`} label={row.label} value={deduction(row)} tone={row.credit ? "plus" : undefined} note={row.note} />)}
+                {rows.map((row) => <PayslipRow key={`${row.key}-${row.label}`} label={row.label} value={deduction(row)} tone={row.credit ? "plus" : undefined} note={row.note}
+                  sub={/^Remaining balance/.test(String(row.formula || row.note || "")) ? row.formula || row.note : undefined} />)}
               </React.Fragment>
             ) : null;
           })}
