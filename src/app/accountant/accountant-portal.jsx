@@ -27,7 +27,7 @@ import { PasswordGate } from "@/components/portal/password-gate";
 import { MY_DESCRIPTIONS, MY_PAGE_IDS, MyAccountScreen, myAccountItem, myPageKind } from "@/components/portal/my-account";
 import { navPages } from "@/lib/portal/nav-tabs";
 import { NOT_FOUND_PAGE, PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
-import { StaffProfilePage } from "@/components/portal/staff-profile";
+import { ProfilePage } from "@/app/employee/profile-page";
 import { AnnouncementsFeed } from "@/components/portal/announcements";
 import { GovernmentRatesPanel } from "@/components/portal/government-rates";
 import { PayRatesPanel } from "@/components/portal/pay-rates";
@@ -175,7 +175,7 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
       {current === "ac-gov-rates" ? <><PayRatesPanel refreshKey={refreshKey} /><GovernmentRatesPanel refreshKey={refreshKey} /></> : null}
       {current === "ac-holidays" ? <HolidayDutyPage refreshKey={refreshKey} /> : null}
       {current === "ac-announcements" ? <AnnouncementsFeed refreshKey={refreshKey} /> : null}
-      {current === "ac-profile" ? <StaffProfilePage roleLabel="Accountant" showPosition employeeIdLabel /> : null}
+      {current === "ac-profile" ? <ProfilePage roleLabel="Accountant" /> : null}
       {myPageKind("ac", current) && myPageKind("ac", current) !== "profile" ? <MyAccountScreen kind={myPageKind("ac", current)} refreshKey={refreshKey} /> : null}
     </AppShell>
   );
