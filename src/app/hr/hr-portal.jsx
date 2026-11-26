@@ -11,7 +11,7 @@ import { PasswordGate } from "@/components/portal/password-gate";
 import { MY_DESCRIPTIONS, MY_PAGE_IDS, MyAccountScreen, myAccountGroup, myAccountItem, myPageKind } from "@/components/portal/my-account";
 import { navPages } from "@/lib/portal/nav-tabs";
 import { NOT_FOUND_PAGE, PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
-import { StaffProfilePage } from "@/components/portal/staff-profile";
+import { ProfilePage } from "@/app/employee/profile-page";
 import { AnnouncementsManager } from "@/components/portal/announcements";
 import { GovernmentRatesPanel } from "@/components/portal/government-rates";
 import { AdjustmentApprovalsPanel } from "@/components/portal/adjustment-approvals";
@@ -281,7 +281,7 @@ function HrScreens() {
         {current === "hr-adjustment-approvals" ? <AdjustmentApprovalsPanel refreshKey={refreshKey} /> : null}
         {current === "hr-announcements" ? <AnnouncementsManager refreshKey={refreshKey} /> : null}
         {current === "hr-classification-rules" ? <ClassificationRulesPage refreshKey={refreshKey} /> : null}
-        {current === "hr-profile" ? <StaffProfilePage roleLabel="HR" showPosition /> : null}
+        {current === "hr-profile" ? <ProfilePage roleLabel="HR" /> : null}
         {myKind && myKind !== "profile" ? <MyAccountScreen kind={myKind} refreshKey={refreshKey} /> : null}
       </AppShell>
     </AttendanceActionsProvider>

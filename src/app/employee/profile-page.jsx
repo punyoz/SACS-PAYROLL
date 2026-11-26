@@ -12,7 +12,11 @@ import { usePortalSession } from "@/components/portal/session";
 import { EmploymentSection, GovernmentSection, governmentNumbers, useStoredProfile } from "@/components/portal/staff-profile";
 import { formatContactNumber } from "@/lib/portal/format";
 
-/* The Profile page (loadProfilePage, public/legacy/js/employee.js). */
+/*
+ * The Profile page (loadProfilePage, public/legacy/js/employee.js).
+ * 2026-11-26: also the HR and Accountant Profile page (they are employees too): the same
+ * sections, with their role on the badge. Admin and Super Admin keep StaffProfilePage.
+ */
 
 const EMERGENCY_KEYS = [
   "emergency_contact_name", "emergency_contact_relationship",
@@ -32,7 +36,7 @@ function Section({ icon: Icon, title, children }) {
   );
 }
 
-export function ProfilePage() {
+export function ProfilePage({ roleLabel = null }) {
   const { ctx, updateContext } = usePortalSession();
   const { open } = useAccountDialogs();
 
@@ -59,7 +63,7 @@ export function ProfilePage() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="truncate text-xl font-semibold">{name}</h2>
-              <Badge variant="secondary" className="capitalize">{ctx?.role || "Employee"}</Badge>
+              <Badge variant="secondary" className={roleLabel ? undefined : "capitalize"}>{roleLabel || ctx?.role || "Employee"}</Badge>
             </div>
             <p className="text-sm text-muted-foreground">
               {ctx?.position || ctx?.employee_type || ""}{ctx?.position || ctx?.employee_type ? " · " : ""}Shepherd Angels Christian School
@@ -75,7 +79,7 @@ export function ProfilePage() {
         <Section icon={UserRoundIcon} title="Personal information">
           <InfoList items={[
             { label: "Full name", value: ctx?.full_name },
-            { label: "Employee ID", value: ctx?.employee_id },
+            { label: "Employee ID", value: ctx?.employee_id || stored?.employment?.employee_id },
             { label: "Contact number", value: formatContactNumber(ctx?.cp_number) },
             { label: "Sex", value: ctx?.sex },
             { label: "Civil status", value: ctx?.civil_status },

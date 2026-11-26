@@ -112,11 +112,17 @@ describe("the Edit dialogs and Profile pages carry it", () => {
 
   it.each([
     ["accountant", "ac-profile"],
-    ["admin", "adm-profile"],
     ["hr", "hr-profile"],
+  ])("%s Profile page is the employee Profile page (they are employees too)", (portal, pageId) => {
+    const shell = readFileSync(`src/app/${portal}/${portal}-portal.jsx`, "utf8");
+    expect(shell).toContain(`current === "${pageId}" ? <ProfilePage roleLabel=`);
+  });
+
+  it.each([
+    ["admin", "adm-profile"],
     ["super-admin", "sa-profile"],
   ])("%s Profile page shows the card", (portal, pageId) => {
-    // The four staff portals share one Profile page.
+    // Admin and Super Admin share the staff Profile page.
     const shell = readFileSync(`src/app/${portal}/${portal}-portal.jsx`, "utf8");
     expect(shell).toContain(`current === "${pageId}" ? <StaffProfilePage`);
     const profile = readFileSync("src/components/portal/staff-profile.jsx", "utf8");
