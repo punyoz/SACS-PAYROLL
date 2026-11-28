@@ -24,15 +24,23 @@ test("today's RFID tap is counted in the Accountant's payroll attendance", async
   const taps = await rows(db().from("attendance_taps").select("id").eq("employee_id", ana.id).eq("log_date", today));
   expect(taps.length, "the raw tap is kept").toBeGreaterThan(0);
 
-  await step(page, `Accountant > Process Payroll (${periodOf(today)}) > Ana's attendance counts today`, async () => {
+  // The 2nd half's attendance closes the day before its payslip day (decision 2026-10-20), so a
+  // tap late in the month can belong to the next period: today must count in one of the two.
+  const [y, m, d] = today.split("-").map(Number);
+  const next = d <= 15 ? periodOf(`${y}-${String(m).padStart(2, "0")}-16`) : periodOf(new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10));
+  await step(page, `Accountant > Process Payroll (${periodOf(today)} / ${next}) > Ana's attendance counts today`, async () => {
     monitor.at("Accountant > payroll attendance");
     await as(page, "accountant");
-    const res = await api(page, "GET", `/api/accountant/payroll?period=${encodeURIComponent(periodOf(today))}`);
-    expect(res.status).toBe(200);
-    const row = (res.data.attendance_rows || []).find((r) => r.employee_id === ana.id);
-    expect(row, "Ana is in the Accountant's branch").toBeTruthy();
     const status = String(logs[0].status || "").toLowerCase();
-    if (status === "present" || status === "late") expect(row.present_days).toBeGreaterThan(0);
-    else expect(row.present_days + row.unresolved_days, `today is "${logs[0].status}"`).toBeGreaterThan(0);
+    const counted = [];
+    for (const period of [periodOf(today), next]) {
+      const res = await api(page, "GET", `/api/accountant/payroll?period=${encodeURIComponent(period)}`);
+      expect(res.status).toBe(200);
+      const row = (res.data.attendance_rows || []).find((r) => r.employee_id === ana.id);
+      expect(row, "Ana is in the Accountant's branch").toBeTruthy();
+      counted.push(status === "present" || status === "late" ? row.present_days : row.present_days + row.unresolved_days);
+    }
+    const withToday = counted.filter((n) => n > 0).length;
+    expect(withToday, `today is "${logs[0].status}"; counted ${JSON.stringify(counted)}`).toBeGreaterThan(0);
   });
 });

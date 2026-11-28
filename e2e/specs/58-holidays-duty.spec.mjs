@@ -48,8 +48,9 @@ test("holidays: badges, 0 required hours, and HR-only holiday duty", async ({ pa
     expect(nov2.status).not.toBe("Absent");
     // An ordinary day next to them still asks for the full shift.
     expect(day(res.data.records, "2026-11-03").required_hours).toBeGreaterThan(0);
-    // The UI: generate the default range (this month to today) and see both badges on Nov 1.
-    await main(page).getByRole("button", { name: /Generate/ }).click();
+    // The UI (no Generate button since the date-range filter): pick This month and see both badges on Nov 1.
+    await main(page).getByRole("combobox", { name: "Date range" }).click();
+    await page.getByRole("option", { name: "This month" }).click();
     await settle(page);
     const row = main(page).getByRole("row", { name: new RegExp(NOV1) });
     await expect(row.getByText("Rest day", { exact: true })).toBeVisible();
