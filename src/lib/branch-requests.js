@@ -62,6 +62,12 @@ export const RFID_ISSUE_TYPES = Object.freeze({
   other: "Other",
 });
 
+/** What the Admin may report now (2026-11-28): lost / broken cards are handled in RFID Cards (Lost / Replace); the old labels stay above for old reports. */
+export const RFID_ISSUE_FORM_TYPES = Object.freeze({
+  reader_fault: RFID_ISSUE_TYPES.reader_fault,
+  other: RFID_ISSUE_TYPES.other,
+});
+
 export const SCHEDULE_REQUEST_TYPES = Object.freeze({
   schedule: "Work schedule change",
   class_load: "Class-load change",

@@ -118,8 +118,9 @@ describe("incident tracking (Part E step 8)", () => {
     expect(trackingFor("schedule_request", {})).toBeNull();
     expect(readSource("src/app/api/hr/branch-requests/route.js")).toMatch(/closeBranchReport\(supabase, row\.id/);
   });
-  it("a lost-card report blocks the card at once (reversible deactivate, logged by System)", () => {
+  it("a lost/broken-card report is refused (RFID Cards handles it); the old block path stays reversible", () => {
     const route = readSource("src/app/api/admin/branch-oversight/route.js");
+    expect(route).toMatch(/d\.issue_type === "lost_card" \|\| d\.issue_type === "broken_card"\) return bad\("For a lost or broken card, use RFID Cards/);
     expect(route).toMatch(/details\.issue_type === "lost_card" && employeeId/);
     expect(route).toMatch(/p_action: "deactivate"/);
     expect(route).not.toMatch(/p_action: "mark_lost"/);

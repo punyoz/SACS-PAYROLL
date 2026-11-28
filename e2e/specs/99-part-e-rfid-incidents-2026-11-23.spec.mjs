@@ -1,6 +1,6 @@
-// Part E steps 7-8 (2026-11-23): a card the branch Admin reports lost is
-// blocked at once (logged "by System", HR can reactivate it); incident and RFID
-// reports are tracked as open items for HR and closed when HR resolves them.
+// Part E steps 7-8 (2026-11-23, changed 2026-11-28): lost / broken cards are no
+// longer reported on the issue form (Admin uses RFID Cards: Lost / Replace);
+// incident and RFID reports are tracked for HR and closed when HR resolves them.
 import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
@@ -10,7 +10,7 @@ import { ACCOUNTS } from "../accounts.mjs";
 
 const tracked = (requestId) => rows(db().from("automation_actions").select("id,status,summary").eq("module", "incident_tracking").eq("entity_type", "branch_request").eq("entity_id", requestId));
 
-test("lost-card report blocks the card; reports tracked until HR resolves them", async ({ page, monitor }) => {
+test("lost/broken-card reports go to RFID Cards; reports tracked until HR resolves them", async ({ page, monitor }) => {
   monitor.at("Part E steps 7-8 (RFID / incidents)");
   await db().from("system_config").update({ value: "false" }).eq("section", "automation").in("key", ["paused", "paused_rfid_issues", "paused_incident_tracking"]);
   const emp = await profileByEmail(ACCOUNTS.employee3.email);
@@ -19,15 +19,25 @@ test("lost-card report blocks the card; reports tracked until HR resolves them",
 
   let rfidRequest;
   let incidentRequest;
-  await step(page, "Admin reports the card lost: blocked at once, logged by System, tracked for HR", async () => {
+  await step(page, "Admin's form offers only Reader not working / Other; a lost or broken card report is refused (use RFID Cards)", async () => {
     await as(page, "admin2", "adm-rfid-issues");
-    const res = await api(page, "POST", "/api/admin/branch-oversight", { action: "file", kind: "rfid_issue", employee_id: emp.id, details: { issue_type: "lost_card" }, note: "E2E: lost on the jeepney" });
+    await page.getByRole("button", { name: "Report an issue" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("combobox").first().click();
+    await expect(page.getByRole("option", { name: "Reader not working" })).toBeVisible();
+    await expect(page.getByRole("option", { name: "Other" })).toBeVisible();
+    await expect(page.getByRole("option", { name: /Lost card|Broken card/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    for (const issue_type of ["lost_card", "broken_card"]) {
+      const res = await api(page, "POST", "/api/admin/branch-oversight", { action: "file", kind: "rfid_issue", employee_id: emp.id, details: { issue_type }, note: "E2E: lost on the jeepney" });
+      expect(res.status, JSON.stringify(res.data)).toBe(400);
+      expect(JSON.stringify(res.data)).toMatch(/RFID Cards/);
+    }
+    expect((await rows(db().from("rfid_cards").select("status").eq("id", card.id).single())).status).toBe("active");
+    const res = await api(page, "POST", "/api/admin/branch-oversight", { action: "file", kind: "rfid_issue", details: { issue_type: "reader_fault", device: "Main gate reader" }, note: "E2E: reader light is off" });
     expect(res.status, JSON.stringify(res.data)).toBe(200);
-    expect(res.data.cards_blocked).toBe(1);
     rfidRequest = res.data.request.id;
-    expect((await rows(db().from("rfid_cards").select("status").eq("id", card.id).single())).status).toBe("inactive");
-    const [log] = await rows(db().from("automation_actions").select("status,kind").eq("module", "rfid_issues").eq("entity_type", "rfid_card").eq("entity_id", card.id).order("created_at", { ascending: false }).limit(1));
-    expect(log).toMatchObject({ status: "done", kind: "applied" });
     expect(await tracked(rfidRequest)).toMatchObject([{ status: "open" }]);
   });
 
@@ -38,15 +48,12 @@ test("lost-card report blocks the card; reports tracked until HR resolves them",
     expect(await tracked(incidentRequest)).toMatchObject([{ status: "open", summary: expect.stringMatching(/^Incident report, .*Misconduct/) }]);
   });
 
-  await step(page, "HR resolves both: the tracked items close; HR reactivates the card (the undo)", async () => {
+  await step(page, "HR resolves both: the tracked items close", async () => {
     await as(page, "hr", "hr-branch-requests");
     for (const id of [rfidRequest, incidentRequest]) {
       const res = await api(page, "PATCH", "/api/hr/branch-requests", { id, decision: "resolve", note: "E2E: handled with the employee" });
       expect(res.status, JSON.stringify(res.data)).toBe(200);
       expect(await tracked(id)).toMatchObject([{ status: "closed" }]);
     }
-    const back = await api(page, "PATCH", "/api/rfid/cards", { action: "reactivate", card_id: card.id, reason: "E2E: the card was found" });
-    expect(back.status, JSON.stringify(back.data)).toBe(200);
-    expect((await rows(db().from("rfid_cards").select("status").eq("id", card.id).single())).status).toBe("active");
   });
 });

@@ -10,7 +10,7 @@ import { FilterTabs } from "@/components/portal/filter-tabs";
 import { ItemThread, useThreadCounts } from "@/components/portal/item-thread";
 import { manilaDateKey } from "@/lib/portal/format";
 import { dateLabel, money } from "@/lib/portal/payroll-preview";
-import { INCIDENT_TYPES, RFID_ISSUE_TYPES } from "@/lib/branch-requests";
+import { INCIDENT_TYPES, RFID_ISSUE_FORM_TYPES } from "@/lib/branch-requests";
 import { fetchJson } from "@/lib/portal/api";
 import { cn } from "@/lib/utils";
 import { RequestsPage, useBranchView } from "./oversight-shared";
@@ -76,11 +76,11 @@ export function RfidIssuesPage({ refreshKey }) {
       kind="rfid_issue"
       icon={CreditCardIcon}
       title="RFID issue reports"
-      description="Report a lost, broken or malfunctioning card or reader. A card reported lost is blocked at once (HR can reactivate or replace it). HR or the Super Admin fixes it and marks it Resolved."
+      description="Report a reader that is not working or another problem. For a lost or broken card, use RFID Cards above: Lost or Replace on the card's row. HR or the Super Admin fixes the problem and marks it Resolved."
       buttonLabel="Report an issue"
-      initial={{ issue_type: "lost_card" }}
+      initial={{ issue_type: "reader_fault" }}
       fields={[
-        { id: "issue_type", label: "Problem", type: "select", options: RFID_ISSUE_TYPES },
+        { id: "issue_type", label: "Problem", type: "select", options: RFID_ISSUE_FORM_TYPES },
         { id: "employee_id", label: "Card holder (if a card)", type: "employee" },
         { id: "device", label: "Reader / location (if a reader)", type: "text", wide: true, placeholder: "e.g. Main gate reader" },
       ]}

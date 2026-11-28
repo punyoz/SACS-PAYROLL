@@ -49,6 +49,7 @@ import {
   OVERTIME_TYPES,
   REQUEST_KINDS,
   RFID_ISSUE_TYPES,
+  RFID_ISSUE_FORM_TYPES,
   SCHEDULE_REQUEST_TYPES,
   STATUS_LABELS,
   historyEntry,
@@ -716,7 +717,8 @@ export async function POST(request) {
       details = { employee_name: person.full_name, request_type: type, request_type_label: SCHEDULE_REQUEST_TYPES[type], effective_from: effective, requested,
         ...(schedule ? { schedule_key: schedule.schedule_key, schedule_name: schedule.name } : {}) };
     } else if (kind === "rfid_issue") {
-      const type = RFID_ISSUE_TYPES[d.issue_type] ? d.issue_type : null;
+      if (d.issue_type === "lost_card" || d.issue_type === "broken_card") return bad("For a lost or broken card, use RFID Cards: Lost or Replace on the card's row.");
+      const type = RFID_ISSUE_FORM_TYPES[d.issue_type] ? d.issue_type : null;
       if (!type) return bad("Choose the kind of problem.");
       details = { employee_name: person?.full_name || null, issue_type: type, issue_type_label: RFID_ISSUE_TYPES[type], device: normalizeText(d.device).slice(0, 120) || null };
     } else if (kind === "overtime_confirmation") {
